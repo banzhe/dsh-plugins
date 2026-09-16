@@ -1,5 +1,6 @@
 /**
- * Rules-based session-title provider: `MMDD｜类型｜主题`.
+ * Rules-based session-title provider: `MMDD｜类型｜主题`, plus the
+ * `/title-refresh` command that re-derives a title on demand.
  *
  * Replaces the built-in `session-title-first-prompt-llm` provider — the
  * `session-title-llm` Loader row this Bundle's patch disables. The service
@@ -26,6 +27,7 @@ import type {
   SessionTitleProviderResult,
   SessionTitleUserMessage,
 } from '@deepseek-ai/dsh-session-title'
+import { registerTitleRefreshCommand } from './command.ts'
 
 /** Loader row id, package identity, and the provider id recorded with each title. */
 export const name = 'session-title-rules'
@@ -333,6 +335,9 @@ async function generateTitle(
  * Register the rules-based provider. `first-prompt` derives the title once, from
  * the Session's opening message: the service schedules it only for a top-level
  * Session's first eligible human message, before any title exists.
+ *
+ * Also contributes `/title-refresh`, which re-derives a title on demand; it
+ * mounts only where a command registry is composed.
  * @param ctx - context exposing the session-title and LLM services.
  */
 export function apply(ctx: Context): void {
@@ -341,4 +346,5 @@ export function apply(ctx: Context): void {
     automatic: 'first-prompt',
     generate: request => generateTitle(ctx, request),
   })
+  registerTitleRefreshCommand(ctx)
 }

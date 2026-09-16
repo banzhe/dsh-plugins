@@ -21,7 +21,8 @@
   "scripts": {
     "build": "tsdown",
     "prepare": "tsdown",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dsh": {
     "bundle": {
@@ -30,14 +31,18 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-commands": "catalog:",
     "@deepseek-ai/dsh-llm": "catalog:",
     "@deepseek-ai/dsh-session-title": "catalog:"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-commands": "catalog:",
     "@deepseek-ai/dsh-llm": "catalog:",
     "@deepseek-ai/dsh-session-title": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "tsdown": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "catalog:"
   }
 }

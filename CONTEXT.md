@@ -55,3 +55,7 @@ _Avoid_: enter plan mode (when you mean the two-way switch), plan chip (exit-onl
 **Finished-unread**:
 An ordinary listed Session that has stopped running while it was not selected (`completed === true`). Subagent-origin rows never count. This is the number the sidebar's green completion dots show, and the number this plugin writes to the PWA icon badge.
 _Avoid_: unread (unqualified), completed (when you mean the filtered count)
+
+**Title refresh**:
+Re-deriving a Session's title on demand from its whole conversation, instead of only at the first prompt.
+_Avoid_: retitle (when you mean re-derive), regenerate title (unqualified)

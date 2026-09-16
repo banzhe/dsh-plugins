@@ -1,8 +1,8 @@
 # @banzhe/dsh-session-title-rules
 
-Rules-based Session title provider for the `web` Profile. It generates
-`MMDD｜类型｜主题` from the conversation instead of the built-in
-first-prompt provider's free-form title.
+Rules-based Session title provider for the `web` Profile, plus the
+`/title-refresh` command. It generates `MMDD｜类型｜主题` from the conversation
+instead of the built-in first-prompt provider's free-form title.
 
 ## Install
 
@@ -14,8 +14,8 @@ dsh plugin --profile web add ./plugins/session-title-rules
 
 Rebuild `lib/` after source changes. Adding the Bundle to `dsh.profile.bundles`
 requires a `dsh web` restart. Sessions created after the restart are titled by
-this provider; a Session that already carries a title keeps it, because nothing
-calls `sessionTitle.refresh()`.
+this provider. A Session that already carries a title keeps it — nothing
+re-titles it automatically — until you run `/title-refresh`.
 
 Remove with:
 
@@ -53,6 +53,43 @@ already pins the Session, so automatic generation stops scheduling, and a
 provider can append nothing but `session/title` — project name, content,
 membership, ordering, pinning, and archiving are structurally out of reach.
 
+## `/title-refresh`
+
+Re-derives the title on demand from the Session's whole conversation, so an old
+Session can be retitled without opening a new one:
+
+```
+/title-refresh
+```
+
+It takes no arguments. The command itself holds no title logic — it calls
+`ctx.sessionTitle.refresh(session, signal)`, which supersedes any in-flight
+generation, runs this provider against the current message snapshot, and
+appends one `session/title` event. Consequences worth knowing:
+
+- **It overrides a user-pinned title.** `refresh()` is the service's documented
+  unpin, so renaming in the sidebar and then running this command keeps the
+  regenerated title. A later sidebar rename pins again.
+- **`MMDD` stays the Session's start date.** The date still comes from
+  `session.header.createdAt` in `Asia/Shanghai`, never from the day you ran the
+  command, so a Session's prefix never drifts.
+- **Failures are reported, not swallowed.** The automatic cadence only warns and
+  keeps the standing title; an explicit invocation answers with the reason —
+  `no logged request route` before the first model request, a declined
+  `UNCHANGED`, a malformed answer, or cancellation. A failed refresh never
+  overwrites an accepted title. On a Session that has messages but no title yet,
+  the service still materializes its deterministic fallback first, exactly as the
+  automatic path does.
+- **An empty Session is an error**, because there is no eligible human text to
+  derive a topic from.
+- **A newer invocation wins.** Two overlapping refreshes settle newest-first;
+  the superseded one reports the abort as an error.
+
+The row appears in the commands menu under its English description. It carries
+no `definitionId`, so the Web client shows the catalog text rather than a
+localized first-party face, and no `input` hint, which is what lets a bare pick
+execute immediately.
+
 ## Behaviour and cost
 
 - `automatic: 'first-prompt'`: the title is derived once, from the Session's
@@ -83,6 +120,8 @@ No Loader `config` (the row carries none), so the caps below live in
 `maxInputBytes: 6000`, at most 8 messages (first + 7 most recent), 400
 characters per message. Over-cap input drops the oldest messages; the accepted
 title is finally normalized and truncated to `maxTitleBytes` by the service.
+`/title-refresh` is argument-free: any trailing input is refused with a usage
+error.
 
 Failures warn (`automatic title generation failed: …`) and keep the latest
 title. The provider refuses rather than guesses: an answer that is `UNCHANGED`,
