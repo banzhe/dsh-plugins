@@ -4,132 +4,150 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    '@deepseek-ai/cordis':
+      specifier: ^4.0.2
+      version: 4.0.2
+    '@deepseek-ai/dsh-api-session-controller':
+      specifier: ^0.1.5-rc.2
+      version: 0.1.5-rc.2
+    '@deepseek-ai/dsh-api-workspace-controller':
+      specifier: ^0.1.5-rc.2
+      version: 0.1.5-rc.2
+    tsdown:
+      specifier: ^0.22.2
+      version: 0.22.14
+    typescript:
+      specifier: ^6.0.3
+      version: 6.0.3
+
 importers:
 
   .:
     devDependencies:
       '@types/node':
-        specifier: ^22.20.0
+        specifier: 'catalog:'
         version: 22.20.2
       tsdown:
-        specifier: ^0.22.2
+        specifier: 'catalog:'
         version: 0.22.14(typescript@6.0.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
 
   plugins/app-notification:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: ^4.0.2
+        specifier: 'catalog:'
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-api-session-controller':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(f6abae79571f790534db48922cafdc73)
       '@deepseek-ai/dsh-client-locale':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-store':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-primitives':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-renderer':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-settings':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-client-ui-slots':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-session':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)))
       '@types/react':
-        specifier: ~18.3.31
+        specifier: 'catalog:'
         version: 18.3.31
       '@types/react-dom':
-        specifier: ~18.3.7
+        specifier: 'catalog:'
         version: 18.3.7(@types/react@18.3.31)
       immer:
-        specifier: ^10.1.1
+        specifier: 'catalog:'
         version: 10.2.0
       jsdom:
-        specifier: ^27.0.0
+        specifier: 'catalog:'
         version: 27.4.0
       react:
-        specifier: ^18.3.1
+        specifier: 'catalog:'
         version: 18.3.1
       react-dom:
-        specifier: ^18.3.1
+        specifier: 'catalog:'
         version: 18.3.1(react@18.3.1)
       tsdown:
-        specifier: ^0.22.2
+        specifier: 'catalog:'
         version: 0.22.14(typescript@6.0.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
       vitest:
-        specifier: ^4.1.8
+        specifier: 'catalog:'
         version: 4.1.11(@types/node@22.20.2)(jsdom@27.4.0)(vite@8.3.0(@types/node@22.20.2))
       zustand:
-        specifier: ~4.4.7
+        specifier: 'catalog:'
         version: 4.4.7(@types/react@18.3.31)(immer@10.2.0)(react@18.3.1)
 
   plugins/hover-archive:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: ^4.0.2
+        specifier: 'catalog:'
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-api-session-controller':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(f6abae79571f790534db48922cafdc73)
       '@deepseek-ai/dsh-api-workspace-controller':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-api-gateway@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-client-connection@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-host-directory-picker@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-session@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))))(@deepseek-ai/dsh-storage-domain@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-storage@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)))(@deepseek-ai/dsh-typert-protocol@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-workspace@0.1.5-rc.2(2faf0849fbdc6ac5919de8226950d80c))
       tsdown:
-        specifier: ^0.22.2
+        specifier: 'catalog:'
         version: 0.22.14(typescript@6.0.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
 
   plugins/plan-toggle:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: ^4.0.2
+        specifier: 'catalog:'
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-api-session-controller':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(f6abae79571f790534db48922cafdc73)
       '@deepseek-ai/dsh-client-ui-conversation':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       tsdown:
-        specifier: ^0.22.2
+        specifier: 'catalog:'
         version: 0.22.14(typescript@6.0.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
 
   plugins/session-title-rules:
     devDependencies:
       '@deepseek-ai/cordis':
-        specifier: ^4.0.2
+        specifier: 'catalog:'
         version: 4.0.2(@deepseek-ai/cordis-plugin-include@1.0.7)(@deepseek-ai/cordis-plugin-loader@1.0.3)
       '@deepseek-ai/dsh-llm':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)
       '@deepseek-ai/dsh-session-title':
-        specifier: ^0.1.5-rc.2
+        specifier: 'catalog:'
         version: 0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-agent@0.1.5-rc.2(6df6622855b87cb7fde1fe609a6d039a))(@deepseek-ai/dsh-brand@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-llm@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))(@deepseek-ai/dsh-session-projection@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-session@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)))))(@deepseek-ai/dsh-session@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-scope@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2)(@deepseek-ai/dsh-invariants@0.1.5-rc.2(@deepseek-ai/cordis@4.0.2))))
       tsdown:
-        specifier: ^0.22.2
+        specifier: 'catalog:'
         version: 0.22.14(typescript@6.0.3)
       typescript:
-        specifier: ^6.0.3
+        specifier: 'catalog:'
         version: 6.0.3
 
 packages:

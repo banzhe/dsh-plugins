@@ -68,17 +68,19 @@ Done when `$DSH_HOME/profiles/web` lists `@banzhe/dsh-<name>` in `dsh.profile.bu
     "bundle": { "patch": "./cordis.patch.yml" }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@deepseek-ai/cordis": "catalog:"
   },
   "devDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2",
-    "tsdown": "^0.22.2",
-    "typescript": "^6.0.3"
+    "@deepseek-ai/cordis": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:"
   }
 }
 ```
 
 Add further `@deepseek-ai/dsh-*` packages as **peer + dev**, never as `dependencies`. Runtime modules come from the DSH install tree.
+
+Always write `"catalog:"` instead of a version range: versions live in the root `pnpm-workspace.yaml` `catalog:` block. If the package is missing from that catalog, add one line there first. `pnpm publish`/`pnpm pack` replace `catalog:` with the real range, so published manifests are unaffected.
 
 ### `tsconfig.json`
 
