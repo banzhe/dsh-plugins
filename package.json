@@ -1,0 +1,18 @@
+{
+  "name": "@banzhe/dsh-plugins",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r --filter \"./plugins/*\" build",
+    "typecheck": "pnpm -r --filter \"./plugins/*\" typecheck"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.0",
+    "tsdown": "^0.22.2",
+    "typescript": "^6.0.3"
+  }
+}
