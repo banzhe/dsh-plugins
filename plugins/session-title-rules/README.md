@@ -93,7 +93,7 @@ execute immediately.
 ## Behaviour and cost
 
 - `automatic: 'first-prompt'`: the title is derived once, from the Session's
-  first eligible human message — one auxiliary model call (`maxTokens: 64`) and
+  first eligible human message — one auxiliary model call (`maxTokens: 512`) and
   one *provider* `session/title` event per Session (the service appends its
   deterministic fallback first). Change `automatic` in `src/index.ts` to
   `'all-prompts'` to re-derive the topic on every user message instead —
@@ -116,12 +116,32 @@ execute immediately.
 ## Fixed policy
 
 No Loader `config` (the row carries none), so the caps below live in
-`src/index.ts`: `maxOutputTokens: 64`, `timeoutMs: 60000`,
+`src/index.ts`: `maxOutputTokens: 512`, `timeoutMs: 60000`,
 `maxInputBytes: 6000`, at most 8 messages (first + 7 most recent), 400
 characters per message. Over-cap input drops the oldest messages; the accepted
 title is finally normalized and truncated to `maxTitleBytes` by the service.
 `/title-refresh` is argument-free: any trailing input is refused with a usage
 error.
+
+### Why the output cap is 512, not 64
+
+The cap has to cover hidden reasoning, not just the title line. `GenerateOptions`
+carries `purpose: 'session-title'` as the seam's "this is an auxiliary call"
+hint, but only `@deepseek-ai/dsh-llm-deepseek` acts on it
+(`serialize.ts`: `return { thinking: 'disabled' }`).
+`@deepseek-ai/dsh-llm-pi-ai` never reads `purpose` at all — it takes the route's
+own effort (`adapter.ts`: `options.reasoningEffort ?? profile.reasoning`), and
+its `off` level merely *omits* the reasoning field, which a provider that thinks
+by default ignores. On such a route a 64-token budget is spent entirely on
+thinking: `finish=length` with 64 of 64 tokens in `reasoning_tokens`, no text,
+so the provider throws and the deterministic fallback stands.
+
+Measured on `cc/deepseek-v4.1-flash` with this plugin's exact prompt and framed
+input, 20 trials each: 1/20 usable at 64 tokens, 17/20 at 512. The built-in
+provider is not better — the same measurement with its 4-line prompt and
+`dsh-base`'s `maxOutputTokens: 64` gives 2/20. Raising this constant is the only
+lever inside this plugin; the durable fix belongs upstream in `dsh-llm-pi-ai`
+(honour `purpose`) or in `dsh-base`'s default.
 
 Failures warn (`automatic title generation failed: …`) and keep the latest
 title. The provider refuses rather than guesses: an answer that is `UNCHANGED`,

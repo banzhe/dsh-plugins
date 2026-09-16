@@ -38,8 +38,20 @@ export const inject = ['sessionTitle', 'llm']
 /** IANA zone the `MMDD` prefix is computed in. */
 const TITLE_TIME_ZONE = 'Asia/Shanghai'
 
-/** Fixed auxiliary-call policy; the Loader row carries no `config`. */
-const MAX_OUTPUT_TOKENS = 64
+/**
+ * Fixed auxiliary-call policy; the Loader row carries no `config`.
+ *
+ * The cap must cover reasoning, not just the title line. A reasoning-enabled
+ * route spends the whole budget on hidden thinking before it emits any text:
+ * `@deepseek-ai/dsh-llm-pi-ai` never reads `purpose`, so the `session-title`
+ * hint reaches the adapter as nothing and the profile's own effort (this
+ * deployment sets `reasoning: high`) still applies. Measured on
+ * `cc/deepseek-v4.1-flash` with the shipped prompt, `finish=length` with 64 of
+ * 64 tokens spent reasoning: 1/20 usable at 64, versus 17/20 at 512. The
+ * built-in provider's 64 (`dsh-base`, row `session-title-llm`) fails the same
+ * way, and `purpose` is only honoured by `dsh-llm-deepseek`.
+ */
+const MAX_OUTPUT_TOKENS = 512
 /** End-to-end deadline for one auxiliary title call. */
 const TIMEOUT_MS = 60_000
 /** Framed-input byte cap; past it the oldest messages are dropped. */
