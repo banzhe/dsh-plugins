@@ -1,0 +1,19 @@
+# This layer REPLACES the session-title provider the dsh-base layer contributes.
+#
+# Patch semantics (vendor/include/src/index.ts:78,116-119 in the DSH checkout): a
+# non-insert entry targets a row by `id` and can only change config/disabled —
+# `name` is never applied to an existing row, and a supplied `name` must equal
+# the target's or the whole entry is skipped with a warning. So a provider swap
+# is two entries: disable the built-in row, then insert ours.
+#
+# Disabling a row dsh-base owns is broader than "insert only this Bundle's
+# Loader rows" (../.agents/skills/add-dsh-plugin/SKILL.md). It is deliberate and
+# is the price of replacing rather than shadowing the built-in provider: the
+# service holds ONE provider slot, so the built-in must not register at all.
+# Rollback: remove this Bundle from the Profile (the base row re-enables itself).
+- id: session-title-llm
+  disabled: true
+
+- insert:
+    - id: session-title-rules
+      name: '@banzhe/dsh-session-title-rules'
