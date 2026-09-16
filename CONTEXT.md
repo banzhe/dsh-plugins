@@ -39,3 +39,7 @@ _Avoid_: open session, current session, hovered session (when you mean the filte
 **Hover archive**:
 Archiving the Visible Session whose sidebar row currently holds the pointer, by matching that row's display title. Duplicate titles are not archived this way.
 _Avoid_: menu archive, current-session archive
+
+**Finished-unread**:
+An ordinary listed Session that has stopped running while it was not selected (`completed === true`). Subagent-origin rows never count. This is the number the sidebar's green completion dots show, and the number this plugin writes to the PWA icon badge.
+_Avoid_: unread (unqualified), completed (when you mean the filtered count)
