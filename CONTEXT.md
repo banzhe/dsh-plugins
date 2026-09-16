@@ -40,6 +40,18 @@ _Avoid_: open session, current session, hovered session (when you mean the filte
 Archiving the Visible Session whose sidebar row currently holds the pointer, by matching that row's display title. Duplicate titles are not archived this way.
 _Avoid_: menu archive, current-session archive
 
+**Composer**:
+The conversation message input (`[data-composer-input]`).
+_Avoid_: input box, textarea, chat input
+
+**Plan target**:
+The mode the Session is heading toward: `pending ? !active : active`. A pending `/plan` already counts as on; a pending `/plan off` already counts as off.
+_Avoid_: plan.active (logged state, which lags a pending switch)
+
+**Plan toggle**:
+Claiming `/plan` or `/plan off` on the Composer the same way the slash menu does, based on Plan target. The mode changes when that command is sent, not when the shortcut is pressed. An open trigger menu keeps the shortcut. Matching the shortcut always steals Shift+Tab from focus traversal. Absent Session and absent plan-mode skip the claim.
+_Avoid_: enter plan mode (when you mean the two-way switch), plan chip (exit-only control)
+
 **Finished-unread**:
 An ordinary listed Session that has stopped running while it was not selected (`completed === true`). Subagent-origin rows never count. This is the number the sidebar's green completion dots show, and the number this plugin writes to the PWA icon badge.
 _Avoid_: unread (unqualified), completed (when you mean the filtered count)

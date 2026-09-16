@@ -1,0 +1,3 @@
+- insert:
+    - id: plan-toggle
+      name: '@banzhe/dsh-plan-toggle'
