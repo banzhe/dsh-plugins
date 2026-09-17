@@ -1,7 +1,7 @@
 # @banzhe/dsh-session-title-rules
 
 Rules-based Session title provider for the `web` Profile, plus the
-`/title-refresh` command. It generates `MMDD｜类型｜主题` from the conversation
+`/title-refresh` command. It generates `类型｜主题` from the conversation
 instead of the built-in first-prompt provider's free-form title.
 
 ## Install
@@ -36,10 +36,7 @@ removing the Bundle restores the built-in row. The decision is recorded in
 
 ## The rules it encodes
 
-- Format: `MMDD｜类型｜主题`, e.g. `0916｜研究｜会话标题插件接缝`.
-- `MMDD` is computed in code from the Session header's `createdAt`, converted to
-  `Asia/Shanghai` — never `updatedAt`, and never the model's own idea of the
-  date. The provider overwrites any date the model wrote.
+- Format: `类型｜主题`, e.g. `研究｜会话标题插件接缝`.
 - `类型` is the closed set 功能 / 设计 / 修复 / 优化 / 发布 / 探索 / 文档 / 研究.
 - `主题` is distilled from the actual messages, never repeats the project name,
   and stays short enough for the sidebar (6–14 CJK characters, ≤ 8 English words).
@@ -70,9 +67,8 @@ appends one `session/title` event. Consequences worth knowing:
 - **It overrides a user-pinned title.** `refresh()` is the service's documented
   unpin, so renaming in the sidebar and then running this command keeps the
   regenerated title. A later sidebar rename pins again.
-- **`MMDD` stays the Session's start date.** The date still comes from
-  `session.header.createdAt` in `Asia/Shanghai`, never from the day you ran the
-  command, so a Session's prefix never drifts.
+- **No date prefix.** The title carries only `类型｜主题`; any date the model
+  writes is stripped before the title is accepted.
 - **Failures are reported, not swallowed.** The automatic cadence only warns and
   keeps the standing title; an explicit invocation answers with the reason —
   `no logged request route` before the first model request, a declined
@@ -100,7 +96,7 @@ execute immediately.
   subagent Sessions would then be titled too, because `all-prompts` has no
   parent-session check.
 - The recorded provenance is `source.provider = 'session-title-rules'` with the
-  auxiliary route as `model`; nothing records that the date prefix was forced.
+  auxiliary route as `model`.
 - Unlike the shipped providers this one appends no log-only
   `session/title-llm-request` audit row and never reuses
   `@deepseek-ai/dsh-session-title-llm` (whose system prompt is private), so the
@@ -147,4 +143,4 @@ Failures warn (`automatic title generation failed: …`) and keep the latest
 title. The provider refuses rather than guesses: an answer that is `UNCHANGED`,
 carries no text, is not a two-segment `类型｜主题` line, contains a tool call, or
 arrives from an unbounded stream leaves the current title in place and never
-appends a partial `MMDD｜` line.
+appends a partial line.

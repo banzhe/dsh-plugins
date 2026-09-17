@@ -1,5 +1,5 @@
 /**
- * Rules-based session-title provider: `MMDD｜类型｜主题`, plus the
+ * Rules-based session-title provider: `类型｜主题`, plus the
  * `/title-refresh` command that re-derives a title on demand.
  *
  * Replaces the built-in `session-title-first-prompt-llm` provider — the
@@ -35,9 +35,6 @@ export const name = 'session-title-rules'
 /** Services that must exist before the provider registers. */
 export const inject = ['sessionTitle', 'llm']
 
-/** IANA zone the `MMDD` prefix is computed in. */
-const TITLE_TIME_ZONE = 'Asia/Shanghai'
-
 /**
  * Fixed auxiliary-call policy; the Loader row carries no `config`.
  *
@@ -61,7 +58,7 @@ const MAX_SELECTED_MESSAGES = 8
 /** Per-message character cap before framing. */
 const MAX_MESSAGE_CHARS = 400
 
-/** The `｜` separating the title's three segments. */
+/** The `｜` separating the title's two segments. */
 const SEPARATOR = '｜'
 
 /** Model sentinel meaning "these messages do not identify a topic". */
@@ -79,58 +76,36 @@ const WRAPPING_PAIRS: readonly (readonly [string, string])[] = [
   ['‘', '’'],
 ]
 
-/** A model-authored date prefix (`0903｜`, `20260903 |`) this plugin overwrites. */
+/** A model-authored date prefix (`0903｜`, `20260903 |`) this plugin strips. */
 const MODEL_DATE_PREFIX = /^\d{2,8}\s*[|｜]\s*/u
-
-/** `MMDD` for {@link TITLE_TIME_ZONE}, built once per process rather than per call. */
-const TITLE_DATE_FORMAT = new Intl.DateTimeFormat('en-US', {
-  timeZone: TITLE_TIME_ZONE,
-  month: '2-digit',
-  day: '2-digit',
-})
 
 /**
  * The auxiliary system prompt: the naming rules, compressed to what a provider
- * can act on. The rules this prompt drops are enforced elsewhere — `createdAt`
- * arithmetic is done in code (the model only copies `date`), and "only the title
- * changes" holds structurally because a provider can append nothing but
+ * can act on. The rules this prompt drops are enforced elsewhere — "only the
+ * title changes" holds structurally because a provider can append nothing but
  * `session/title`. The four examples are kept: they are the payload shape
- * (`原名称` in, `MMDD｜类型｜主题` out), the closed 类型 set, and the shift from a
+ * (`原名称` in, `类型｜主题` out), the closed 类型 set, and the shift from a
  * vague original name to a content-derived topic.
  */
 export const TITLE_SYSTEM_PROMPT = [
   '为下面的 DSH 会话生成一个左侧栏标题。',
   '',
-  `格式（严格）：MMDD${SEPARATOR}类型${SEPARATOR}主题`,
+  `格式（严格）：类型${SEPARATOR}主题`,
   `- 类型：只能取 ${TYPE_VALUES.join(' / ')} 之一。`,
-  '- MMDD：原样复制给定的 date，不要自己推算。',
   '- 主题：从消息实际内容提炼，简洁具体，6–14 个汉字（英文不超过 8 词）；'
     + '不要重复项目名称（仓库名、目录名）；不要出现“会话”“标题”这类元词。',
   '- 语言：跟随消息语言；中英混排时用中文。',
   '- 原名称是当前标题，仅供参考；仍按 messages 的内容提炼主题。',
   `- 消息内容不足以判断主题时，只输出 ${UNCHANGED}。`,
   '',
-  '只输出标题一行：不要引号、前后缀、解释、Markdown、代码或控制字符。',
+  '只输出标题一行：不要引号、前后缀、解释、Markdown、代码、控制字符或日期前缀。',
   '',
   '示例：',
-  '原名称：优化批次文字显示 → 0903｜优化｜批次文字显示',
-  '原名称：整合快捷键提示页面 → 0902｜功能｜整合快捷键提示页',
-  '原名称：提交代码到 GitHub → 0813｜发布｜提交代码到GitHub',
-  '原名称：新功能讨论 → 0901｜设计｜界面对齐检查',
+  '原名称：优化批次文字显示 → 优化｜批次文字显示',
+  '原名称：整合快捷键提示页面 → 功能｜整合快捷键提示页',
+  '原名称：提交代码到 GitHub → 发布｜提交代码到GitHub',
+  '原名称：新功能讨论 → 设计｜界面对齐检查',
 ].join('\n')
-
-/**
- * Format the `MMDD` prefix for one session creation instant in
- * {@link TITLE_TIME_ZONE}. The date is computed here rather than by the model
- * so the rule cannot drift with the model's own clock or locale.
- * @param createdAt - the session header's Unix epoch milliseconds.
- * @returns the four `MMDD` digits, e.g. `'0916'`.
- */
-export function formatTitleDate(createdAt: number): string {
-  // `en-US` with 2-digit month and day renders `MM/DD`; the separator is the
-  // locale's, so the digits are what this reads.
-  return TITLE_DATE_FORMAT.format(new Date(createdAt)).replace(/\D/gu, '')
-}
 
 /**
  * Choose the messages one prompt carries: the first eligible human message
@@ -157,13 +132,10 @@ function selectTitleMessages(
 
 /** Frame one selection as the exact JSON payload the prompt describes. */
 function frameTitleInput(
-  date: string,
   currentTitle: string | undefined,
   messages: readonly SessionTitleUserMessage[],
 ): string {
   const payload = {
-    date,
-    timeZone: TITLE_TIME_ZONE,
     ...currentTitle === undefined ? {} : { '原名称': currentTitle },
     messages,
   }
@@ -181,21 +153,19 @@ interface FramedTitleInput {
 /**
  * Select and frame the messages for one title call, dropping the oldest
  * non-first message until the frame fits {@link MAX_INPUT_BYTES}.
- * @param date - the code-computed `MMDD` prefix.
  * @param currentTitle - the accepted title, shown to the model as `原名称`.
  * @param messages - every eligible human message through this revision.
  * @returns the framed user text and the exact messages it carried.
  * @throws when no eligible message fits the cap.
  */
 function buildTitleInput(
-  date: string,
   currentTitle: string | undefined,
   messages: readonly SessionTitleUserMessage[],
 ): FramedTitleInput {
   const selected = selectTitleMessages(messages)
   if (selected.length === 0) throw new Error(`${name}: at least one source message is required`)
   while (true) {
-    const input = frameTitleInput(date, currentTitle, selected)
+    const input = frameTitleInput(currentTitle, selected)
     if (Buffer.byteLength(input, 'utf8') <= MAX_INPUT_BYTES) return { input, messages: selected }
     // Dropping the oldest non-first message is the only reachable trim: one message is
     // capped at MAX_MESSAGE_CHARS, so its worst-case escaped frame (400 × 6 bytes, plus an
@@ -234,18 +204,15 @@ function unwrapTitleLine(raw: string): string {
 }
 
 /**
- * Format the durable title from one model answer. The date always comes from
- * {@link formatTitleDate}, so a model-authored or omitted date cannot reach the
- * log, and anything that is not a `类型｜主题` line is refused rather than
- * guessed at.
+ * Format the durable title from one model answer. Anything that is not a
+ * `类型｜主题` line is refused rather than guessed at.
  * @param raw - the assembled model text.
- * @param date - the code-computed `MMDD` prefix.
- * @returns `MMDD｜类型｜主题`.
+ * @returns `类型｜主题`.
  * @throws when the model declined (`UNCHANGED`), answered with nothing, or did
  *   not return a two-segment line; the service then warns and keeps the title it
  *   already has.
  */
-export function formatTitleOutput(raw: string, date: string): string {
+export function formatTitleOutput(raw: string): string {
   const line = unwrapTitleLine(raw)
   if (line.toUpperCase() === UNCHANGED) {
     throw new Error(`${name}: title model declined to name a topic`)
@@ -253,7 +220,7 @@ export function formatTitleOutput(raw: string, date: string): string {
   if (!line.includes(SEPARATOR)) {
     throw new Error(`${name}: title model returned no 类型${SEPARATOR}主题 line`)
   }
-  return `${date}${SEPARATOR}${line}`
+  return line
 }
 
 /** Concatenate the text blocks of one assembled auxiliary response. */
@@ -298,11 +265,10 @@ async function generateTitle(
   if (route === undefined) {
     throw new Error(`${name}: no logged request route is available for this session`)
   }
-  const date = formatTitleDate(request.session.header.createdAt)
   // Under `first-prompt` the service has already appended its deterministic fallback,
   // so this is normally that fallback; it is shown to the model as `原名称` only.
   const currentTitle = ctx.sessionTitle.get(request.session)?.title
-  const framed = buildTitleInput(date, currentTitle, request.messages)
+  const framed = buildTitleInput(currentTitle, request.messages)
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(TIMEOUT_MS)])
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: framed.input }],
@@ -337,7 +303,7 @@ async function generateTitle(
     throw new Error(`${name}: title output must contain text only`)
   }
   return {
-    title: formatTitleOutput(textOf(blocks), date),
+    title: formatTitleOutput(textOf(blocks)),
     messageSeqs: framed.messages.map(message => message.seq),
     model: route,
   }
