@@ -1,23 +1,25 @@
 /**
  * Hover-archive plugin, browser half: A over a hovered sidebar Session row
- * archives that Session through the Workspace Controller. Session rows expose
- * no id, so the ellipsis aria-label title is matched against the visible list.
+ * archives that Session through the Workspace Controller.
+ *
+ * The session id comes from the row element's React fiber, so the same id is
+ * reached from the row and from its portaled hover card. Nothing here reads a
+ * title, a locale string, or the Session list's display order.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
-  hoverCardTitle, isForeignEditable, sessionRowByTitle, sessionRowFrom, titleFromSessionRow,
+  isForeignEditable, sessionIdFromNode, sessionRowById, sessionRowFrom,
+  type SidebarSessionRow,
 } from './dom.ts'
-import { uniqueVisibleSessionId } from './match.ts'
+import { isArchivableSession } from './match.ts'
 
 /** Wait on the Session list and Workspace archive command. */
 export const inject = ['sessions', 'workspaces']
 
-interface HoveredSession {
-  row: HTMLElement
-  title: string
-}
+/** The row currently under the pointer, and the Session it belongs to. */
+type HoveredSession = SidebarSessionRow
 
 /** True when this keydown is the unchorded physical A key, first press only. */
 function isArchiveKey(event: KeyboardEvent): boolean {
@@ -26,10 +28,18 @@ function isArchiveKey(event: KeyboardEvent): boolean {
   return event.code === 'KeyA'
 }
 
-/** True when `node` is still on the hovered row or that row's portaled hover card. */
+/**
+ * True when `node` is still on the hovered row or that row's portaled hover
+ * card. Both resolve to the same session id, so the card needs no title
+ * round-trip and a duplicate title cannot steal the binding.
+ *
+ * Cheap-first on purpose: `contains` answers the dominant case (the pointer
+ * moving within the row it is already on) with no fiber walk at all, and only a
+ * target that left the row pays for a resolution.
+ */
 function staysOnHoverTarget(node: EventTarget | null, hovered: HoveredSession): boolean {
   if (node instanceof Node && hovered.row.contains(node)) return true
-  return hoverCardTitle(node) === hovered.title
+  return sessionIdFromNode(node) === hovered.sessionId
 }
 
 /**
@@ -50,13 +60,11 @@ export function apply(ctx: Context): void {
         hovered = hit
         return
       }
-      const cardTitle = hoverCardTitle(event.target)
-      if (cardTitle !== undefined) {
-        const cardRow = sessionRowByTitle(cardTitle)
-        if (cardRow !== null) {
-          hovered = { row: cardRow, title: cardTitle }
-          return
-        }
+      const cardSessionId = sessionIdFromNode(event.target)
+      if (cardSessionId !== undefined) {
+        const cardRow = sessionRowById(cardSessionId)
+        hovered = cardRow === null ? null : { row: cardRow, sessionId: cardSessionId }
+        return
       }
       hovered = null
     }
@@ -74,17 +82,15 @@ export function apply(ctx: Context): void {
         hovered = null
         return
       }
-      const title = titleFromSessionRow(hovered.row) ?? hovered.title
-      const id = uniqueVisibleSessionId(
-        title,
+      if (!isArchivableSession(
+        hovered.sessionId,
         sessions.list.getSnapshot(),
         workspaces.list.getSnapshot().archivedSessionIds,
-      )
-      if (id === undefined) return
+      )) return
       // Capture + stopImmediate: steal A from the composer keymap before Lexical sees it.
       event.preventDefault()
       event.stopImmediatePropagation()
-      void workspaces.archiveSession(id).catch((reason: unknown) => {
+      void workspaces.archiveSession(hovered.sessionId).catch((reason: unknown) => {
         console.warn('session archive rejected:', reason)
       })
     }

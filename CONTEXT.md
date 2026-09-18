@@ -37,8 +37,8 @@ A listed Session that is not blank, not subagent-origin, and not in the registry
 _Avoid_: open session, current session, hovered session (when you mean the filter)
 
 **Hover archive**:
-Archiving the Visible Session whose sidebar row currently holds the pointer, by matching that row's display title. Duplicate titles are not archived this way.
-_Avoid_: menu archive, current-session archive
+Archiving the Visible Session whose sidebar row currently holds the pointer. The session id is read from the row's React fiber, so duplicate titles archive correctly.
+_Avoid_: menu archive, current-session archive, title-match archive
 
 **Composer**:
 The conversation message input (`[data-composer-input]`).

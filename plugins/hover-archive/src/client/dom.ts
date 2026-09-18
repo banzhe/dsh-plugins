@@ -1,21 +1,52 @@
 /**
- * Sidebar Session-row and hover-card DOM facts. Session rows expose no
- * session id; the ellipsis aria-label is the only stable title on the row.
+ * Sidebar Session-row DOM facts.
  *
- * Locale strings are copied from DSH:
- * - ellipsis: `actions.session.aria` in ui-workspace locales
- *   (`会话“{name}”的操作` / `Session actions for {name}`)
- * - hover card: HoverCard `aria-label` is `${copyLabel}: ${copyText}`
- *   (`复制` / `Copy` plus the row title)
- * - composer: `[data-composer-input]` on ComposerContentEditable
- * Rewording those strings in DSH silently disables this gesture.
+ * A rendered row exposes no session id in the DOM, but every row element
+ * carries React's fiber handle, and the owning `SessionNodeItem` fiber holds
+ * `props.node` — the presentation node whose `id` is the session id. Reading the
+ * id there is exact: it needs no title matching, no locale strings, and
+ * duplicate titles cannot confuse it.
+ *
+ * Two React details are load-bearing. The fiber property name carries a
+ * per-page random suffix (`__reactFiber$` + randomKey), so only the prefix is
+ * stable. `memoizedProps` / `return` are internals: a React or DSH major
+ * upgrade can move them, which degrades to "the gesture does nothing" rather
+ * than archiving the wrong Session.
+ *
+ * A portaled hover card is NOT a DOM descendant of its row, but its fiber chain
+ * still returns to the same `SessionNodeItem` (measured: 4 hops), so the card
+ * resolves to the same id without re-matching a title.
  */
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-const SESSION_MENU_ZH = /^会话[“"](.+)[”"]的操作$/
-const SESSION_MENU_EN = /^Session actions for (.+)$/
-const CARD_ZH = /^复制: (.+)$/
-const CARD_EN = /^Copy: (.+)$/
-const SESSION_MENU_BUTTON = 'button[aria-label]'
+/** One React fiber, narrowed to the two internal links this plugin walks. */
+interface ReactFiberLike {
+  memoizedProps?: unknown
+  return?: ReactFiberLike | null
+}
+
+/**
+ * The sidebar row presentation-node fields this plugin reads.
+ *
+ * `title` and `updatedAt` are read only as shape discriminators — they separate
+ * a Session row from the tree's other row kinds — so they are not carried here.
+ */
+interface SidebarRowNode {
+  id: SessionId
+  blank: boolean
+}
+
+/** A sidebar Session row together with the id its fiber owns. */
+export interface SidebarSessionRow {
+  row: HTMLElement
+  sessionId: SessionId
+}
+
+/**
+ * How far up the fiber return chain the owning row component may sit. Measured
+ * at 3 for a row and 4 for its portaled hover card; the rest is headroom.
+ */
+const FIBER_HOPS = 25
 
 /** Walk off a text node onto its element parent (`relatedTarget` can be Text). */
 function asElement(target: EventTarget | null): Element | null {
@@ -24,64 +55,95 @@ function asElement(target: EventTarget | null): Element | null {
   return null
 }
 
-/** Title encoded in a Session-row ellipsis aria-label, when it matches. */
-function titleFromSessionMenuAria(label: string | null): string | undefined {
-  if (label === null) return undefined
-  return SESSION_MENU_ZH.exec(label)?.[1] ?? SESSION_MENU_EN.exec(label)?.[1]
-}
-
-/** Display title of a Session row, taken from its ellipsis aria-label. */
-export function titleFromSessionRow(row: HTMLElement): string | undefined {
-  for (const button of row.querySelectorAll(SESSION_MENU_BUTTON)) {
-    if (!(button instanceof HTMLButtonElement)) continue
-    const title = titleFromSessionMenuAria(button.getAttribute('aria-label'))
-    if (title !== undefined) return title
+/** React's fiber handle on one DOM element, or undefined outside a React tree. */
+function fiberOf(element: Element): ReactFiberLike | undefined {
+  for (const key of Object.keys(element)) {
+    if (!key.startsWith('__reactFiber$')) continue
+    const value: unknown = Reflect.get(element, key)
+    return typeof value === 'object' && value !== null ? value as ReactFiberLike : undefined
   }
   return undefined
 }
 
 /**
- * Closest Session tree row that owns a Session actions menu, plus the title
- * already parsed from that menu. Workspace rows, blank New Session rows, and
- * search hits have none.
+ * Admit a raw row-node id as a `SessionId`. The brand is compile-time only
+ * (`@deepseek-ai/dsh-brand`'s `brandString` returns its argument unchanged), so
+ * this is a pure type-boundary cast and the browser bundle stays free of any
+ * runtime import from the Session package. The `unknown` bridge is required
+ * because the brand's key is a unique symbol, which blocks a direct assertion.
  */
-export function sessionRowFrom(target: EventTarget | null): { row: HTMLElement; title: string } | null {
+function asSessionId(value: string): SessionId {
+  return value as unknown as SessionId
+}
+
+/**
+ * Read one candidate `props.node` as a sidebar row node. `title` and
+ * `updatedAt` are checked as shape discriminators — a workspace header row
+ * carries `group`, a search hit carries `result` and has no `updatedAt` — so
+ * neither is mistaken for a Session row.
+ */
+function rowNodeOf(value: unknown): SidebarRowNode | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const id = Reflect.get(value, 'id')
+  if (typeof id !== 'string' || id === '') return undefined
+  if (typeof Reflect.get(value, 'title') !== 'string') return undefined
+  if (typeof Reflect.get(value, 'updatedAt') !== 'number') return undefined
+  return { id: asSessionId(id), blank: Reflect.get(value, 'blank') === true }
+}
+
+/**
+ * Session id owned by the fiber above one element, or undefined when that fiber
+ * chain carries no Session row node.
+ *
+ * The blank provisional New Session row IS a `SessionNodeItem` with a real id,
+ * but DSH gives it no `⋯` menu and it cannot be archived, so it is rejected
+ * here to keep every caller free of that special case.
+ * @param element - a row element, or an element inside a row's portaled hover card.
+ * @returns the session id, or undefined for a non-Session row or a blank row.
+ */
+export function sessionIdAt(element: Element): SessionId | undefined {
+  let fiber = fiberOf(element)
+  for (let hop = 0; fiber !== undefined && hop < FIBER_HOPS; hop += 1) {
+    const props = fiber.memoizedProps
+    if (typeof props === 'object' && props !== null) {
+      const node = rowNodeOf(Reflect.get(props, 'node'))
+      if (node !== undefined) return node.blank ? undefined : node.id
+    }
+    fiber = fiber.return ?? undefined
+  }
+  return undefined
+}
+
+/** Session id reached from any event target, including a portaled hover card. */
+export function sessionIdFromNode(target: EventTarget | null): SessionId | undefined {
+  const el = asElement(target)
+  return el === null ? undefined : sessionIdAt(el)
+}
+
+/**
+ * Closest Session tree row that resolves to an archivable session.
+ * Workspace header rows, search hits, and the blank New Session row yield null.
+ */
+export function sessionRowFrom(target: EventTarget | null): SidebarSessionRow | null {
   const el = asElement(target)
   if (el === null) return null
   const row = el.closest('[role="treeitem"]')
   if (!(row instanceof HTMLElement)) return null
-  const title = titleFromSessionRow(row)
-  return title === undefined ? null : { row, title }
+  const sessionId = sessionIdAt(row)
+  return sessionId === undefined ? null : { row, sessionId }
 }
 
 /**
- * The unique Session row whose ellipsis title matches, or null when none or
- * more than one row shares that title. Used to re-bind a portaled hover card
- * after the pointer crosses the gap off the row.
+ * The live Session row element for one session id, or null when that row is not
+ * currently rendered. A portaled hover card is not a DOM descendant of its row,
+ * so re-binding the row from the id is the only way back to it.
  */
-export function sessionRowByTitle(title: string): HTMLElement | null {
-  let found: HTMLElement | null = null
+export function sessionRowById(sessionId: SessionId): HTMLElement | null {
   for (const node of document.querySelectorAll('[role="treeitem"]')) {
     if (!(node instanceof HTMLElement)) continue
-    if (titleFromSessionRow(node) !== title) continue
-    if (found !== null) return null
-    found = node
+    if (sessionIdAt(node) === sessionId) return node
   }
-  return found
-}
-
-/**
- * Title copied onto a portaled hover card (`Copy:` / `复制:`).
- * Workspace cards use a path; callers must compare against the hovered row.
- */
-export function hoverCardTitle(target: EventTarget | null): string | undefined {
-  const el = asElement(target)
-  if (el === null) return undefined
-  const card = el.closest('[role="button"][aria-label]')
-  if (card === null) return undefined
-  const label = card.getAttribute('aria-label')
-  if (label === null) return undefined
-  return CARD_ZH.exec(label)?.[1] ?? CARD_EN.exec(label)?.[1]
+  return null
 }
 
 /**
