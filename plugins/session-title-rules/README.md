@@ -1,7 +1,7 @@
 # @banzhe/dsh-session-title-rules
 
 Rules-based Session title provider for the `web` Profile, plus the
-`/title-refresh` command. It generates `类型｜主题` from the conversation
+`/title-refresh` command. It generates `emoji 主题` from the conversation
 instead of the built-in first-prompt provider's free-form title.
 
 ## Install
@@ -36,11 +36,17 @@ removing the Bundle restores the built-in row. The decision is recorded in
 
 ## The rules it encodes
 
-- Format: `类型｜主题`, e.g. `研究｜会话标题插件接缝`.
-- `类型` is the closed set 功能 / 设计 / 修复 / 优化 / 发布 / 探索 / 文档 / 研究.
+- Format: `emoji 主题`, e.g. `🔬 会话标题插件接缝`.
+- The emoji is the closed set ✨ 功能 / 🎨 设计 / 🐛 修复 / ⚡ 优化 / 🚀 发布 /
+  🔍 探索 / 📝 文档 / 🔬 研究, and stands for the whole type segment.
 - `主题` is distilled from the actual messages, never repeats the project name,
   and stays short enough for the sidebar (6–14 CJK characters, ≤ 8 English words).
 - Topic language follows the conversation; mixed Chinese/English uses Chinese.
+- Input tolerance is mapping-free: `⚡️ 主题` (presentation selector), `🐛主题`
+  (no gap), and `🐛｜主题` (retired separator) all canonicalize to `emoji 主题`.
+  An answer that leads with any other glyph — the retired `类型｜主题` words
+  included — is refused rather than translated, because mapping a type word the
+  model chose onto an emoji it did not choose is this provider inventing a type.
 - When the messages do not identify a topic, the model answers `UNCHANGED`; the
   revision then fails, so the service warns and the current title stands instead
   of a guess.
@@ -67,8 +73,8 @@ appends one `session/title` event. Consequences worth knowing:
 - **It overrides a user-pinned title.** `refresh()` is the service's documented
   unpin, so renaming in the sidebar and then running this command keeps the
   regenerated title. A later sidebar rename pins again.
-- **No date prefix.** The title carries only `类型｜主题`; any date the model
-  writes is stripped before the title is accepted.
+- **No date prefix.** The title carries only `emoji 主题`; a model-authored
+  `0903｜` date prefix is stripped before the title is accepted.
 - **Failures are reported, not swallowed.** The automatic cadence only warns and
   keeps the standing title; an explicit invocation answers with the reason —
   `no logged request route` before the first model request, a declined
@@ -115,7 +121,9 @@ No Loader `config` (the row carries none), so the caps below live in
 `src/index.ts`: `maxOutputTokens: 512`, `timeoutMs: 60000`,
 `maxInputBytes: 6000`, at most 8 messages (first + 7 most recent), 400
 characters per message. Over-cap input drops the oldest messages; the accepted
-title is finally normalized and truncated to `maxTitleBytes` by the service.
+title is finally normalized and truncated to `maxTitleBytes` by the service —
+truncation is code-point-safe, so a byte cap can drop the type emoji (4 UTF-8
+bytes) but never split it into a replacement glyph.
 `/title-refresh` is argument-free: any trailing input is refused with a usage
 error.
 
@@ -141,6 +149,6 @@ lever inside this plugin; the durable fix belongs upstream in `dsh-llm-pi-ai`
 
 Failures warn (`automatic title generation failed: …`) and keep the latest
 title. The provider refuses rather than guesses: an answer that is `UNCHANGED`,
-carries no text, is not a two-segment `类型｜主题` line, contains a tool call, or
-arrives from an unbounded stream leaves the current title in place and never
-appends a partial line.
+carries no text, does not lead with one of the eight type emoji, names no topic,
+contains a tool call, or arrives from an unbounded stream leaves the current
+title in place and never appends a partial line.
