@@ -293,6 +293,11 @@ export class CompletionPresenter {
       }
       if (onClick !== undefined) {
         notification.onclick = () => {
+          // Chromium on Windows activates the notification, not the page: the
+          // session would switch behind whichever app is in front. Asking here
+          // is what raises this window. A browser that refuses the request
+          // still keeps the in-page navigation.
+          window.focus()
           onClick()
           notification.close()
         }

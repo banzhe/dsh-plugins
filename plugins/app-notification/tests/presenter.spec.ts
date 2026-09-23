@@ -204,8 +204,12 @@ describe('CompletionPresenter', () => {
       tag: 'dsh-session-completed',
     })
 
+    // Chromium on Windows does not raise the page on its own, so the click
+    // must ask. Without this the session switches behind the foreground app.
+    const focus = vi.spyOn(window, 'focus')
     FakeNotification.instances[0]?.onclick?.()
     expect(open).toHaveBeenCalledWith('a')
+    expect(focus).toHaveBeenCalled()
     expect(FakeNotification.instances[0]?.close).toHaveBeenCalled()
     detach()
   })
