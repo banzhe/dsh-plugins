@@ -44,10 +44,7 @@ export function sessionListOf(sessions: readonly SessionSummary[]): SessionListS
   return {
     ids: sessions.map(session => session.id),
     byId: byId as SessionListState['byId'],
-    current: undefined,
     phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-    currentAddress: undefined,
+    projectionsBySession: {},
   }
 }

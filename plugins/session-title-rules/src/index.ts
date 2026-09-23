@@ -29,6 +29,14 @@ import type {
 } from '@deepseek-ai/dsh-session-title'
 import { registerTitleRefreshCommand } from './command.ts'
 
+// 0.1.7-alpha.2 removed the shared `plugin` message source: every producer now
+// declares its own `kind` on `MessageSourceMap`.
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'dsh-session-title-rules': { kind: 'dsh-session-title-rules' }
+  }
+}
+
 /** Loader row id, package identity, and the provider id recorded with each title. */
 export const name = 'session-title-rules'
 
@@ -320,7 +328,7 @@ async function generateTitle(
   const signal = AbortSignal.any([request.signal, AbortSignal.timeout(TIMEOUT_MS)])
   const messages: Message[] = [createUserMessage({
     content: [{ type: 'text', text: framed.input }],
-    source: { kind: 'plugin', plugin: name },
+    source: { kind: 'dsh-session-title-rules' },
   })]
   // `createUserMessage` deep-freezes the message itself; freezing the wrapper array too
   // keeps the whole request graph read-only for the `llm/stream` listeners that receive

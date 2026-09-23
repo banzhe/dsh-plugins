@@ -8,14 +8,14 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as nodeApply } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
+import { sessionRow, sessionSources, type SessionSources } from './session-list-double.ts'
 
 class FakeNotification {
   static permission: NotificationPermission = 'granted'
@@ -35,34 +35,29 @@ class FakeNotification {
   close(): void {}
 }
 
-function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): {
-  sessions: ReturnType<typeof createSnapshotStore<SessionListState>>
-  open: ReturnType<typeof vi.fn>
+/**
+ * Stub the platform capabilities, and hand back the two Session sources plus
+ * the navigation spy the plugin drives.
+ * @param options - the badge and permission facts this spec is about.
+ * @returns the list, status, and navigation doubles.
+ */
+function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): SessionSources & {
+  openSession: ReturnType<typeof vi.fn>
 } {
   vi.stubGlobal('navigator', options.badge === false
     ? {}
     : { setAppBadge: vi.fn(async () => {}), clearAppBadge: vi.fn(async () => {}) })
   FakeNotification.permission = options.permission ?? 'granted'
   vi.stubGlobal('Notification', FakeNotification)
-  const open = vi.fn()
-  const sessions = createSnapshotStore<SessionListState>({
-    ids: [],
-    byId: {},
-    current: undefined,
-    phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-    currentAddress: undefined,
-  })
-  return { sessions, open }
+  return { ...sessionSources(), openSession: vi.fn() }
 }
 
-/** Boot the browser half over a context providing the three injected services. */
-async function bench(
-  surface: { sessions: ReturnType<typeof createSnapshotStore<SessionListState>>; open: ReturnType<typeof vi.fn> },
-) {
+/** Boot the browser half over a context providing the four injected services. */
+async function bench(surface: SessionSources & { openSession: ReturnType<typeof vi.fn> }) {
   const ctx = new Context()
-  ctx.provide('sessions', { list: surface.sessions, open: surface.open } as unknown as ISessions)
+  ctx.provide('sessions', { list: surface.list } as unknown as ISessions)
+  ctx.provide('uiSession', { sessionStatus: surface.status } as never)
+  ctx.provide('uiWorkspace', { openSession: surface.openSession } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
@@ -82,22 +77,18 @@ afterEach(() => {
 
 describe('app-badge browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'locale', 'slots'])
+    expect(inject).toEqual(['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots'])
   })
 
   it('projects the finished count and notifies, then releases both with the fiber', async () => {
     const surface = stubCapabilities()
     const { fiber } = await bench(surface)
-    surface.sessions.update((state) => {
+    surface.update((state) => {
       state.ids = ['a' as SessionId]
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: true, blank: false, updatedAt: 1,
-      }
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', running: true })
     })
-    surface.sessions.update((state) => {
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: false, completed: true, blank: false, updatedAt: 2,
-      }
+    surface.update((state) => {
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
@@ -107,31 +98,25 @@ describe('app-badge browser half', () => {
     })
     await fiber.dispose()
     // The subscription left with the fiber: a later update produces nothing.
-    surface.sessions.update((state) => {
-      state.byId['b' as SessionId] = {
-        id: 'b' as SessionId, displayTitle: 'Beta', running: false, completed: true, blank: false, updatedAt: 3,
-      }
+    surface.update((state) => {
+      state.byId['b' as SessionId] = sessionRow('b', { displayTitle: 'Beta', completed: true, updatedAt: 3 })
       state.ids = [...state.ids, 'b' as SessionId]
     })
     expect(FakeNotification.instances).toHaveLength(1)
   })
 
-  it('opens the notification target through the sessions service', async () => {
+  it('opens the notification target through the workspace owner', async () => {
     const surface = stubCapabilities()
     await bench(surface)
-    surface.sessions.update((state) => {
+    surface.update((state) => {
       state.ids = ['a' as SessionId]
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: true, blank: false, updatedAt: 1,
-      }
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', running: true })
     })
-    surface.sessions.update((state) => {
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: false, completed: true, blank: false, updatedAt: 2,
-      }
+    surface.update((state) => {
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
     FakeNotification.instances[0]?.onclick?.()
-    expect(surface.open).toHaveBeenCalledWith('a')
+    expect(surface.openSession).toHaveBeenCalledWith('a')
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
@@ -158,7 +143,7 @@ describe('app-badge browser half', () => {
     expect(entry?.options.order).toBe(20)
     expect(entry?.options.locale).toBe(NS)
     expect(entry?.component).toBeTypeOf('function')
-    const styles = [...document.head.querySelectorAll('style[data-plugin]')]
+    const styles = [...document.head.querySelectorAll<HTMLElement>('style[data-plugin]')]
     expect(styles.some(style => style.dataset.pluginCss?.endsWith('settings-row.css'))).toBe(true)
     await fiber.dispose()
     expect(slots.entry('app-badge')).toBeUndefined()
@@ -187,27 +172,21 @@ describe('app-badge browser half', () => {
     const surface = stubCapabilities({ badge: false, permission: 'default' })
     const { slots } = await bench(surface)
     // Nothing is announced while ungranted, but the subscription is already live.
-    surface.sessions.update((state) => {
+    surface.update((state) => {
       state.ids = ['a' as SessionId]
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: true, blank: false, updatedAt: 1,
-      }
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', running: true })
     })
-    surface.sessions.update((state) => {
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: false, completed: true, blank: false, updatedAt: 2,
-      }
+    surface.update((state) => {
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
     expect(FakeNotification.instances).toEqual([])
 
     const result = await slots.injection('app-badge').request()
     expect(result).toBe('granted')
     expect(FakeNotification.requestPermission).toHaveBeenCalledTimes(1)
-    surface.sessions.update((state) => {
+    surface.update((state) => {
       state.ids = ['a' as SessionId, 'b' as SessionId]
-      state.byId['b' as SessionId] = {
-        id: 'b' as SessionId, displayTitle: 'Beta', running: false, completed: true, blank: false, updatedAt: 3,
-      }
+      state.byId['b' as SessionId] = sessionRow('b', { displayTitle: 'Beta', completed: true, updatedAt: 3 })
     })
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
@@ -216,11 +195,9 @@ describe('app-badge browser half', () => {
   it('still registers the row and dictionaries on a page with neither surface', async () => {
     const surface = stubCapabilities({ badge: false, permission: 'denied' })
     const { ctx, slots } = await bench(surface)
-    surface.sessions.update((state) => {
+    surface.update((state) => {
       state.ids = ['a' as SessionId]
-      state.byId['a' as SessionId] = {
-        id: 'a' as SessionId, displayTitle: 'Alpha', running: false, completed: true, blank: false, updatedAt: 2,
-      }
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
     expect(FakeNotification.instances).toEqual([])
     // The row is the only surface that can explain the silence, so it stays.

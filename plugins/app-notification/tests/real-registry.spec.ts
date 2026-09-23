@@ -24,10 +24,11 @@ import * as ReactDom from 'react-dom'
 import * as ReactDomClient from 'react-dom/client'
 import * as JsxRuntime from 'react/jsx-runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { ISessions, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
+import { sessionListOf, sessionStatusOf } from './session-list-double.ts'
 
 /** The module-table words the renderer bundle requests. */
 const SEED: Record<string, unknown> = {
@@ -76,6 +77,13 @@ class FakeNotification {
 
 const renderer = loadClientBundle('@deepseek-ai/dsh-client-ui-renderer')
 
+/** Every injected service but `slots`, which the real renderer provides. */
+function provideSessions(ctx: Context): void {
+  ctx.provide('sessions', { list: createSnapshotStore(sessionListOf([])) } as unknown as ISessions)
+  ctx.provide('uiSession', { sessionStatus: createSnapshotStore(sessionStatusOf([])) } as never)
+  ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
+}
+
 /**
  * Declare `settings.general.item` on the real registry the way the shipped
  * composition does: ui-settings-general's General section owns the declaration
@@ -83,12 +91,23 @@ const renderer = loadClientBundle('@deepseek-ai/dsh-client-ui-renderer')
  * plugin against the real ledger, not ui-settings-general, so it declares the
  * seat itself — a slot that is never declared is exactly the "waits forever"
  * case the late-declaration spec covers.
+ *
+ * The declaring component must consume the child through `renderSlot`: the
+ * registry's types reject a declaration whose owner never renders it (that
+ * would silently drop every contribution).
  * @param ctx - context whose `slots` service receives the declaration.
  */
 function declareGeneralItem(ctx: Context): void {
   ctx.slots.register(
-    { name: 'root', children: { 'settings.general.item': { kind: 'list', scope: 'root' } } },
-    () => null,
+    {
+      name: 'root',
+      children: { 'settings.general.item': { kind: 'list', scope: 'root' } },
+      inject: () => ({ renderSlot: () => null }),
+    },
+    (props: { renderSlot?: (key: string, opts: object) => unknown }) => {
+      props.renderSlot?.('settings.general.item', {})
+      return null
+    },
   )
 }
 
@@ -103,13 +122,7 @@ async function bench(permission: NotificationPermission = 'denied'): Promise<{
   vi.stubGlobal('Notification', FakeNotification)
 
   const ctx = new Context()
-  ctx.provide('sessions', {
-    list: createSnapshotStore<SessionListState>({
-      ids: [], byId: {}, current: undefined, phase: 'ready',
-      subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-    }),
-    open: vi.fn(),
-  } as unknown as ISessions)
+  provideSessions(ctx)
   ctx.provide('locale', new LocaleDouble() as never)
   // The genuine renderer provides ctx.slots (and its renderer install).
   const rendererFiber = ctx.plugin({ inject: [...((renderer.inject as string[] | undefined) ?? [])], apply: renderer.apply as (c: Context) => void })
@@ -156,13 +169,7 @@ describe('app-badge registration against the real slot registry', () => {
     vi.stubGlobal('Notification', FakeNotification)
     // No renderer yet: the declaration does not exist, so the plugin must not throw.
     const ctx = new Context()
-    ctx.provide('sessions', {
-      list: createSnapshotStore<SessionListState>({
-        ids: [], byId: {}, current: undefined, phase: 'ready',
-        subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-      }),
-      open: vi.fn(),
-    } as unknown as ISessions)
+    provideSessions(ctx)
     ctx.provide('locale', new LocaleDouble() as never)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -179,13 +186,7 @@ describe('app-badge registration against the real slot registry', () => {
     vi.stubGlobal('navigator', {})
     vi.stubGlobal('Notification', undefined)
     const ctx = new Context()
-    ctx.provide('sessions', {
-      list: createSnapshotStore<SessionListState>({
-        ids: [], byId: {}, current: undefined, phase: 'ready',
-        subagentsByParent: {}, jobsBySession: {}, currentAddress: undefined,
-      }),
-      open: vi.fn(),
-    } as unknown as ISessions)
+    provideSessions(ctx)
     ctx.provide('locale', new LocaleDouble() as never)
     const rendererFiber = ctx.plugin({ inject: [], apply: renderer.apply as (c: Context) => void })
     await rendererFiber.await()

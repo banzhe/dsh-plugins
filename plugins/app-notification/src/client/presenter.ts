@@ -16,6 +16,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { CompletionObserver } from './completion.ts'
 
@@ -224,18 +225,21 @@ export class CompletionPresenter {
   }
 
   /**
-   * Install the list subscription and publish the current state once. Call
+   * Install the status subscription and publish the current state once. Call
    * exactly once per presenter — the caller owns the lifetime decision (this
    * plugin subscribes once, at activation, whenever the page is `viable`).
-   * @param list - the sessions list snapshot source (`ctx.sessions.list`).
+   * @param status - per-Session status source (`ctx.uiSession.sessionStatus`).
+   * @param list - the sessions list snapshot source, naming the rows the status ids refer to.
    * @returns the disposer that unsubscribes and retracts the badge.
    */
-  attach(list: ObservableSnapshot<SessionListState>): () => void {
-    const sync = (): void => { this.apply(list.getSnapshot()) }
-    const unsubscribe = list.subscribe(sync)
+  attach(status: ObservableSnapshot<SessionStatusSnapshot>, list: ObservableSnapshot<SessionListState>): () => void {
+    const sync = (): void => { this.apply(status.getSnapshot(), list.getSnapshot()) }
+    const unsubscribeStatus = status.subscribe(sync)
+    const unsubscribeList = list.subscribe(sync)
     sync()
     return () => {
-      unsubscribe()
+      unsubscribeStatus()
+      unsubscribeList()
       this.badge?.clear()
     }
   }
@@ -250,8 +254,8 @@ export class CompletionPresenter {
   }
 
   /** Fold one observation onto the badge and the notification stream. */
-  private apply(list: SessionListState): void {
-    const observation = this.observer.observe(list)
+  private apply(status: SessionStatusSnapshot, list: SessionListState): void {
+    const observation = this.observer.observe(status, list)
     this.badge?.project(observation.completed.length)
     for (const session of observation.newlyCompleted) {
       this.notify(this.options.notifyCopy(session), this.options.tag, () => {

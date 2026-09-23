@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-plan-toggle",
-  "version": "0.1.0",
+  "version": "0.1.7-alpha.2-1",
   "description": "Toggle plan mode from the Composer with Shift+Tab",
   "type": "module",
   "main": "lib/index.js",
@@ -44,12 +44,16 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",
-    "@deepseek-ai/dsh-client-ui-conversation": "catalog:"
+    "@deepseek-ai/dsh-client-ui-conversation": "catalog:",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
+    "@deepseek-ai/dsh-session": "catalog:"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-session-controller": "catalog:",
     "@deepseek-ai/dsh-client-ui-conversation": "catalog:",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
+    "@deepseek-ai/dsh-session": "catalog:",
     "tsdown": "catalog:",
     "typescript": "catalog:"
   }

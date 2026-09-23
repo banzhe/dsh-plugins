@@ -53,7 +53,7 @@ Claiming `/plan` or `/plan off` on the Composer the same way the slash menu does
 _Avoid_: enter plan mode (when you mean the two-way switch), plan chip (exit-only control)
 
 **Finished-unread**:
-An ordinary listed Session that has stopped running while it was not selected (`completed === true`). Subagent-origin rows never count. This is the number the sidebar's green completion dots show, and the number this plugin writes to the PWA icon badge.
+An ordinary listed Session that has stopped running while it was not the main view (`completionUnread === true` on the Session status snapshot). Subagent-origin rows never count. This is the number the sidebar's green completion dots show, and the number this plugin writes to the PWA icon badge.
 _Avoid_: unread (unqualified), completed (when you mean the filtered count)
 
 **Title refresh**:

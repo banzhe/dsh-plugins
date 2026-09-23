@@ -23,6 +23,19 @@ const t = ((key: AppBadgeKey, params?: Record<string, unknown>) => {
     name in params ? String(params[name]) : match)
 }) as never
 
+/**
+ * The standard-kit props every slot component receives. The row ignores them,
+ * but the composed props type requires them: ui-session and ui-workspace merge
+ * `GlobalStandardProps` onto every slot key, so a fixture cast must supply all
+ * four selectors or the component's own props type rejects the cast.
+ */
+const STANDARD_PROPS = {
+  useSessions: (() => {}) as never,
+  useSessionStatus: (() => {}) as never,
+  useSessionRetainInfo: (() => {}) as never,
+  useWorkspaces: (() => {}) as never,
+}
+
 interface Harness {
   readonly root: Root
   readonly injected: CompletionSettingsInjected
@@ -70,7 +83,7 @@ async function mount(options: {
   const render = async (): Promise<void> => {
     await act(async () => {
       // createElement, never a direct call: hooks require React to own the render.
-      root.render(createElement(CompletionSettingsRow, { t, ...injected }))
+      root.render(createElement(CompletionSettingsRow, { t, ...STANDARD_PROPS, ...injected }))
     })
   }
   await render()
@@ -168,7 +181,8 @@ describe('CompletionSettingsRow', () => {
     await act(async () => {
       root.render(createElement(CompletionSettingsRow, {
         t,
-        permission: () => 'default',
+        ...STANDARD_PROPS,
+        permission: (): NotificationPermissionState => 'default',
         badgeSupported: () => true,
         request: () => pending,
         test: () => false,
@@ -208,9 +222,10 @@ describe('CompletionSettingsRow', () => {
     await act(async () => {
       root.render(createElement(CompletionSettingsRow, {
         t: englishT,
-        permission: () => 'granted',
+        ...STANDARD_PROPS,
+        permission: (): NotificationPermissionState => 'granted',
         badgeSupported: () => true,
-        request: async () => 'granted',
+        request: async (): Promise<NotificationPermissionState> => 'granted',
         test: () => true,
       }))
     })

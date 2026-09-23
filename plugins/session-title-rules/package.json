@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-session-title-rules",
-  "version": "0.1.0",
+  "version": "0.1.7-alpha.2-1",
   "description": "Rules-based session title provider (emoji 主题) replacing the built-in first-prompt provider",
   "type": "module",
   "main": "lib/index.js",

@@ -16,6 +16,10 @@
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+// Type-only: the `ctx.uiSession` status source merge the presenter subscribes to.
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: the `ctx.uiWorkspace` service a notification click navigates through.
+import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the `settings.general.item` slot declaration this plugin registers into.
@@ -32,8 +36,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Required services: Session list state, dictionaries, and the settings slot registry. */
-export const inject = ['sessions', 'locale', 'slots']
+/** Required services: Session list, completion status, workspace navigation, dictionaries, and the settings slot registry. */
+export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
 
 /** Plugin id, stamped onto the injected stylesheet for HMR bookkeeping. */
 const PLUGIN_ID = '@banzhe/dsh-app-notification'
@@ -74,11 +78,14 @@ export function apply(ctx: ClientContext): void {
     // template's {title} placeholder verbatim.
     detail: t('notify.body', { title: session.displayTitle }),
   })
+  // A click navigates through the workspace owner: `retain` alone only counts a
+  // reference, and ui-session promotes a Session to the main view only while a
+  // `mainView` reference is held — which `openSession` takes and hands over.
   const presenter = new CompletionPresenter({
     logger: ctx.logger,
     notifyCopy,
     testCopy: () => ({ title: t('test.title'), detail: t('test.body') }),
-    open: (id) => { ctx.sessions.open(id) },
+    open: (id) => { ctx.uiWorkspace.openSession(id) },
     tag: TAG,
     testTag: TEST_TAG,
   })
@@ -90,7 +97,7 @@ export function apply(ctx: ClientContext): void {
     if (subscribed || !presenter.viable) return
     subscribed = true
     ctx.effect(
-      () => presenter.attach(ctx.sessions.list),
+      () => presenter.attach(ctx.uiSession.sessionStatus, ctx.sessions.list),
       'app-badge: finished-unread projection',
     )
   }

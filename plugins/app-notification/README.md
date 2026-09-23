@@ -31,7 +31,7 @@ dsh plugin --profile web remove @banzhe/dsh-app-notification
   that are finished and not yet opened. `origin: 'subagent'` rows are excluded.
 - Each newly finished ordinary Session raises one notification tagged
   `dsh-session-completed` (a run of completions replaces rather than stacks).
-  Click opens that Session through `ctx.sessions.open`.
+  Click opens that Session through `ctx.uiWorkspace.openSession`.
 - First observation is state-only: a reload shows the current count and does
   not re-announce Sessions that finished while no page was watching.
 - A page with neither badging nor a `Notification` constructor still registers

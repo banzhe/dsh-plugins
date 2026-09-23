@@ -8,14 +8,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
-import { createSnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   AppBadgePresenter, CompletionPresenter, notificationPermission, probeCapabilities,
   requestNotificationPermission,
   type CompletionPresenterOptions,
 } from '../src/client/presenter.ts'
+import { sessionRow, sessionSources, type SessionRow } from './session-list-double.ts'
 
 /** A `Notification` stand-in recording every construction and click handler. */
 class FakeNotification {
@@ -57,23 +56,9 @@ function stubCapabilities(options: {
 
 const logger = { warn: vi.fn() } as unknown as Context['logger']
 
-function summary(id: string, over: Partial<SessionSummary> = {}): SessionSummary {
-  return {
-    id: id as SessionId, displayTitle: `Title ${id}`, running: false, blank: false, updatedAt: 1, ...over,
-  }
-}
-
-function store(rows: readonly SessionSummary[]): ReturnType<typeof createSnapshotStore<SessionListState>> {
-  return createSnapshotStore<SessionListState>({
-    ids: rows.map(row => row.id),
-    byId: Object.fromEntries(rows.map(row => [row.id, row])),
-    current: undefined,
-    phase: 'ready',
-    subagentsByParent: {},
-    jobsBySession: {},
-    currentAddress: undefined,
-  })
-}
+/** One row whose display title the assertions below read back. */
+const summary = (id: string, over: Partial<SessionRow> = {}): SessionRow =>
+  sessionRow(id, { displayTitle: `Title ${id}`, ...over })
 
 function options(open = vi.fn()): CompletionPresenterOptions {
   return {
@@ -204,11 +189,11 @@ describe('AppBadgePresenter', () => {
 describe('CompletionPresenter', () => {
   it('projects the finished count and notifies each newly finished Session', () => {
     const badge = stubCapabilities()
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const open = vi.fn()
     const presenter = new CompletionPresenter(options(open))
     expect(presenter.viable).toBe(true)
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
 
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(badge.setAppBadge).toHaveBeenCalledWith(1)
@@ -227,9 +212,9 @@ describe('CompletionPresenter', () => {
 
   it('re-alerts a completion that reuses the constant Session tag', () => {
     stubCapabilities()
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
 
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toHaveLength(1)
@@ -241,9 +226,9 @@ describe('CompletionPresenter', () => {
 
   it('logs a display refusal the platform reports after the completion was built', () => {
     stubCapabilities()
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
 
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toHaveLength(1)
@@ -261,7 +246,8 @@ describe('CompletionPresenter', () => {
   it('announces nobody for the state a page loads into', () => {
     const badge = stubCapabilities()
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(store([summary('a', { completed: true })]))
+    const loaded = sessionSources([summary('a', { completed: true })])
+    const detach = presenter.attach(loaded.status, loaded.list)
     expect(badge.setAppBadge).toHaveBeenCalledWith(1)
     expect(FakeNotification.instances).toEqual([])
     detach()
@@ -269,9 +255,9 @@ describe('CompletionPresenter', () => {
 
   it('drives neither surface for a subagent child that finishes', () => {
     const badge = stubCapabilities()
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
 
     sessions.update((state) => {
       state.ids.push('child' as SessionId)
@@ -286,9 +272,9 @@ describe('CompletionPresenter', () => {
 
   it('clears the badge and unsubscribes on detach', () => {
     const badge = stubCapabilities()
-    const sessions = store([summary('a', { completed: true })])
+    const sessions = sessionSources([summary('a', { completed: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     detach()
     expect(badge.clearAppBadge).toHaveBeenCalledTimes(1)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true, updatedAt: 2 }) })
@@ -304,9 +290,9 @@ describe('CompletionPresenter', () => {
 
   it('drives the badge alone when notifications are unavailable', () => {
     const badge = stubCapabilities({ permission: 'denied' })
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(badge.setAppBadge).toHaveBeenCalledWith(1)
     expect(FakeNotification.instances).toEqual([])
@@ -316,10 +302,10 @@ describe('CompletionPresenter', () => {
   it('drives notifications alone when only notifications are available', () => {
     vi.stubGlobal('navigator', {})
     vi.stubGlobal('Notification', FakeNotification)
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
     expect(presenter.badgeSupported).toBe(false)
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toHaveLength(1)
     detach()
@@ -331,9 +317,9 @@ describe('CompletionPresenter', () => {
       static permission: NotificationPermission = 'granted'
       constructor() { throw new Error('refused') }
     })
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     expect(() => {
       sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     }).not.toThrow()
@@ -343,13 +329,13 @@ describe('CompletionPresenter', () => {
 
   it('starts announcing the moment a permission is granted, with no reload', () => {
     stubCapabilities({ badge: false, permission: 'default' })
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
     // Supported but ungranted: nothing may be announced yet, but the page is
     // still worth subscribing to — the settings row can change this.
     expect(presenter.viable).toBe(true)
     expect(presenter.permission()).toBe('default')
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toEqual([])
 
@@ -365,9 +351,9 @@ describe('CompletionPresenter', () => {
 
   it('stops notifying if the permission is revoked mid-session', () => {
     stubCapabilities()
-    const sessions = store([summary('a', { running: true })])
+    const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions)
+    const detach = presenter.attach(sessions.status, sessions.list)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toHaveLength(1)
 

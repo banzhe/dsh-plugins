@@ -4,7 +4,10 @@
  * sent, not when the key is pressed. An open trigger menu keeps the shortcut.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ISessions, SessionFace } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ISessions, SessionFace, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// Type-only: the `mainView` member of a row's `retainedBy` merge, read below.
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import type {
   CommandClaim, IConversation, SessionInput, SubmitOutcome,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -12,7 +15,10 @@ import type {
 /** Wait on the current Session and the Composer input machine. */
 export const inject = ['sessions', 'conversation']
 
-const PLAN_TOKEN = '/plan '
+/** Catalog command name this plugin claims; also the token's leading text. */
+const PLAN_COMMAND = 'plan'
+
+const PLAN_TOKEN = `/${PLAN_COMMAND} `
 
 /** True when this keydown is Shift+Tab with no other modifiers, first press only. */
 function isPlanToggleKey(event: KeyboardEvent): boolean {
@@ -29,6 +35,17 @@ function composerFrom(target: EventTarget | null): HTMLElement | null {
   if (el === null) return null
   const composer = el.closest('[data-composer-input]')
   return composer instanceof HTMLElement ? composer : null
+}
+
+/**
+ * The Session the main view holds: the row whose `mainView` retention is
+ * positive. This duplicates the resolution ui-session performs internally
+ * (`publishMain`), which exposes no public accessor for it.
+ * @param list - sessions list snapshot.
+ * @returns the displayed Session id, or undefined when none is open.
+ */
+function mainSessionId(list: SessionListState): SessionId | undefined {
+  return Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
 }
 
 /** True when the Composer's card currently hosts a trigger menu. */
@@ -58,11 +75,12 @@ function argsAfter(draft: string): string {
 /** `/plan` claim whose submit runs through the Session command channel. */
 function planClaim(session: SessionFace): CommandClaim {
   return {
+    name: PLAN_COMMAND,
     token: PLAN_TOKEN,
     hint: '[off|message]',
     attachments: true,
     submit: async (args): Promise<SubmitOutcome> => {
-      const line = args === '' ? '/plan' : `/plan ${args}`
+      const line = args === '' ? `/${PLAN_COMMAND}` : `${PLAN_TOKEN}${args}`
       try {
         const result = await session.command(line)
         if (!result.ok) return { kind: 'error', text: result.error.message }
@@ -100,7 +118,7 @@ export function apply(ctx: Context): void {
       event.preventDefault()
       event.stopImmediatePropagation()
 
-      const sessionId = sessions.list.getSnapshot().current
+      const sessionId = mainSessionId(sessions.list.getSnapshot())
       if (sessionId === undefined) return
       const binding = sessions.binding(sessionId)
       const actx = sessions.scope(sessionId)

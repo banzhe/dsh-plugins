@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-hover-archive",
-  "version": "0.1.0",
+  "version": "0.1.7-alpha.2-1",
   "description": "Archive the hovered sidebar Session with the A key",
   "type": "module",
   "main": "lib/index.js",

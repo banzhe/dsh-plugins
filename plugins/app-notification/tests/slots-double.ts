@@ -19,6 +19,7 @@
  * type-only, so the shipped browser bundle has no runtime imports beyond React.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
+import type { CompletionSettingsInjected } from '../src/client/SettingsRow.tsx'
 
 /** One recorded registration. */
 export interface SlotsDoubleEntry {
@@ -87,13 +88,15 @@ export class SlotsDouble extends Service {
 
   /**
    * The injected business face of one row id. Throws when absent, so a spec
-   * cannot silently assert against an unregistered row.
+   * cannot silently assert against an unregistered row. Typed as the plugin's
+   * own injected face: `Record<string, …>` would make every member
+   * `| undefined` under `noUncheckedIndexedAccess`, forcing `?.` at each call.
    * @param id - the registration id (the row key).
    * @returns the injected face.
    */
-  injection(id: string): Record<string, (...args: never[]) => unknown> {
+  injection(id: string): CompletionSettingsInjected {
     const found = this.entries.get(id)
     if (found === undefined) throw new Error(`no live slot registration "${id}"`)
-    return found.injected
+    return found.injected as unknown as CompletionSettingsInjected
   }
 }
