@@ -32,14 +32,6 @@ _Avoid_: UI plugin (too broad — a Host plugin can still contribute tools that 
 One entry in a composed Cordis tree, addressed by `id`, whose `name` is a module specifier.
 _Avoid_: plugin instance (unless you mean a live Fiber)
 
-**Visible Session**:
-A listed Session that is not blank, not subagent-origin, and not in the registry-global archive set. These are the rows whose `⋯` menu can archive.
-_Avoid_: open session, current session, hovered session (when you mean the filter)
-
-**Hover archive**:
-Archiving the Visible Session whose sidebar row currently holds the pointer. The session id is read from the row's React fiber, so duplicate titles archive correctly.
-_Avoid_: menu archive, current-session archive, title-match archive
-
 **Composer**:
 The conversation message input (`[data-composer-input]`).
 _Avoid_: input box, textarea, chat input
