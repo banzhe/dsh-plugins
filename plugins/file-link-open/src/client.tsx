@@ -54,9 +54,6 @@ export const zh = {
   'app.finder': '访达',
   'app.explorer': '文件资源管理器',
   'app.filemanager': '文件管理器',
-  errorUnavailableApp: '该应用在本机不可用',
-  errorLaunchFailed: '打开 {app} 失败',
-  errorGeneric: '操作失败，请重试',
 } as const
 
 export const en = {
@@ -79,9 +76,6 @@ export const en = {
   'app.finder': 'Finder',
   'app.explorer': 'File Explorer',
   'app.filemanager': 'Files',
-  errorUnavailableApp: 'This app is not available on this machine',
-  errorLaunchFailed: 'Could not open {app}',
-  errorGeneric: 'The action failed. Try again.',
 } as const
 
 export type LocaleKey = keyof typeof en
@@ -222,7 +216,7 @@ type Translator = (key: LocaleKey, params?: Record<string, string>) => string
  * Build the menu entries. `state` is the shared plugin state (official probe +
  * plugin info); the two copy entries close the menu.
  */
-function buildItems(state: AppState, t: Translator, error: string | null): MenuItem[] {
+function buildItems(state: AppState, t: Translator): MenuItem[] {
   const items: MenuItem[] = []
   const fileManagers = (state.officialApps ?? []).filter(id => (FILE_MANAGER_IDS as readonly string[]).includes(id))
   // Show an editor only when BOTH the official probe and this plugin's own
@@ -249,27 +243,16 @@ function buildItems(state: AppState, t: Translator, error: string | null): MenuI
     { id: 'flo:copy-rel', label: t('copyRelativePath') },
     { id: 'flo:copy-abs', label: t('copyAbsolutePath') },
   )
-  if (error !== null) {
-    items.push({ type: 'separator', id: 'flo:sep-err' })
-    items.push({ id: 'flo:error', label: error, disabled: true, danger: true })
-  }
   return items
 }
 
-/** The localized line for one route failure code; '' codes take the generic. */
-function errorTextOf(code: string, t: Translator, app: string) {
-  if (code === 'unavailable-app') return t('errorUnavailableApp')
-  if (code === 'launch-failed') return t('errorLaunchFailed', { app })
-  return t('errorGeneric')
-}
-
 /** One menu selection: dispatch to the route or the clipboard. */
-function dispatchSelection(id: string, filePath: string, cwd: string | null, deps: { t: Translator, close(): void, setError(message: string): void }) {
+function dispatchSelection(id: string, filePath: string, cwd: string | null, deps: { close(): void }) {
   const absolute = resolveWorkspacePath(cwd, filePath)
-  const fail = (result: { data: any }, app: string) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-    const code = result.data !== null && result.data !== undefined && result.data.code !== undefined ? result.data.code : ''
-    deps.setError(errorTextOf(code, deps.t, app))
-  }
+  // Every path closes the menu immediately: the detached launches take
+  // seconds to settle on the host, and holding the menu open for that round
+  // trip reads as "the menu never closes". Failures land in the console
+  // instead of an in-menu error row (there is no menu left to host one).
   if (id === 'flo:copy-rel') {
     deps.close()
     writeClipboard(relativizeToCwd(filePath, cwd))
@@ -284,17 +267,21 @@ function dispatchSelection(id: string, filePath: string, cwd: string | null, dep
     // The official launch: the session-header split button's exact call, with
     // the file's directory standing in for the workspace directory.
     const manager = id.slice(7)
+    deps.close()
     void postJson('/open-in-app/open', { app: manager, path: dirnameOf(absolute) }).then((result) => {
-      if (result.ok) deps.close()
-      else fail(result, deps.t('app.' + manager as LocaleKey))
+      if (!result.ok) {
+        console.warn('file-link-open: open in %s failed (%s)', manager, result.status, result.data)
+      }
     })
     return
   }
   if (id.startsWith('flo:app:')) {
     const app = id.slice(8)
+    deps.close()
     void postJson('/api/file-link-open/launch', { app, path: absolute }).then((result) => {
-      if (result.ok) deps.close()
-      else fail(result, deps.t('app.' + app as LocaleKey))
+      if (!result.ok) {
+        console.warn('file-link-open: launch %s failed (%s)', app, result.status, result.data)
+      }
     })
   }
 }
@@ -327,7 +314,6 @@ interface ContextState {
   y: number
   path: string | null
   cwd: string | null
-  error: string | null
 }
 
 /** Client half: the right-click menu over one message file link. */
@@ -344,7 +330,7 @@ export async function apply(ctx: ClientContext) {
    * is replaced on every open, and the render closures always read the
    * variable, never a stale copy.
    */
-  let contextState: ContextState = { open: false, x: 0, y: 0, path: null, cwd: null, error: null }
+  let contextState: ContextState = { open: false, x: 0, y: 0, path: null, cwd: null }
   const contextContainer = document.createElement('div')
   contextContainer.setAttribute('data-flo-context', '1')
   // An in-flow body child puts the Menu anchor's ~21px line box under the
@@ -370,7 +356,7 @@ export async function apply(ctx: ClientContext) {
     const menu = props.menu
     const open = menu.open === true && menu.path !== null
     const items = open
-      ? buildItems(state, props.t, menu.error)
+      ? buildItems(state, props.t)
       : []
     return (
       <Menu
@@ -383,9 +369,7 @@ export async function apply(ctx: ClientContext) {
         onSelect={(id: string) => {
           if (menu.path === null) return
           dispatchSelection(id, menu.path, menu.cwd, {
-            t: props.t,
             close: () => { contextState.open = false; renderContextMenu() },
-            setError: (message) => { contextState.error = message; if (contextState.open) renderContextMenu() },
           })
         }}
         onClose={() => { contextState.open = false; renderContextMenu() }}
@@ -411,7 +395,6 @@ export async function apply(ctx: ClientContext) {
       y,
       path: filePath,
       cwd: contextState.cwd,
-      error: null,
     }
     renderContextMenu()
   }
