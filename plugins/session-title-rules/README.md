@@ -165,7 +165,15 @@ Plugins → this plugin's row → Configure** (the `plugins.row.config` slot, ke
 - The effort dropdown offers only the levels the **chosen model** advertises. A
   level the model does not support fails the call with
   `UNSUPPORTED_REASONING_EFFORT`, so switching models clears an effort the new
-  model cannot take.
+  model cannot take. The list is **generated from configuration**, not fixed:
+  it comes from each model's `reasoningEfforts` in the profile's `cordis.patch.yml`,
+  resolved through `llm-pi-ai`'s `getSupportedThinkingLevels`. Editing the YAML
+  changes the dropdown; only `xhigh` and `max` must be declared explicitly, since
+  `off`/`low`/`medium`/`high` follow from a model being marked as reasoning.
+- Each level shows the adapter's display **name** (`High`) while the page stores
+  the wire **id** (`high`) — the same split the composer's own picker makes. A
+  stored level that no model advertises any more is kept, labelled by its id, so
+  a configured value is never invisible.
 - A route saved earlier that has since left the directory stays listed (marked
   *saved but currently unavailable*) so it can still be seen and cleared;
   removing it instead would silently reset the choice on the next save.
@@ -175,6 +183,21 @@ Plugins → this plugin's row → Configure** (the `plugins.row.config` slot, ke
 
 Configuring by YAML directly is still supported and equivalent; the page and the
 file edit the same `session-title-rules` entry.
+
+Both choices render as the shell's own settings dropdown — a pill trigger that
+opens the shared `Menu` from `ui-primitives` — copying `PreferenceRow` in
+`ui-chat/src/client/settings/`, the row shape the General settings use. It is
+**not** a native `<select>`: a native select's popup is drawn by the operating
+system, so it can never carry the theme, and the checkmarked card the reference
+settings show is reachable only through `Menu`. `Menu` brings its own stylesheet,
+so the card, its elevation, and its keyboard walk need nothing from this Bundle.
+
+Only the row and its trigger are styled here, by an injected `--dsw-*` token sheet
+(`src/client/styles.ts`). Inline styles would not do: inline declarations beat
+every stylesheet, so a control carrying a `style` attribute falls back to browser
+defaults instead of the shell's chrome. This Bundle builds its browser half
+without a CSS pipeline, so the sheet is a plain string installed on the plugin's
+fiber — the same approach as `app-notification`.
 
 ## Fixed policy
 

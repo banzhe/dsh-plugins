@@ -41,6 +41,14 @@ export interface TitleModelRoute {
   readonly model: string
 }
 
+/** One selectable reasoning level: the wire id, and the directory's display name. */
+export interface TitleModelEffort {
+  /** Value written to `reasoningEffort` and dispatched to the provider. */
+  readonly id: string
+  /** Adapter-owned display name, which the shell's own picker shows. */
+  readonly name: string
+}
+
 /** One selectable route joined with what the directory knows about it. */
 export interface TitleModelCandidate extends TitleModelRoute {
   /** Opaque identity for lookup; callers never parse it. */
@@ -52,7 +60,7 @@ export interface TitleModelCandidate extends TitleModelRoute {
   /** Whether the live directory still advertises this exact route. */
   readonly available: boolean
   /** Reasoning levels this model advertises, in directory order. */
-  readonly efforts: readonly string[]
+  readonly efforts: readonly TitleModelEffort[]
 }
 
 /** State the card renders. */
@@ -61,6 +69,8 @@ export interface TitleModelCardState extends SettingsFormShell {
   readonly route: TitleModelRoute | undefined
   /** Staged reasoning effort; `undefined` means "the route's own default". */
   readonly effort: string | undefined
+  /** Levels the effort dropdown offers, in display order. */
+  readonly effortChoices: readonly TitleModelEffort[]
   /** Live directory joined with the stored route. */
   readonly candidates: readonly TitleModelCandidate[]
   /** Directory request state. */
@@ -103,9 +113,45 @@ export function titleRouteKey(route: TitleModelRoute): string {
   return `${route.provider.length}:${route.provider}${route.model}`
 }
 
-/** Reasoning level ids a directory model advertises. */
-function effortIds(model: ModelCatalogModel): string[] {
-  return model.reasoning === undefined ? [] : model.reasoning.efforts.map(effort => effort.id)
+/** Reasoning levels a directory model advertises, id and display name alike. */
+function effortsOf(model: ModelCatalogModel): TitleModelEffort[] {
+  return model.reasoning === undefined
+    ? []
+    : model.reasoning.efforts.map(effort => ({ id: effort.id, name: effort.name }))
+}
+
+/**
+ * The levels a save could choose, in the order the dropdown shows them.
+ *
+ * With a route pinned, exactly that model's own levels — offering another's
+ * would stage a save the LLM seam refuses with `UNSUPPORTED_REASONING_EFFORT`.
+ * While following the session's model no single list is correct, because the
+ * model varies per session, so the union of everything the directory advertises
+ * stands in. A stored level that nothing advertises any more is appended rather
+ * than dropped: the field would otherwise display a value its own dropdown
+ * cannot show, and the user could not tell what is configured.
+ * @param candidates - routes joined with the directory.
+ * @param route - the route a save would write, or `undefined` for the session's.
+ * @param selected - the level a save would write, or `undefined` for the default.
+ * @returns selectable levels, ids unique, first name seen per id winning.
+ */
+export function titleEffortChoices(
+  candidates: readonly TitleModelCandidate[],
+  route: TitleModelRoute | undefined,
+  selected: string | undefined,
+): TitleModelEffort[] {
+  const advertised = route === undefined
+    ? candidates.flatMap(candidate => candidate.efforts)
+    : candidates.find(candidate => candidate.key === titleRouteKey(route))?.efforts ?? []
+  const unique: TitleModelEffort[] = []
+  for (const effort of advertised) {
+    if (!unique.some(held => held.id === effort.id)) unique.push(effort)
+  }
+  // Its own id is the only honest label left: the directory that named it is gone.
+  if (selected !== undefined && !unique.some(held => held.id === selected)) {
+    unique.push({ id: selected, name: selected })
+  }
+  return unique
 }
 
 /**
@@ -130,7 +176,7 @@ export function titleModelCandidates(
         providerName: group.name,
         modelName: model.name,
         available: true,
-        efforts: effortIds(model),
+        efforts: effortsOf(model),
       })
     }
   }
@@ -287,7 +333,7 @@ export class TitleModelCardController {
       // The old effort may not exist on the new model; carrying it over would
       // stage a save the LLM seam then refuses with UNSUPPORTED_REASONING_EFFORT.
       if (candidate.available && this.draftEffort !== undefined
-        && !candidate.efforts.includes(this.draftEffort)) this.draftEffort = undefined
+        && !candidate.efforts.some(effort => effort.id === this.draftEffort)) this.draftEffort = undefined
     }
     this.routeStaged = true
     this.failed = false
@@ -367,6 +413,12 @@ export class TitleModelCardController {
     const snapshot = this.form.getSnapshot()
     const desiredRoute = this.desiredRoute()
     const desiredEffort = this.desiredEffort()
+    const candidates = this.candidates()
+    // Derived here rather than in the component so the dropdown is a pure
+    // function of one snapshot: the list depends on the route and the stored
+    // effort together with the directory, and rendering it from three separate
+    // reads is how a control ends up showing a level it is not offering.
+    const effortChoices = titleEffortChoices(candidates, desiredRoute, desiredEffort)
     return {
       available: snapshot.status === 'ready',
       writable: snapshot.writable,
@@ -376,7 +428,8 @@ export class TitleModelCardController {
       failed: this.failed,
       route: desiredRoute,
       effort: desiredEffort,
-      candidates: this.candidates(),
+      effortChoices,
+      candidates,
       catalogStatus: this.catalogStatus,
       catalogPartial: this.catalogPartial,
       conflicted: this.conflicted,

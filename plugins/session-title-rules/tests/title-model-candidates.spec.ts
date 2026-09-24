@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
-import { titleModelCandidates, titleRouteKey } from '../src/client/controller.ts'
+import { titleEffortChoices, titleModelCandidates, titleRouteKey } from '../src/client/controller.ts'
 
 /** One provider group as `remote.session.modelCatalog()` returns it. */
 function group(
@@ -32,7 +32,13 @@ function group(
         ? {}
         : {
           reasoning: {
-            efforts: model.efforts.map(effort => ({ id: effort, name: effort })),
+            // The display name is NOT the id in reality: `llm-pi-ai` titles it
+            // (`high` -> `High`), and the page shows that name while writing the
+            // id. Deriving it here keeps that distinction visible to the tests.
+            efforts: model.efforts.map(effort => ({
+              id: effort,
+              name: `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`,
+            })),
             ...model.defaultEffort === undefined ? {} : { defaultEffort: model.defaultEffort },
           },
         },
@@ -91,8 +97,19 @@ describe('titleModelCandidates', () => {
     const ollama = candidates.find(candidate => candidate.model === 'ollama/deepseek-v4.1-flash')
     // The two models sit on ONE provider but support different levels; taking
     // the list from anywhere but the model would offer an unsupported level.
-    expect(cc?.efforts).toEqual(['off', 'low', 'high'])
-    expect(ollama?.efforts).toEqual(['low', 'high', 'max'])
+    expect(cc?.efforts.map(effort => effort.id)).toEqual(['off', 'low', 'high'])
+    expect(ollama?.efforts.map(effort => effort.id)).toEqual(['low', 'high', 'max'])
+  })
+
+  it('carries each level id and display name separately', () => {
+    const [first] = titleModelCandidates(DIRECTORY, undefined)
+    // The page shows `name` and writes `id`; collapsing the two would either
+    // display a lowercase wire value or dispatch a capitalized one.
+    expect(first?.efforts).toEqual([
+      { id: 'off', name: 'Off' },
+      { id: 'low', name: 'Low' },
+      { id: 'high', name: 'High' },
+    ])
   })
 
   it('reports no efforts for a model that does not reason', () => {
@@ -141,5 +158,43 @@ describe('titleModelCandidates', () => {
 
   it('returns nothing for an empty directory and no stored route', () => {
     expect(titleModelCandidates([], undefined)).toEqual([])
+  })
+})
+
+describe('titleEffortChoices', () => {
+  const candidates = titleModelCandidates(DIRECTORY, undefined)
+
+  it('offers exactly the pinned model\'s levels', () => {
+    const route = { provider: 'cliproxyapi', model: 'cc/deepseek-v4.1-flash' }
+    expect(titleEffortChoices(candidates, route, undefined)).toEqual([
+      { id: 'off', name: 'Off' },
+      { id: 'low', name: 'Low' },
+      { id: 'high', name: 'High' },
+    ])
+  })
+
+  it('offers the union while following the session model', () => {
+    // No single model is "the" model here, so the union stands in; `max` is
+    // reachable, and `off`/`low`/`high` appear once despite three models
+    // advertising overlapping sets.
+    expect(titleEffortChoices(candidates, undefined, undefined).map(effort => effort.id))
+      .toEqual(['off', 'low', 'high', 'max'])
+  })
+
+  it('keeps a stored level nothing advertises, labelled by its own id', () => {
+    // Dropping it would render a configured value the dropdown cannot show, so
+    // the user could not see or change what is actually stored.
+    const chosen = titleEffortChoices(candidates, { provider: 'cliproxyapi', model: 'cc/deepseek-v4.1-flash' }, 'ultra')
+    expect(chosen[chosen.length - 1]).toEqual({ id: 'ultra', name: 'ultra' })
+  })
+
+  it('does not duplicate a stored level the model still advertises', () => {
+    const chosen = titleEffortChoices(candidates, { provider: 'cliproxyapi', model: 'cc/deepseek-v4.1-flash' }, 'low')
+    expect(chosen.filter(effort => effort.id === 'low')).toHaveLength(1)
+  })
+
+  it('offers nothing for an unavailable route', () => {
+    const retired = titleModelCandidates(DIRECTORY, { provider: 'cliproxyapi', model: 'retired/model' })
+    expect(titleEffortChoices(retired, { provider: 'cliproxyapi', model: 'retired/model' }, undefined)).toEqual([])
   })
 })

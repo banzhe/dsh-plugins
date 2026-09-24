@@ -27,15 +27,20 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { TitleModelCard } from './TitleModelCard.tsx'
 import { TitleModelCardController, TITLE_MODEL_NS, type TitleModelSettings } from './controller.ts'
 import { en, zh } from './locales.ts'
+import { TITLE_MODEL_CSS } from './styles.ts'
 
 export type { TitleModelCardProps } from './TitleModelCard.tsx'
 export type {
-  TitleModelCandidate, TitleModelCardFace, TitleModelCardState, TitleModelRoute, TitleModelSettings,
+  TitleModelCandidate, TitleModelCardFace, TitleModelCardState, TitleModelEffort, TitleModelRoute,
+  TitleModelSettings,
 } from './controller.ts'
 export type { TitleModelLocaleKey } from './locales.ts'
 
 /** Dictionary namespace: the settings namespace, which is also the row id. */
 const NS = TITLE_MODEL_NS
+
+/** Plugin id, stamped onto the injected stylesheet for teardown bookkeeping. */
+const PLUGIN_ID = '@banzhe/dsh-session-title-rules'
 
 /** Required services: settings forms, dictionaries, slots, and the model directory. */
 export const inject = ['configForms', 'locale', 'slots', 'remote', 'remote.session']
@@ -46,6 +51,19 @@ export const inject = ['configForms', 'locale', 'slots', 'remote', 'remote.sessi
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-title-rules: dictionaries')
+  // The card's stylesheet rides the plugin's own fiber: unload removes it. It
+  // carries the shell's `--dsw-*` token values, which only resolve inside a
+  // themed document, so it is installed here rather than baked into the bundle.
+  ctx.effect(() => {
+    /* v8 ignore next -- needs a documentless run, not constructible under jsdom */
+    if (typeof document === 'undefined') return () => {}
+    const tag = document.createElement('style')
+    tag.dataset.plugin = PLUGIN_ID
+    tag.dataset.pluginCss = `${PLUGIN_ID}/title-model.css`
+    tag.textContent = TITLE_MODEL_CSS
+    document.head.appendChild(tag)
+    return () => { tag.remove() }
+  }, 'session-title-rules: title model stylesheet')
   // The card's `t` arrives from the renderer through the registration's
   // `locale: NS`, so this plugin binds no translator of its own.
 
