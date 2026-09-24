@@ -1,0 +1,3 @@
+- insert:
+    - id: sidebar-menu-actions
+      name: '@banzhe/dsh-sidebar-menu-actions'

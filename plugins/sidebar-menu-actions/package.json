@@ -1,0 +1,76 @@
+{
+  "name": "@banzhe/dsh-sidebar-menu-actions",
+  "version": "0.1.7-alpha.2-1",
+  "description": "Sidebar row-menu extensions: open a Workspace in VS Code, copy a Session ID",
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.js.map",
+    "lib/index.d.ts",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepare": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-workspace-controller",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-api-workspace-controller": "catalog:",
+    "@deepseek-ai/dsh-client-locale": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
+    "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
+    "@deepseek-ai/dsh-host-open-in-app": "catalog:"
+  },
+  "devDependencies": {
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-api-workspace-controller": "catalog:",
+    "@deepseek-ai/dsh-client-locale": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-session": "catalog:",
+    "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
+    "@deepseek-ai/dsh-host-open-in-app": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -9,6 +9,7 @@ catalogMode: strict
 catalog:
   '@deepseek-ai/cordis': ~4.0.4
   '@deepseek-ai/dsh-api-session-controller': 0.1.7-alpha.2
+  '@deepseek-ai/dsh-api-workspace-controller': 0.1.7-alpha.2
   '@deepseek-ai/dsh-client-locale': 0.1.7-alpha.2
   '@deepseek-ai/dsh-client-store': 0.1.7-alpha.2
   '@deepseek-ai/dsh-client-ui-conversation': 0.1.7-alpha.2
@@ -19,6 +20,7 @@ catalog:
   '@deepseek-ai/dsh-client-ui-slots': 0.1.7-alpha.2
   '@deepseek-ai/dsh-client-ui-workspace': 0.1.7-alpha.2
   '@deepseek-ai/dsh-commands': 0.1.7-alpha.2
+  '@deepseek-ai/dsh-host-open-in-app': 0.1.7-alpha.2
   '@deepseek-ai/dsh-llm': 0.1.7-alpha.2
   '@deepseek-ai/dsh-session': 0.1.7-alpha.2
   '@deepseek-ai/dsh-session-title': 0.1.7-alpha.2
@@ -40,6 +42,7 @@ minimumReleaseAgeExclude:
   # 逐个精确版本豁免；升级时必须与上面的 catalog 同步，漏改会让新版本装不上。
   - '@deepseek-ai/cordis@4.0.4'
   - '@deepseek-ai/dsh-api-session-controller@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-api-workspace-controller@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-client-locale@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-client-store@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-client-ui-conversation@0.1.7-alpha.2'
@@ -83,6 +86,8 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-fs@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-home-paths@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-host-directory-picker@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-host-open-in-app@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-http-proxy@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-invariants@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-launch-environment@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-native-command@0.1.7-alpha.2'
@@ -105,6 +110,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-storage-domain@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-storage@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-subagent@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-subprocess@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-system-prompt@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-tool-todo@0.1.7-alpha.2'
   - '@deepseek-ai/dsh-tools@0.1.7-alpha.2'
