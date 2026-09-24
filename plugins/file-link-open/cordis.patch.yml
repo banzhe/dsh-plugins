@@ -1,0 +1,3 @@
+- insert:
+    - id: file-link-open
+      name: '@banzhe/dsh-file-link-open'
