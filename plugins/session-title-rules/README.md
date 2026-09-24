@@ -107,17 +107,78 @@ execute immediately.
   `session/title-llm-request` audit row and never reuses
   `@deepseek-ai/dsh-session-title-llm` (whose system prompt is private), so the
   auxiliary request is not reconstructable from the log.
-- Routing follows the Session's logged `request/header` route. Explicit
-  `ctx.sessionTitle.refresh()` before any header exists has no route, so the
-  provider fails and the deterministic fallback stays.
+- Routing follows the Session's logged `request/header` route, unless the
+  title-model page pins an explicit model (see below). Explicit
+  `ctx.sessionTitle.refresh()` before any header exists has no route, so an
+  *unconfigured* provider fails and the deterministic fallback stays — pinning a
+  model is what makes that case work.
 - Under this cadence, subagent and fork children are never titled:
   `first-prompt` schedules only for a top-level Session
   (`header.parentSession === undefined`), and a fork child inherits its parent's
   title through the seed.
 
+## Choosing the title model
+
+The row carries an optional `config`, so the model that writes titles is a
+setting rather than a rebuild:
+
+```yaml
+- id: session-title-rules
+  config:
+    provider: cliproxyapi
+    model: cc/deepseek-v4.1-flash
+    reasoningEffort: off
+```
+
+All three fields are optional and all three are `volatile`, so a change reaches
+the **next** title without restarting `dsh web`. Resolution order is:
+
+1. an explicit `provider` + `model` pair, when configured;
+2. otherwise the Session's logged `request/header` route (the original
+   behaviour);
+3. failing both, a refusal — never a guess.
+
+**`provider` and `model` must be set together.** Half a pair is refused rather
+than falling back, because a deployment that set only `provider` asked for
+something the plugin cannot honour, and quietly titling with the session's model
+would hide the mistake. The same refusal covers a `provider`/`model` the adapter
+does not know: `ctx.llm.stream` rejects it with `UNKNOWN_MODEL` before any HTTP
+request, the automatic path warns and keeps the standing title, and
+`/title-refresh` reports the reason.
+
+`reasoningEffort` is separate from the model choice and worth setting: it is the
+only way to stop a reasoning-enabled route spending its whole 512-token budget
+on hidden thinking before it writes a title (see *Why the output cap is 512*).
+Omit it to follow the route's own default.
+
+### The settings page
+
+The model is chosen in the Web UI, not by hand-editing YAML: **Settings →
+Plugins → this plugin's row → Configure** (the `plugins.row.config` slot, keyed
+`@banzhe/dsh-session-title-rules#session-title-rules`).
+
+- The model dropdown lists the **live adapter directory**
+  (`remote.session.modelCatalog()`, the same source the composer's picker reads),
+  grouped by provider, plus a *follow the session model* option. Only routes the
+  LLM seam can actually resolve are offered, so pinning an uncallable id is not
+  reachable from the UI.
+- The effort dropdown offers only the levels the **chosen model** advertises. A
+  level the model does not support fails the call with
+  `UNSUPPORTED_REASONING_EFFORT`, so switching models clears an effort the new
+  model cannot take.
+- A route saved earlier that has since left the directory stays listed (marked
+  *saved but currently unavailable*) so it can still be seen and cleared;
+  removing it instead would silently reset the choice on the next save.
+- The page writes `unset` for "follow the session model" and "route default
+  effort": an absent field is what the provider reads as unconfigured, whereas an
+  empty string would be dispatched as a model id.
+
+Configuring by YAML directly is still supported and equivalent; the page and the
+file edit the same `session-title-rules` entry.
+
 ## Fixed policy
 
-No Loader `config` (the row carries none), so the caps below live in
+The row's `config` carries only the route above. The caps below stay in
 `src/index.ts`: `maxOutputTokens: 512`, `timeoutMs: 60000`,
 `maxInputBytes: 6000`, at most 8 messages (first + 7 most recent), 400
 characters per message. Over-cap input drops the oldest messages; the accepted

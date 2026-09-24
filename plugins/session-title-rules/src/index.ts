@@ -16,13 +16,16 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { BlockAssembler, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { Volatile } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import { BlockAssembler, createUserMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, FinishReason, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import {
   normalizeSessionTitle,
   SessionTitleProviderId,
 } from '@deepseek-ai/dsh-session-title'
 import type {
+  SessionTitleModelIdentity,
   SessionTitleProviderRequest,
   SessionTitleProviderResult,
   SessionTitleUserMessage,
@@ -44,7 +47,50 @@ export const name = 'session-title-rules'
 export const inject = ['sessionTitle', 'llm']
 
 /**
- * Fixed auxiliary-call policy; the Loader row carries no `config`.
+ * Deployment policy: an explicit auxiliary route, plus the reasoning effort to
+ * drive it with.
+ *
+ * Every field is optional AND `volatile`, which is what lets the Settings page
+ * write it without restarting the plugin: the Loader hands a volatile field a
+ * live reference, so the provider reads the CURRENT value at each call instead
+ * of the one captured at load. Omitting all three keeps the original behaviour
+ * (follow the Session's logged `request/header` route).
+ *
+ * The pair is validated in {@link resolveTitleRoute}, NOT by the schema: an
+ * unpaired `provider`/`model` is a configuration mistake the settings page must
+ * be able to explain, and a schema `required` would instead reject the whole
+ * entry at load.
+ */
+export interface Config {
+  /** Explicit auxiliary provider route; must be paired with `model`. */
+  provider: Volatile<string | undefined>
+  /** Explicit auxiliary model id; must be paired with `provider`. */
+  model: Volatile<string | undefined>
+  /** Reasoning effort for the auxiliary call; omission follows the route default. */
+  reasoningEffort: Volatile<string | undefined>
+}
+
+/**
+ * Live policy schema; also the `session-title-rules` settings-section shape.
+ *
+ * Deliberately NOT annotated `z<Config>`: the interface describes the entry's
+ * runtime config with `Volatile` references, while the schema's own output type
+ * is the plain field type. DSH's other live-preference plugins (`locale`,
+ * `ui-settings`) keep the two apart the same way, and
+ * `exactOptionalPropertyTypes` makes the annotated form unassignable.
+ *
+ * Each field is `volatile` on its own, so the Loader hands the plugin a live
+ * reference per field rather than one snapshot of the whole section.
+ */
+export const Config = z.object({
+  provider: z.string().volatile(),
+  model: z.string().volatile(),
+  reasoningEffort: z.string().volatile(),
+})
+
+/**
+ * Fixed auxiliary-call policy; the Loader row's `config` carries only the route
+ * above (see {@link Config}), never these caps.
  *
  * The cap must cover reasoning, not just the title line. A reasoning-enabled
  * route spends the whole budget on hidden thinking before it emits any text:
@@ -54,7 +100,8 @@ export const inject = ['sessionTitle', 'llm']
  * `cc/deepseek-v4.1-flash` with the shipped prompt, `finish=length` with 64 of
  * 64 tokens spent reasoning: 1/20 usable at 64, versus 17/20 at 512. The
  * built-in provider's 64 (`dsh-base`, row `session-title-llm`) fails the same
- * way, and `purpose` is only honoured by `dsh-llm-deepseek`.
+ * way, and `purpose` is only honoured by `dsh-llm-deepseek`. Configuring
+ * `reasoningEffort` (above) is the other lever on the same problem.
  */
 const MAX_OUTPUT_TOKENS = 512
 /** End-to-end deadline for one auxiliary title call. */
@@ -68,6 +115,40 @@ const MAX_MESSAGE_CHARS = 400
 
 /** The single ASCII space separating the type emoji from the topic. */
 const EMOJI_SEPARATOR = ' '
+
+/**
+ * The exact auxiliary route and reasoning effort one revision runs on.
+ * @param config - current live policy, or `undefined` when the row carries none.
+ * @param request - the service-owned request, whose `route` is the fallback.
+ * @returns the route to call, with an optional explicit effort.
+ * @throws when the pair is half-configured, or when neither an override nor a
+ *   logged request route exists — the same refusal the provider always had,
+ *   reported early instead of as a failed first model request.
+ */
+function resolveTitleRoute(
+  config: Config | undefined,
+  request: SessionTitleProviderRequest,
+): { readonly route: SessionTitleModelIdentity; readonly reasoningEffort?: string } {
+  const provider = config?.provider.get()
+  const model = config?.model.get()
+  const reasoningEffort = config?.reasoningEffort.get()
+  if ((provider === undefined) !== (model === undefined)) {
+    throw new Error(`${name}: provider and model must be configured together`)
+  }
+  if (provider !== undefined && model !== undefined) {
+    return {
+      route: { provider, model },
+      ...reasoningEffort === undefined ? {} : { reasoningEffort },
+    }
+  }
+  if (request.route === undefined) {
+    throw new Error(`${name}: no logged request route is available for this session`)
+  }
+  return {
+    route: request.route,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort },
+  }
+}
 
 /** Model sentinel meaning "these messages do not identify a topic". */
 const UNCHANGED = 'UNCHANGED'
@@ -310,17 +391,18 @@ function finishError(finish: FinishReason): Error | undefined {
 /**
  * Produce one rules-based title revision.
  * @param ctx - context exposing the session-title and LLM services.
+ * @param config - current live route policy, or `undefined` when the row carries none.
  * @param request - the service-owned session, message snapshot, route, and cancellation.
  * @returns the accepted-shape title, the exact cited message seqs, and the route used.
  */
 async function generateTitle(
   ctx: Context,
+  config: Config | undefined,
   request: SessionTitleProviderRequest,
 ): Promise<SessionTitleProviderResult> {
-  const route = request.route
-  if (route === undefined) {
-    throw new Error(`${name}: no logged request route is available for this session`)
-  }
+  // Read the live policy on EVERY call: a volatile field is a reference, so a
+  // Settings write reaches the next title without restarting the plugin.
+  const { route, reasoningEffort } = resolveTitleRoute(config, request)
   // Under `first-prompt` the service has already appended its deterministic fallback,
   // so this is normally that fallback; it is shown to the model as `原名称` only.
   const currentTitle = ctx.sessionTitle.get(request.session)?.title
@@ -337,6 +419,7 @@ async function generateTitle(
   const options: GenerateOptions = Object.freeze({
     provider: route.provider,
     model: route.model,
+    ...reasoningEffort === undefined ? {} : { reasoningEffort: ReasoningEffortId(reasoningEffort) },
     messages,
     system: TITLE_SYSTEM_PROMPT,
     maxTokens: MAX_OUTPUT_TOKENS,
@@ -373,12 +456,13 @@ async function generateTitle(
  * Also contributes `/title-refresh`, which re-derives a title on demand; it
  * mounts only where a command registry is composed.
  * @param ctx - context exposing the session-title and LLM services.
+ * @param config - optional explicit route policy, read live on each call.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config?: Config): void {
   ctx.sessionTitle.register({
     id: SessionTitleProviderId(name),
     automatic: 'first-prompt',
-    generate: request => generateTitle(ctx, request),
+    generate: request => generateTitle(ctx, config, request),
   })
   registerTitleRefreshCommand(ctx)
 }
