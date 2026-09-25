@@ -29,7 +29,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import * as React from 'react'
 import * as ReactDOMClient from 'react-dom/client'
-import { Menu, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
+import { Menu, writeClipboard, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import { classifyContextTarget, type LinkTarget } from './client/target.ts'
 
 /** Locale namespace owned by this plugin. */
 export const NS = 'fileLinkOpen'
@@ -37,6 +38,7 @@ export const NS = 'fileLinkOpen'
 export const zh = {
   copyRelativePath: '复制相对路径',
   copyAbsolutePath: '复制绝对路径',
+  atLine: '第 {line} 行',
   'app.vscode': 'VS Code',
   'app.vscodeinsiders': 'VS Code Insiders',
   'app.cursor': 'Cursor',
@@ -59,6 +61,7 @@ export const zh = {
 export const en = {
   copyRelativePath: 'Copy relative path',
   copyAbsolutePath: 'Copy absolute path',
+  atLine: 'Line {line}',
   'app.vscode': 'VS Code',
   'app.vscodeinsiders': 'VS Code Insiders',
   'app.cursor': 'Cursor',
@@ -195,29 +198,20 @@ function AppIcon(props: { id: string, size: number }) {
   )
 }
 
-interface MenuEntry {
-  id: string
-  icon?: React.ReactNode
-  label: string
-  disabled?: boolean
-  danger?: boolean
-}
-
-interface MenuSeparator {
-  type: 'separator'
-  id: string
-}
-
-type MenuItem = MenuEntry | MenuSeparator
-
+/** Locale-bound translator handed down to the menu. */
 type Translator = (key: LocaleKey, params?: Record<string, string>) => string
 
 /**
- * Build the menu entries. `state` is the shared plugin state (official probe +
- * plugin info); the two copy entries close the menu.
+ * Build the menu entries — the official `Menu` item union (`MenuEntry`:
+ * selectable row, separator, or heading label), so the compiler checks the
+ * shape this plugin hands to `<Menu items>`. `state` is the shared plugin state
+ * (official probe + plugin info); the two copy entries close the menu. A link
+ * that named a line gets a non-selectable heading naming that line, so the
+ * target is visible before anything launches.
  */
-function buildItems(state: AppState, t: Translator): MenuItem[] {
-  const items: MenuItem[] = []
+function buildItems(state: AppState, t: Translator, line: number | null): MenuEntry[] {
+  const items: MenuEntry[] = []
+  if (line !== null) items.push({ type: 'label', id: 'flo:line', text: t('atLine', { line: String(line) }) })
   const fileManagers = (state.officialApps ?? []).filter(id => (FILE_MANAGER_IDS as readonly string[]).includes(id))
   // Show an editor only when BOTH the official probe and this plugin's own
   // resolution verified it: the two resolver copies (the host dsh's and the
@@ -247,7 +241,7 @@ function buildItems(state: AppState, t: Translator): MenuItem[] {
 }
 
 /** One menu selection: dispatch to the route or the clipboard. */
-function dispatchSelection(id: string, filePath: string, cwd: string | null, deps: { close(): void }) {
+function dispatchSelection(id: string, filePath: string, line: number | null, cwd: string | null, deps: { close(): void }) {
   const absolute = resolveWorkspacePath(cwd, filePath)
   // Every path closes the menu immediately: the detached launches take
   // seconds to settle on the host, and holding the menu open for that round
@@ -278,7 +272,13 @@ function dispatchSelection(id: string, filePath: string, cwd: string | null, dep
   if (id.startsWith('flo:app:')) {
     const app = id.slice(8)
     deps.close()
-    void postJson('/api/file-link-open/launch', { app, path: absolute }).then((result) => {
+    // The line rides the launch request only; copying stays a pure path so a
+    // pasted path keeps working in a terminal, a script, or another editor.
+    void postJson('/api/file-link-open/launch', {
+      app,
+      path: absolute,
+      ...(line === null ? {} : { line }),
+    }).then((result) => {
       if (!result.ok) {
         console.warn('file-link-open: launch %s failed (%s)', app, result.status, result.data)
       }
@@ -286,33 +286,13 @@ function dispatchSelection(id: string, filePath: string, cwd: string | null, dep
   }
 }
 
-/**
- * The message file links: the official markdown renders every file mention
- * and every markdown file link as a button carrying the path in its `title`
- * (shared hashed fileMention class; the input area's reference chips share the
- * class but mark themselves with `data-ref-chip`, so they are excluded).
- */
-const FILE_LINK_SELECTOR = 'button[class*="fileMention"][title]:not([data-ref-chip])'
-
-/**
- * One right-click target inside the message flow: a file link keeps this
- * menu; anything else is out of scope and the native menu stays.
- */
-function classifyContextTarget(target: EventTarget | null): string | null {
-  if (target === null || typeof (target as Element).closest !== 'function') return null
-  const fileButton = (target as Element).closest(FILE_LINK_SELECTOR)
-  if (fileButton !== null) {
-    const filePath = fileButton.getAttribute('title')
-    return filePath !== null && filePath !== '' ? filePath : null
-  }
-  return null
-}
-
 interface ContextState {
   open: boolean
   x: number
   y: number
   path: string | null
+  /** Line the link named, or null; published to the host on launch. */
+  line: number | null
   cwd: string | null
 }
 
@@ -330,7 +310,7 @@ export async function apply(ctx: ClientContext) {
    * is replaced on every open, and the render closures always read the
    * variable, never a stale copy.
    */
-  let contextState: ContextState = { open: false, x: 0, y: 0, path: null, cwd: null }
+  let contextState: ContextState = { open: false, x: 0, y: 0, path: null, line: null, cwd: null }
   const contextContainer = document.createElement('div')
   contextContainer.setAttribute('data-flo-context', '1')
   // An in-flow body child puts the Menu anchor's ~21px line box under the
@@ -356,7 +336,7 @@ export async function apply(ctx: ClientContext) {
     const menu = props.menu
     const open = menu.open === true && menu.path !== null
     const items = open
-      ? buildItems(state, props.t)
+      ? buildItems(state, props.t, menu.line)
       : []
     return (
       <Menu
@@ -368,7 +348,7 @@ export async function apply(ctx: ClientContext) {
         items={items}
         onSelect={(id: string) => {
           if (menu.path === null) return
-          dispatchSelection(id, menu.path, menu.cwd, {
+          dispatchSelection(id, menu.path, menu.line, menu.cwd, {
             close: () => { contextState.open = false; renderContextMenu() },
           })
         }}
@@ -387,13 +367,14 @@ export async function apply(ctx: ClientContext) {
     contextRoot.render(<LinkMenu menu={contextState} t={t} />)
   }
 
-  /** Replace the context state with one open menu at x/y over `filePath`. */
-  function openContextMenu(x: number, y: number, filePath: string) {
+  /** Replace the context state with one open menu at x/y over one classified link. */
+  function openContextMenu(x: number, y: number, link: LinkTarget) {
     contextState = {
       open: true,
       x,
       y,
-      path: filePath,
+      path: link.path,
+      line: link.line,
       cwd: contextState.cwd,
     }
     renderContextMenu()

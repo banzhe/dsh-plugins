@@ -10,11 +10,16 @@
  *   browser can intersect them with the official open-in-app probe and
  *   never show an item that would answer 400.
  * - POST /api/file-link-open/launch  → open one existing file (or directory)
- *   in a whitelisted editor/IDE. The app is resolved by the official
- *   `@deepseek-ai/dsh-host-open-in-app` resolver — the same locators the
- *   official routes use (macOS `.app` bundles, Windows `App Paths` registry /
- *   Uninstall records / `%ProgramFiles%` scans, Linux PATH names and desktop
- *   entries) — and launched with the file path appended.
+ *   in a whitelisted editor/IDE, optionally revealing a line. The app is
+ *   resolved by the official `@deepseek-ai/dsh-host-open-in-app` resolver — the
+ *   same locators the official routes use (macOS `.app` bundles, Windows
+ *   `App Paths` registry / Uninstall records / `%ProgramFiles%` scans, Linux
+ *   PATH names and desktop entries) — and launched with the file path appended.
+ *   A request that names a `line` rewrites the resolved launcher's argv into
+ *   that editor's line-selection spelling (`--goto <file>:<n>`, `--line <n>
+ *   <file>`); every request also appends that editor's own window-reuse switch
+ *   when it has one, so a click lands in the running editor instead of a new
+ *   window. See `./launch-args.ts` for which launchers qualify.
  *
  * Security: every route asks the composition's `connection` service for a
  * rejection first (Host/Origin fence + browser authentication, the same
@@ -33,6 +38,8 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { launchEnvironmentOf, launchedThroughSsh } from '@deepseek-ai/dsh-launch-environment'
 import type { Context } from '@deepseek-ai/cordis'
+import { EDITOR_IDS } from './editors.ts'
+import { withLaunchArgs, type ResolvedLaunch } from './launch-args.ts'
 
 /** Cordis function-plugin name. */
 export const name = 'file-link-open'
@@ -44,19 +51,8 @@ export const name = 'file-link-open'
  */
 export const inject = ['webServer', 'connection', 'subprocess']
 
-/**
- * Official open-in-app catalog ids this plugin launches, with labels on the
- * browser side. File managers (finder/explorer/filemanager) are excluded: the
- * browser half offers them from the official probe alone and launches them
- * through the official POST /open-in-app/open route with the file's directory
- * — the exact call the session-header menu makes — because a file-manager
- * shell-open with the file path would open the file in its default app instead.
- */
-export const EDITOR_IDS = [
-  'cursor', 'vscode', 'vscodeinsiders', 'windsurf', 'zed', 'sublimetext',
-  'androidstudio', 'intellij', 'pycharm', 'webstorm', 'phpstorm',
-  'goland', 'rider', 'rustrover',
-] as const
+/** The editor whitelist; the arg tables in `launch-args.ts` are keyed by these ids. */
+export { EDITOR_IDS }
 
 /** Module layouts of the official resolver/catalog across published versions. */
 const RESOLVER_LAYOUTS = ['lib/types/resolver.js', 'lib/resolver.js']
@@ -120,10 +116,12 @@ export async function loadOfficialOpenInApp() {
     || typeof resolver.resolveLaunch !== 'function'
     || typeof resolver.launchResolved !== 'function'
     || !Array.isArray(catalog.OPEN_IN_APP_CATALOG)
+    || typeof catalog.PATH_TOKEN !== 'string'
+    || catalog.PATH_TOKEN === ''
   ) {
     throw new Error('file-link-open: the official open-in-app package loaded but does not expose the expected resolver API')
   }
-  return { resolver, catalog: catalog.OPEN_IN_APP_CATALOG }
+  return { resolver, catalog: catalog.OPEN_IN_APP_CATALOG, pathToken: catalog.PATH_TOKEN }
 }
 
 /** Answer an untrusted/unauthenticated request; true when it was rejected. */
@@ -168,8 +166,21 @@ async function readBoundedBody(req: any): Promise<string | null> { // eslint-dis
   return Buffer.concat(chunks, size).toString('utf8')
 }
 
-/** Validate one POST body at the wire: JSON object with string app/path. */
-function parseBody(text: string): { app: string, path: string } | null {
+/** One validated launch request: an app id, an absolute path, and an optional line. */
+interface LaunchRequest {
+  readonly app: string
+  readonly path: string
+  /** 1-based line to reveal; absent when the link named no line. */
+  readonly line?: number
+}
+
+/**
+ * Validate one POST body at the wire: JSON object with string app/path and an
+ * optional positive-integer line.
+ * @param text - The bounded request body.
+ * @returns The validated request, or null when the shape or the line is invalid.
+ */
+export function parseBody(text: string): LaunchRequest | null {
   let body: unknown
   try {
     body = JSON.parse(text)
@@ -178,8 +189,13 @@ function parseBody(text: string): { app: string, path: string } | null {
     return null
   }
   if (typeof body !== 'object' || body === null) return null
-  const { app, path: bodyPath } = body as Record<string, unknown>
-  return typeof app === 'string' && typeof bodyPath === 'string' ? { app, path: bodyPath } : null
+  const { app, path: bodyPath, line } = body as Record<string, unknown>
+  if (typeof app !== 'string' || typeof bodyPath !== 'string') return null
+  if (line === undefined) return { app, path: bodyPath }
+  // A malformed line is rejected rather than dropped: silently opening at the
+  // top would hide a client bug behind a plausible-looking launch.
+  if (typeof line !== 'number' || !Number.isSafeInteger(line) || line < 1) return null
+  return { app, path: bodyPath, line }
 }
 
 /** Whether the path names an existing file or directory on disk. */
@@ -231,9 +247,14 @@ export async function apply(ctx: Context) {
   /** The official resolver bundle, loaded once at activation. */
   const bundle = await loadOfficialOpenInApp()
 
-  /** Lazy once-per-plugin-life resolution; the map is the mutable authority. */
-  let resolutionsTask: Promise<Map<string, unknown>> | undefined
-  const availability = (): Promise<Map<string, unknown>> => resolutionsTask ??= bundle.resolver.resolveOpenInAppApps(launchTimeoutMs, internalsOf())
+  /**
+   * Lazy once-per-plugin-life resolution; the map is the mutable authority.
+   * Typed through this plugin's own launch shape: the resolver is loaded
+   * dynamically, so its own type is not statically visible here.
+   */
+  let resolutionsTask: Promise<Map<string, ResolvedLaunch>> | undefined
+  const availability = (): Promise<Map<string, ResolvedLaunch>> => resolutionsTask
+    ??= bundle.resolver.resolveOpenInAppApps(launchTimeoutMs, internalsOf())
 
   /**
    * Replace one stale resolution after a missing-executable launch, exactly
@@ -257,7 +278,7 @@ export async function apply(ctx: Context) {
   availability().catch(() => {})
 
   /** Read + validate one JSON POST body, answering failures; null when invalid. */
-  const readPost = async (req: any, res: any): Promise<{ app: string, path: string } | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const readPost = async (req: any, res: any): Promise<LaunchRequest | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
     const essence = String(req.headers['content-type']).split(';', 1)[0]?.trim().toLowerCase()
     if (essence !== 'application/json') {
       sendJson(res, 415, { code: 'unsupported-media-type', message: 'content-type must be application/json' })
@@ -335,12 +356,19 @@ export async function apply(ctx: Context) {
         sendJson(res, 400, { code: 'unavailable-app', message: `unknown or unavailable app: ${parsed.app}` })
         return
       }
-      let outcome = await bundle.resolver.launchResolved(resolved, parsed.path, launchTimeoutMs, internalsOf())
+      // The line (when the link named one) and the window-reuse switch are
+      // applied to the resolution's own argv — the official resolver itself has
+      // no notion of either.
+      const target = withLaunchArgs(resolved, parsed.app, parsed.line, bundle.pathToken)
+      let outcome = await bundle.resolver.launchResolved(target, parsed.path, launchTimeoutMs, internalsOf())
       if (outcome === 'missing') {
         const fresh = await refreshResolution(parsed.app)
         outcome = fresh === undefined
           ? 'failed'
-          : await bundle.resolver.launchResolved(fresh, parsed.path, launchTimeoutMs, internalsOf())
+          : await bundle.resolver.launchResolved(
+            withLaunchArgs(fresh, parsed.app, parsed.line, bundle.pathToken),
+            parsed.path, launchTimeoutMs, internalsOf(),
+          )
       }
       if (outcome === 'launched') sendJson(res, 200, { ok: true })
       else sendJson(res, 502, { code: 'launch-failed', message: `failed to launch ${parsed.app}` })
