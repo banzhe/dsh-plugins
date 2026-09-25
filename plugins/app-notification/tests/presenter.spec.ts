@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 /**
- * Badge and notification presentation over a fake capabilities surface: which
- * platform calls the finished-unread count produces, how a repeated count is
- * deduplicated, how the LIVE permission (never a startup probe) gates every
- * notification, and how every unsupported or refused capability degrades to a
- * logged no-op instead of a thrown error.
+ * Badge and notification presentation over a fake capabilities surface: how the
+ * LIVE permission (never a startup probe) gates every notification, and how
+ * every unsupported or refused capability degrades to a logged no-op.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -35,7 +33,6 @@ class FakeNotification {
   }
 }
 
-/** Install the badging + notification capability surface. */
 function stubCapabilities(options: {
   badge?: boolean
   permission?: NotificationPermission
@@ -56,7 +53,6 @@ function stubCapabilities(options: {
 
 const logger = { warn: vi.fn() } as unknown as Context['logger']
 
-/** One row whose display title the assertions below read back. */
 const summary = (id: string, over: Partial<SessionRow> = {}): SessionRow =>
   sessionRow(id, { displayTitle: `Title ${id}`, ...over })
 
@@ -204,8 +200,8 @@ describe('CompletionPresenter', () => {
       tag: 'dsh-session-completed',
     })
 
-    // Chromium on Windows does not raise the page on its own, so the click
-    // must ask. Without this the session switches behind the foreground app.
+    // Chromium on Windows does not raise the page on its own, so the click must
+    // ask, or the Session switches behind the foreground app.
     const focus = vi.spyOn(window, 'focus')
     FakeNotification.instances[0]?.onclick?.()
     expect(open).toHaveBeenCalledWith('a')
@@ -223,7 +219,7 @@ describe('CompletionPresenter', () => {
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toHaveLength(1)
     // Chromium suppresses every same-tag banner after the first unless renotify
-    // is set, so the completion count would visibly stop alerting without it.
+    // is set, which would make the count silently stop alerting.
     expect(FakeNotification.instances[0]?.options).toMatchObject({ renotify: true })
     detach()
   })
@@ -242,7 +238,7 @@ describe('CompletionPresenter', () => {
     expect(logger.warn).toHaveBeenCalledWith(
       'app-badge: the platform refused to display the notification', refusal,
     )
-    // A late refusal is reported, not retried: acceptance never changed.
+    // A late refusal is reported, not retried.
     expect(FakeNotification.instances).toHaveLength(1)
     detach()
   })
@@ -336,14 +332,13 @@ describe('CompletionPresenter', () => {
     const sessions = sessionSources([summary('a', { running: true })])
     const presenter = new CompletionPresenter(options())
     // Supported but ungranted: nothing may be announced yet, but the page is
-    // still worth subscribing to — the settings row can change this.
+    // still worth subscribing to — the settings row can change this mid-session.
     expect(presenter.viable).toBe(true)
     expect(presenter.permission()).toBe('default')
     const detach = presenter.attach(sessions.status, sessions.list)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
     expect(FakeNotification.instances).toEqual([])
 
-    // The user grants through the settings row; nothing about the page reloads.
     FakeNotification.permission = 'granted'
     sessions.update((state) => {
       state.ids = ['a' as SessionId, 'b' as SessionId]
@@ -388,7 +383,7 @@ describe('CompletionPresenter', () => {
       body: 'If you can read this, it works.',
       tag: 'dsh-session-completed-test',
     })
-    // A test notification has nowhere to go, so it carries no click handler.
+    // A test notification has nowhere to go.
     expect(FakeNotification.instances[0]?.onclick).toBeNull()
     expect(open).not.toHaveBeenCalled()
   })
@@ -404,7 +399,6 @@ describe('CompletionPresenter', () => {
   it('logs a display refusal the platform reports after the probe was accepted', () => {
     stubCapabilities()
     const presenter = new CompletionPresenter(options())
-    // The error handler is attached to the notification the probe accepted.
     expect(presenter.showTest()).toBe(true)
     expect(FakeNotification.instances).toHaveLength(1)
 

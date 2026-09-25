@@ -1,19 +1,14 @@
 /**
  * @banzhe/dsh-file-link-open — The right-click target inside the message flow.
  *
- * The official markdown renders every file mention and every markdown file link
- * as a `button` carrying the decoded path in `title`. A markdown file link may
- * also name a GitHub-style line fragment (`src/a.ts#L24`, `#L24-L30`), but the
- * official renderer consumes that line inside its own component: it passes
- * `{ line }` to the `openFile` delegate and never writes it to an attribute.
- *
- * The line is therefore read from the button's React fiber, which is the same
- * trade `docs/adr/0004-session-id-from-react-fiber.md` records: React internals
- * (`__reactFiber$` plus a per-page random suffix, `memoizedProps`, `return`)
- * instead of a DOM contract. A React or DSH major that moves them degrades to
- * "the editor opens at the top of the file" rather than to a wrong launch, and
- * `tests/link-target.spec.tsx` pins the walk so that failure surfaces as a red
- * test.
+ * The official renderer renders every file mention and markdown file link as a
+ * `button` carrying the decoded path in `title`, but it consumes a link's
+ * GitHub-style line fragment (`#L24`) inside its own component: the line never
+ * reaches an attribute. It is therefore read from the button's React fiber, the
+ * same trade `docs/adr/0004-session-id-from-react-fiber.md` records. A React or
+ * DSH major that moves these internals degrades to "the editor opens at the top
+ * of the file" rather than to a wrong launch, and `tests/link-target.spec.tsx`
+ * pins the walk so that failure surfaces as a red test.
  *
  * The walk is exact rather than heuristic: the fiber it accepts must carry a
  * `file` object whose `path` equals the button's own `title`, so an unrelated
@@ -32,10 +27,8 @@ export interface LinkTarget {
 }
 
 /**
- * The message file links: the official markdown renders every file mention and
- * every markdown file link as a button carrying the path in its `title`
- * (shared hashed fileMention class; the input area's reference chips share the
- * class but mark themselves with `data-ref-chip`, so they are excluded).
+ * The input area's reference chips share the official fileMention class but mark
+ * themselves with `data-ref-chip`, so they are excluded here.
  */
 const FILE_LINK_SELECTOR = 'button[class*="fileMention"][title]:not([data-ref-chip])'
 
@@ -57,12 +50,8 @@ function filePropOf(fiber: Record<string, unknown>): { path: string, line?: unkn
 }
 
 /**
- * The line a file-link button opens at, read from its React fiber.
- * @param button - The `title`-carrying file-link button.
- * @param path - The button's own `title`, which the accepted fiber must match.
- * @returns The 1-based line, or null when the link named none or the fiber walk
- *   found no matching component (a React/DSH change, or a mention-shaped file
- *   button that never had one).
+ * The line a file-link button opens at, read from its React fiber. Null means
+ * the link named none, or the fiber walk found no matching component.
  */
 export function lineOfFileLink(button: Element, path: string): number | null {
   let fiber = fiberHandleOf(button) as Record<string, unknown> | undefined
@@ -81,11 +70,8 @@ export function lineOfFileLink(button: Element, path: string): number | null {
 }
 
 /**
- * One right-click target inside the message flow: a file link keeps this
- * menu; anything else is out of scope and the native menu stays.
- * @param target - The event target.
- * @returns The link's path and optional line, or null when the target names no
- *   message file link.
+ * One right-click target inside the message flow. Null means the target names
+ * no message file link, so the native menu stays.
  */
 export function classifyContextTarget(target: EventTarget | null): LinkTarget | null {
   if (target === null || typeof (target as Element).closest !== 'function') return null

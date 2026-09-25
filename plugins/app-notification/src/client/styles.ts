@@ -1,15 +1,12 @@
 /**
- * The `--dsw-*` token stylesheet the settings row injects for exactly the
- * owning plugin's lifetime. A plain string rather than a CSS module: this
- * package builds its browser bundle with its own tsdown config (no CSS
- * pipeline), and the row is the only styled surface it owns.
+ * The `--dsw-*` token stylesheet the settings row injects for the owning
+ * plugin's lifetime.
  *
- * Only LAYOUT lives here. Controls come from `ui-primitives` (the one package
- * allowed to own a shared control), so no button/hover/disabled chrome is
- * restated here and no color is ever hand-picked.
- *
- * Class names are prefixed `ab-`, so the sheet cannot collide with the shell's
- * styles.
+ * A plain string rather than a CSS module: this package builds its browser
+ * bundle with its own tsdown config (no CSS pipeline). Only LAYOUT lives here —
+ * controls come from `ui-primitives`, so no button/hover/disabled chrome is
+ * restated and no color is hand-picked. Class names are prefixed `ab-` to avoid
+ * colliding with the shell's styles.
  */
 
 /** Stylesheet text installed once per plugin lifetime. */

@@ -1,20 +1,10 @@
 // @vitest-environment jsdom
 /**
  * `workspaceMenu.ts`'s observable contract, driven through the shared DOM
- * fixtures: the gestures that may raise an arm (a `pointerdown` anywhere inside
- * the row's FIRST button, a `keydown` of `Enter` or `' '`) and every press that
- * must not (any other key, the row's second button, a session row nested inside
- * the workspace row, the ungrouped bucket's empty suffix, a buttonless row, a
- * target outside any workspace row, a target that is not an element at all),
- * the single-shot graft (a clone of the rename wrapper, its icon span swapped
- * for the inline glyph, the translated label, the marker, placed between rename
- * and delete), the idempotency and malformed-menu guards, the three active
- * elements the observer accepts and the ones it refuses (focus elsewhere, a
- * trigger that left the document), the click's four answers (resolved path,
- * non-2xx, rejected request with an Error and with a non-Error, and a workspace
- * that is gone), the Escape the row dispatches so the menu closes through the
- * primitive's own path, and the disposer removing both listeners and the
- * observer.
+ * fixtures (README "DOM contract"). Most of the coverage here is the negative
+ * side, because that is where the regressions live: which gestures and targets
+ * must NOT arm, when the graft must NOT happen, and the guards that keep the
+ * arm from leaking into another row's menu.
  *
  * The portal menu is appended straight to `document.body`, exactly as the Menu
  * primitive's portal does, so the observer reads the real mutation shape.
@@ -32,17 +22,11 @@ import { translateEn as t } from './translate.ts'
 /** The workspace directory the default stub resolves; every other id misses. */
 const PATHS: Record<string, string> = { 'ws-1': '/ws/alpha' }
 
-/** The label/path/toast face the plugin body hands the installer. */
 interface OptionsFixture {
   readonly options: WorkspaceMenuOptions
   readonly showToast: ReturnType<typeof vi.fn>
 }
 
-/**
- * Build the installer's options face over a workspace-path table.
- * @param paths - workspace id to canonical directory; an absent id misses.
- * @returns the face plus the toast spy.
- */
 function optionsFixture(paths: Record<string, string> = PATHS): OptionsFixture {
   const showToast = vi.fn()
   return {
@@ -51,14 +35,8 @@ function optionsFixture(paths: Record<string, string> = PATHS): OptionsFixture {
   }
 }
 
-/** Disposers of every install this spec raised, drained after each test. */
 let disposers: Array<() => void> = []
 
-/**
- * Install the extension over a stubbed options face, tracking its disposer.
- * @param paths - workspace id to canonical directory.
- * @returns the face plus the toast spy.
- */
 function install(paths?: Record<string, string>): OptionsFixture {
   const fixture = optionsFixture(paths)
   disposers.push(installWorkspaceMenu(fixture.options))
@@ -88,7 +66,6 @@ function nested(trigger: HTMLElement): HTMLElement {
   return found
 }
 
-/** Arm one Workspace row through its trigger, open the menu, stop at the grafted row. */
 async function graft(workspaceId = 'ws-1'): Promise<{
   readonly row: WorkspaceRowFixture
   readonly menu: MenuFixture

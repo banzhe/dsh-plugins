@@ -3,16 +3,12 @@
  *
  * The page lives on the Plugins page, not in Settings, because that is where a
  * Loader row's own configuration belongs: the plugin manager declares
- * `plugins.row.config` keyed by `<bundle package name>#<row id>`, and this
- * Bundle's row is `@banzhe/dsh-session-title-rules#session-title-rules`.
- * Registering under that key gives the row a **Configure** control and mounts
- * this card on the page it opens.
+ * `plugins.row.config` keyed by `<bundle package name>#<row id>`.
  *
  * The registration is gated on `whileServed`: while the Host serves the
- * `session-title-rules` settings namespace the row is configurable, and when
- * the row is switched off the control disappears with it. That gate is also how
- * the page learns a Host Config schema exists to edit at all — a namespace the
- * describe mirror does not carry has no form.
+ * `session-title-rules` settings namespace the row is configurable, and when the
+ * row is switched off the control disappears with it. That gate is also how the
+ * page learns a Host Config schema exists to edit at all.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -45,10 +41,7 @@ const PLUGIN_ID = '@banzhe/dsh-session-title-rules'
 /** Required services: settings forms, dictionaries, slots, and the model directory. */
 export const inject = ['configForms', 'locale', 'slots', 'remote', 'remote.session']
 
-/**
- * Register this row's configuration page while the Host serves its namespace.
- * @param ctx - the browser plugin context.
- */
+/** Register this row's configuration page while the Host serves its namespace. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-title-rules: dictionaries')
   // The card's stylesheet rides the plugin's own fiber: unload removes it. It
@@ -64,8 +57,6 @@ export function apply(ctx: ClientContext): void {
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'session-title-rules: title model stylesheet')
-  // The card's `t` arrives from the renderer through the registration's
-  // `locale: NS`, so this plugin binds no translator of its own.
 
   ctx.effect(() => ctx.configForms.whileServed([NS], () => {
     // The shared form is owned by configForms: repeated `get` returns the same

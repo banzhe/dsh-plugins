@@ -1,15 +1,9 @@
 /**
  * The contract this plugin's launch arguments depend on, exercised against the
- * INSTALLED official resolver.
- *
- * `src/launch-args.ts` extends a resolution's argv so that its added arguments
- * carry the catalog's `{path}` placeholder, and — for a plain open — so that the
- * window-reuse switch survives to the spawn. That only reaches the editor
- * correctly because the official launcher substitutes the placeholder:
- * `launchArgs` in the resolver replaces it in an argv that carries it, and
- * appends the path to one that does not. If an official patch changes that rule,
- * every line launch would silently spawn `--goto <file>:24 <file>` (a flagship
- * "wrong launch"), so the rule is pinned here rather than in prose.
+ * INSTALLED official resolver. Its `launchArgs` replaces `{path}` in an argv
+ * that carries the token and appends the path to one that does not; if an
+ * official patch changes that rule, every line launch would silently spawn
+ * `--goto <file>:24 <file>`, so the rule is pinned here rather than in prose.
  *
  * `launchResolved` takes its launcher as an injectable hook, so the real
  * substitution runs with a recording stand-in instead of a spawned process.
@@ -18,16 +12,14 @@ import { describe, expect, it } from 'vitest'
 import { loadOfficialOpenInApp } from '../src/index.ts'
 import { withLaunchArgs } from '../src/launch-args.ts'
 
-/** The path the route would hand the launcher. */
 const ABSOLUTE = '/abs/a.ts'
 
-/** One spawn the official launcher was asked to perform. */
 interface Spawn {
   readonly command: string
   readonly args: readonly string[]
 }
 
-/** Run one resolution through the real `launchResolved` with a recording launcher. */
+/** Runs the real `launchResolved`, capturing spawns instead of spawning. */
 async function launchAndRecord(resolved: unknown, path: string) {
   const { resolver } = await loadOfficialOpenInApp()
   const spawns: Spawn[] = []
@@ -38,7 +30,6 @@ async function launchAndRecord(resolved: unknown, path: string) {
   return { outcome, spawns }
 }
 
-/** A VS Code-shaped resolution: the catalog's own argv carries no path token. */
 const vsCode = { launch: { kind: 'argv' as const, command: 'Code.exe', args: ['--new-window'] } }
 
 describe('installed official launcher contract', () => {
@@ -48,8 +39,8 @@ describe('installed official launcher contract', () => {
       withLaunchArgs(vsCode, 'vscode', 24, pathToken), ABSOLUTE,
     )
     expect(outcome).toBe('launched')
-    // One argv element: a separate appended path here would mean the editor was
-    // asked to open a file named "a.ts:24".
+    // One argv element: an appended path here would ask the editor to open a
+    // file named "a.ts:24".
     expect(spawns).toEqual([{
       command: 'Code.exe',
       args: ['--new-window', '--reuse-window', '--goto', `${ABSOLUTE}:24`],
@@ -62,8 +53,8 @@ describe('installed official launcher contract', () => {
       withLaunchArgs(vsCode, 'vscode', undefined, pathToken), ABSOLUTE,
     )
     expect(outcome).toBe('launched')
-    // This is the actual fix for "it keeps opening a new window": without the
-    // switch, VS Code's CLI default is a fresh window.
+    // The actual fix for "it keeps opening a new window": without the switch,
+    // VS Code's CLI default is a fresh window.
     expect(spawns).toEqual([{ command: 'Code.exe', args: ['--new-window', '--reuse-window', ABSOLUTE] }])
   })
 

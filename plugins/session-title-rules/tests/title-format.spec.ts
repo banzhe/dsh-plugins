@@ -2,27 +2,20 @@
  * `formatTitleOutput` / `TITLE_SYSTEM_PROMPT` contract.
  *
  * `formatTitleOutput` is the last gate between an untrusted auxiliary-model
- * answer and the durable sidebar title, so the interesting cases are the ones
- * where model formatting habits disagree with the canonical
- * `<emoji><one ASCII space><topic>` line: an emoji-presentation selector, a
- * missing gap, the retired `｜`/`|` separator, a model-authored date prefix, a
- * wrapping quote pair, and control or invisible characters smuggled in with the
- * text. The topic itself has to survive verbatim, which is why separate rows
- * assert that a `｜` inside the topic, a non-vocabulary emoji leading the topic,
- * and a quote pair that belongs to the topic are NOT read as formatting.
+ * answer and the durable sidebar title, so each row pins one model formatting
+ * habit that disagrees with the canonical `<emoji><one ASCII space><topic>`
+ * line, while separate rows assert that a `｜`, a non-vocabulary emoji, or a
+ * quote pair belonging to the TOPIC is not read as formatting.
  *
- * The refusal group pins the other half of the deal: the `UNCHANGED` decline
+ * The refusal group is the other half of the deal: the `UNCHANGED` decline
  * sentinel, empty input, a line that does not start with one of the eight
- * vocabulary emoji (including the retired `研究｜…` text-type shape), and a type
- * emoji with no topic at all. All four families throw rather than handing back a
- * guessed or truncated title, and they share one throw contract —
- * `session-title-rules: ` followed by a non-empty reason — so the rows assert
- * that shape instead of any individual wording.
+ * vocabulary emoji, and a type emoji with no topic all throw rather than
+ * handing back a guessed or truncated title, and all four families share one
+ * throw contract — `session-title-rules: ` plus a non-empty reason — so the
+ * rows assert that shape instead of any individual wording.
  *
  * The prompt group asserts only the facts the contract fixes about
- * `TITLE_SYSTEM_PROMPT`: the vocabulary it must name, the output shape, the
- * decline sentinel, the example-line shape, and the "do not emit the Chinese
- * type words" instruction. Its prose is not asserted.
+ * `TITLE_SYSTEM_PROMPT`; its prose is not asserted.
  */
 import { describe, expect, it } from 'vitest'
 import { formatTitleOutput, TITLE_SYSTEM_PROMPT } from '../src/index.ts'

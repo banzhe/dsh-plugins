@@ -1,13 +1,10 @@
 /**
- * Finished-unread folding over the Session status snapshot. The mirror of the
- * host sidebar's completion reminder: a Session that stopped running while it
- * was not the main view stays `completionUnread` until the user looks at it,
- * and each observation reports the rows that reached that state since the
- * previous one.
+ * Finished-unread folding over the Session status snapshot: the mirror of the
+ * host sidebar's completion reminder, reported per Session.
  *
  * The first observation is state-only: a page load (or a plugin reload) sees
- * whatever was already finished and must not announce it again as if it had
- * just happened.
+ * whatever was already finished and must not announce it again as if it had just
+ * happened.
  *
  * The finished-unread fact lives on the status snapshot, not the list row:
  * `completionUnread` is the host's own answer, and the list row is only the
@@ -32,10 +29,8 @@ export class CompletionObserver {
   private seen: ReadonlySet<string> | undefined
 
   /**
-   * Fold one status snapshot against the current list rows.
-   * @param status - per-Session running, pending, and completion-unread facts.
-   * @param list - sessions list snapshot supplying the rows the status ids name.
-   * @returns the finished-unread rows and those newly finished since the previous fold.
+   * Fold one status snapshot against the current list rows. The snapshot
+   * supplies the finished-unread facts; the list supplies the rows they name.
    */
   observe(status: SessionStatusSnapshot, list: SessionListState): CompletionObservation {
     const completed: SessionSummary[] = []

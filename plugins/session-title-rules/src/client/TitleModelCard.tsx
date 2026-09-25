@@ -1,21 +1,18 @@
 /**
- * The row-configuration page for this plugin: which model writes session
- * titles, and at what reasoning effort.
+ * The row-configuration page: which model writes session titles, and at what
+ * reasoning effort.
  *
- * Both choices render as the shell's own settings dropdown — a pill trigger
- * that opens the shared `Menu` — rather than a native `<select>`. That is not
+ * Both choices render as the shell's own settings dropdown — a pill trigger that
+ * opens the shared `Menu` — rather than a native `<select>`. That is not
  * cosmetic: a native select's popup is drawn by the operating system, so it can
- * never carry the theme, and the checkmarked card the General settings show
- * ("工作过程展示", "性能与用量") is reachable only through `Menu`. A free-text
- * model id is in any case a value the LLM seam rejects with `UNKNOWN_MODEL`
- * before it reaches a provider, so both controls choose from a closed set the
- * Host publishes: selecting a route from the live directory is the only way to
- * choose one known to be callable.
+ * never carry the theme, and the checkmarked card the General settings show is
+ * reachable only through `Menu`. A free-text model id is in any case a value the
+ * LLM seam rejects with `UNKNOWN_MODEL`, so both controls choose from a closed
+ * set the Host publishes.
  *
  * Styling rides the injected token sheet in `styles.ts`, not inline styles: the
  * shell's controls are styled by class, so a control carrying an inline `style`
- * attribute can never match them. `Menu` needs nothing from that sheet — it is a
- * `ui-primitives` value import and brings its own.
+ * attribute can never match them. `Menu` brings its own sheet.
  */
 
 import { useRef, useState } from 'react'
@@ -51,9 +48,8 @@ interface ProviderGroup {
 }
 
 /**
- * Group the flat candidate list by provider, keeping directory order.
- * @param candidates - rows joined from the live directory and the stored route.
- * @returns one group per provider, unavailable rows excluded.
+ * Group the flat candidate list by provider, keeping directory order and
+ * excluding unavailable rows.
  */
 function groupByProvider(candidates: readonly TitleModelCandidate[]): ProviderGroup[] {
   const groups: ProviderGroup[] = []
@@ -126,8 +122,6 @@ function PreferenceRow({ title, description, label, disabled, items, selectedId,
 
 /**
  * Render the title-model form, or its one-liner when the page asks for a summary.
- * @param props - the view asked for, locale copy, the card snapshot, and its actions.
- * @returns the summary line, or the settings form.
  */
 export function TitleModelCard(props: TitleModelCardProps) {
   const { t } = props

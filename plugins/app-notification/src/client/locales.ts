@@ -1,6 +1,5 @@
 /** `app-badge` namespace dictionaries. */
 
-/** Dictionary namespace owned by this plugin. */
 export const NS = 'app-badge'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */

@@ -12,7 +12,6 @@ import {
   sessionListOf, sessionRow, sessionStatusOf, type SessionRow,
 } from './session-list-double.ts'
 
-/** Fold one row set: the status snapshot is derived from the rows' `completed` flag. */
 function fold(observer: CompletionObserver, rows: readonly SessionRow[]) {
   return observer.observe(sessionStatusOf(rows), sessionListOf(rows))
 }

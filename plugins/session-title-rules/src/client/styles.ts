@@ -1,21 +1,15 @@
 /**
- * The `--dsw-*` token stylesheet this settings row injects for exactly the
- * owning plugin's lifetime.
+ * The `--dsw-*` token stylesheet this settings row injects for the owning
+ * plugin's lifetime.
  *
  * A plain string rather than a CSS module: this Bundle builds its browser half
  * with its own tsdown config, which has no CSS pipeline, so a `.module.css`
- * import has nothing to resolve. The sibling `app-notification` Bundle solves
- * the same problem the same way.
+ * import has nothing to resolve.
  *
- * These values copy the shell's own settings dropdown — `PreferenceRow` in
- * `ui-chat/src/client/settings/PreferenceRow.module.css`, the row shape the
- * General settings use ("工作过程展示", "性能与用量"). Its control is a pill
- * button that opens the shared `Menu`, not a `<select>`: a native select's
- * popup is drawn by the OS and cannot carry the theme, so the checkmarked card
- * in the reference design is only reachable through `Menu`.
- *
- * The `Menu` card itself needs no styles here — it is a `ui-primitives` value
- * import and brings its own sheet (`Menu.module.css`) with it.
+ * These values copy the shell's own settings dropdown (`PreferenceRow` in
+ * `ui-chat/src/client/settings/`): a pill button that opens the shared `Menu`,
+ * not a `<select>` — a native select's popup is drawn by the OS and cannot carry
+ * the theme. The `Menu` card needs no styles here; it brings its own sheet.
  *
  * Class names are prefixed `str-`, so the sheet cannot collide with the shell's.
  */

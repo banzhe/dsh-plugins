@@ -1,21 +1,18 @@
 /**
- * The route-resolution contract behind `generateTitle`.
- *
- * This is the one decision that changes which model writes a title, and it has
- * three outcomes the plugin must keep distinct:
+ * The route-resolution contract behind `generateTitle`, and the three outcomes
+ * the plugin must keep distinct:
  *
  * 1. an explicit `provider`+`model` pair wins over the session's own route;
- * 2. an absent pair falls back to the Session's logged `request/header` route —
- *    the original behaviour, preserved exactly;
- * 3. half a pair is a REFUSAL, never a silent fallback to the session route,
- *    because a deployment that set only `provider` asked for something the
- *    plugin cannot honour and quietly titles with a different model instead.
+ * 2. an absent pair falls back to the Session's logged `request/header` route;
+ * 3. half a pair is a REFUSAL, never a silent fallback to the session route —
+ *    a deployment that set only `provider` asked for something the plugin
+ *    cannot honour, and falling back quietly titles with a model it did not
+ *    choose.
  *
  * `resolveTitleRoute` is not exported (it is internal to the provider), so these
  * rows drive it through the public `apply()` seam with a stubbed
  * `ctx.sessionTitle.register`: the registered `generate` closure is the real
- * call path, which keeps the test honest about the wiring rather than only
- * about a helper.
+ * call path, not a helper.
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
@@ -24,12 +21,10 @@ import type { SessionTitleProvider, SessionTitleProviderRequest } from '@deepsee
 import { apply, type Config } from '../src/index.ts'
 
 /**
- * Build the minimal `Context` `apply()` needs. `apply` also registers the
- * `/title-refresh` command through `ctx.inject(['commands'], …)`; that wiring is
- * covered by `command.spec.ts`, so the stub answers the injection without
- * running its callback and this suite stays about route resolution only.
- * @param parts - the sessionTitle and llm faces under test.
- * @returns the stub context.
+ * The stub answers the injection without running its callback: `apply` also
+ * registers `/title-refresh` through `ctx.inject(['commands'], …)`, and that
+ * wiring is covered by `command.spec.ts`, so this suite stays about route
+ * resolution.
  */
 function stubContext(parts: {
   sessionTitle: unknown
@@ -42,12 +37,10 @@ function stubContext(parts: {
   } as unknown as Context
 }
 
-/** A `Volatile`-shaped stand-in: the provider only ever calls `.get()`. */
 function volatile<T>(value: T): { get: () => T } {
   return { get: () => value }
 }
 
-/** Live-policy config as the Loader would hand it to `apply`. */
 function config(values: { provider?: string; model?: string; reasoningEffort?: string }): Config {
   return {
     provider: volatile(values.provider),
@@ -56,19 +49,11 @@ function config(values: { provider?: string; model?: string; reasoningEffort?: s
   } as unknown as Config
 }
 
-/** The model options one `apply` + `generate` call actually dispatched. */
 interface Harness {
   readonly options: GenerateOptions[]
   readonly request: SessionTitleProviderRequest
 }
 
-/**
- * Register the provider against a stub service, then run one generation and
- * return the exact `GenerateOptions` it streamed.
- * @param policy - live config to hand `apply`, or undefined for no config.
- * @param route - the session route the service would supply, if any.
- * @returns the dispatched options, or the thrown failure.
- */
 async function dispatch(
   policy: Config | undefined,
   route: { provider: string; model: string } | undefined,
@@ -78,7 +63,7 @@ async function dispatch(
   const session = {
     id: 'session-1',
     append: () => undefined,
-    // `generateTitle` reads the standing title through the service, not the
+    // The provider reads the standing title through the service, never the
     // session, so the session only needs to exist.
   }
   const ctx = stubContext({
@@ -87,8 +72,8 @@ async function dispatch(
       get: () => undefined,
     },
     llm: {
-      // One terminal chunk is enough: the provider validates the FINISH reason,
-      // and `stop` with a well-formed title is the accepted shape.
+      // The provider validates the FINISH reason, so `stop` plus a well-formed
+      // title is the only accepted shape.
       stream: (dispatched: GenerateOptions): AsyncIterable<StreamChunk> => {
         options.push(dispatched)
         return (async function* () {
@@ -120,7 +105,6 @@ async function dispatch(
   return { options, request }
 }
 
-/** Assert a dispatch succeeded and return its options. */
 async function optionsOf(
   policy: Config | undefined,
   route: { provider: string; model: string } | undefined,
@@ -169,8 +153,8 @@ describe('auxiliary route resolution', () => {
   })
 
   it('an explicit pair works before any session route exists', async () => {
-    // This is the case the override exists for: `/title-refresh` on a session
-    // whose first model request has not happened yet has no logged route.
+    // The case the override exists for: `/title-refresh` on a session whose
+    // first model request has not happened yet has no logged route.
     const options = await optionsOf(
       config({ provider: 'cliproxyapi', model: 'cc/deepseek-v4.1-flash' }),
       undefined,

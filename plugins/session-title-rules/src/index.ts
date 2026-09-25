@@ -1,18 +1,16 @@
 /**
- * Rules-based session-title provider: `emoji 主题`, plus the
- * `/title-refresh` command that re-derives a title on demand.
+ * Rules-based session-title provider: `emoji 主题`, plus the `/title-refresh`
+ * command that re-derives a title on demand.
  *
  * Replaces the built-in `session-title-first-prompt-llm` provider — the
  * `session-title-llm` Loader row this Bundle's patch disables. The service
  * still owns scheduling, result validation, and the `session/title` append;
  * this plugin owns the prompt, the framing, and the auxiliary model call.
  *
- * Unlike the shipped providers it appends no log-only `session/title-llm-request`
- * audit row: `@deepseek-ai/dsh-session-title-llm` keeps its system prompt
- * private and hardcodes its own framing, so none of its call policy is reusable
- * for these rules.
- *
- * @module @banzhe/dsh-session-title-rules
+ * Unlike the shipped providers it appends no log-only
+ * `session/title-llm-request` audit row: `@deepseek-ai/dsh-session-title-llm`
+ * keeps its system prompt private and hardcodes its own framing, so none of its
+ * call policy is reusable for these rules.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -56,10 +54,10 @@ export const inject = ['sessionTitle', 'llm']
  * of the one captured at load. Omitting all three keeps the original behaviour
  * (follow the Session's logged `request/header` route).
  *
- * The pair is validated in {@link resolveTitleRoute}, NOT by the schema: an
- * unpaired `provider`/`model` is a configuration mistake the settings page must
- * be able to explain, and a schema `required` would instead reject the whole
- * entry at load.
+ * The pair is validated in `resolveTitleRoute`, NOT by the schema: an unpaired
+ * `provider`/`model` is a configuration mistake the settings page must be able
+ * to explain, and a schema `required` would instead reject the whole entry at
+ * load.
  */
 export interface Config {
   /** Explicit auxiliary provider route; must be paired with `model`. */
@@ -75,12 +73,9 @@ export interface Config {
  *
  * Deliberately NOT annotated `z<Config>`: the interface describes the entry's
  * runtime config with `Volatile` references, while the schema's own output type
- * is the plain field type. DSH's other live-preference plugins (`locale`,
- * `ui-settings`) keep the two apart the same way, and
- * `exactOptionalPropertyTypes` makes the annotated form unassignable.
- *
- * Each field is `volatile` on its own, so the Loader hands the plugin a live
- * reference per field rather than one snapshot of the whole section.
+ * is the plain field type. DSH's other live-preference plugins keep the two
+ * apart the same way, and `exactOptionalPropertyTypes` makes the annotated form
+ * unassignable.
  */
 export const Config = z.object({
   provider: z.string().volatile(),
@@ -90,17 +85,16 @@ export const Config = z.object({
 
 /**
  * Fixed auxiliary-call policy; the Loader row's `config` carries only the route
- * above (see {@link Config}), never these caps.
+ * above, never these caps.
  *
  * The cap must cover reasoning, not just the title line. A reasoning-enabled
  * route spends the whole budget on hidden thinking before it emits any text:
  * `@deepseek-ai/dsh-llm-pi-ai` never reads `purpose`, so the `session-title`
- * hint reaches the adapter as nothing and the profile's own effort (this
- * deployment sets `reasoning: high`) still applies. Measured on
- * `cc/deepseek-v4.1-flash` with the shipped prompt, `finish=length` with 64 of
- * 64 tokens spent reasoning: 1/20 usable at 64, versus 17/20 at 512. The
- * built-in provider's 64 (`dsh-base`, row `session-title-llm`) fails the same
- * way, and `purpose` is only honoured by `dsh-llm-deepseek`. Configuring
+ * hint reaches the adapter as nothing and the profile's own effort still
+ * applies. Measured on `cc/deepseek-v4.1-flash` with the shipped prompt,
+ * `finish=length` with 64 of 64 tokens spent reasoning: 1/20 usable at 64,
+ * versus 17/20 at 512. The built-in provider's 64 fails the same way, and
+ * `purpose` is only honoured by `dsh-llm-deepseek`. Configuring
  * `reasoningEffort` (above) is the other lever on the same problem.
  */
 const MAX_OUTPUT_TOKENS = 512
@@ -118,12 +112,8 @@ const EMOJI_SEPARATOR = ' '
 
 /**
  * The exact auxiliary route and reasoning effort one revision runs on.
- * @param config - current live policy, or `undefined` when the row carries none.
- * @param request - the service-owned request, whose `route` is the fallback.
- * @returns the route to call, with an optional explicit effort.
  * @throws when the pair is half-configured, or when neither an override nor a
- *   logged request route exists — the same refusal the provider always had,
- *   reported early instead of as a failed first model request.
+ *   logged request route exists.
  */
 function resolveTitleRoute(
   config: Config | undefined,
@@ -156,8 +146,7 @@ const UNCHANGED = 'UNCHANGED'
 /**
  * The closed type vocabulary, in prompt order. The emoji is the whole type
  * segment of the title; the Chinese label is only the gloss the prompt uses to
- * say what each emoji means. Every entry is one code point, so matching the
- * leading emoji is a `startsWith` and a slice.
+ * say what each emoji means.
  */
 const TITLE_TYPES: readonly { readonly type: string; readonly emoji: string }[] = [
   { type: '功能', emoji: '✨' },
@@ -195,8 +184,8 @@ const MODEL_DATE_PREFIX = /^\d{2,8}\s*[|｜]\s*/u
 
 /**
  * The auxiliary system prompt: the naming rules, compressed to what a provider
- * can act on. The rules this prompt drops are enforced elsewhere — "only the
- * title changes" holds structurally because a provider can append nothing but
+ * can act on. The rules it drops are enforced elsewhere — "only the title
+ * changes" holds structurally because a provider can append nothing but
  * `session/title`. The four examples are kept: they are the payload shape
  * (`原名称` in, `emoji 主题` out), the closed emoji vocabulary, and the shift
  * from a vague original name to a content-derived topic.
@@ -223,11 +212,9 @@ export const TITLE_SYSTEM_PROMPT = [
 ].join('\n')
 
 /**
- * Choose the messages one prompt carries: the first eligible human message
- * (the session's opening intent) plus the most recent ones (where the
- * conversation actually went), each text capped.
- * @param messages - every eligible human message through this revision.
- * @returns the selected messages, oldest first.
+ * Choose the messages one prompt carries: the first eligible human message (the
+ * session's opening intent) plus the most recent ones (where the conversation
+ * actually went), each text capped. Oldest first.
  */
 function selectTitleMessages(
   messages: readonly SessionTitleUserMessage[],
@@ -267,11 +254,8 @@ interface FramedTitleInput {
 
 /**
  * Select and frame the messages for one title call, dropping the oldest
- * non-first message until the frame fits {@link MAX_INPUT_BYTES}.
- * @param currentTitle - the accepted title, shown to the model as `原名称`.
- * @param messages - every eligible human message through this revision.
- * @returns the framed user text and the exact messages it carried.
- * @throws when no eligible message fits the cap.
+ * non-first message until the frame fits `MAX_INPUT_BYTES`. Throws when no
+ * eligible message fits the cap.
  */
 function buildTitleInput(
   currentTitle: string | undefined,
@@ -296,8 +280,6 @@ function buildTitleInput(
 /**
  * Drop one matching quote pair around the whole line, so wrapping never costs a
  * quote that belongs to the topic (`“引号”` inside backticks survives).
- * @param line - the normalized line.
- * @returns the line without its wrapping pair.
  */
 function stripWrapping(line: string): string {
   const wrapped = line.length > 1
@@ -309,8 +291,6 @@ function stripWrapping(line: string): string {
  * Reduce one model answer to the `emoji 主题` line: the package normalizer strips
  * controls, invisible characters, and stray whitespace first, then the wrapping
  * quotes and any model-authored date prefix go.
- * @param raw - the assembled model text.
- * @returns the normalized line, possibly empty.
  */
 function unwrapTitleLine(raw: string): string {
   return stripWrapping(normalizeSessionTitle(raw, Number.MAX_SAFE_INTEGER))
@@ -319,11 +299,9 @@ function unwrapTitleLine(raw: string): string {
 }
 
 /**
- * Read the leading type emoji of one normalized line against the closed
- * vocabulary, dropping what {@link EMOJI_GAP} tolerates between emoji and topic.
- * @param line - the normalized title line.
- * @returns the vocabulary emoji, canonical spelling, and the topic after it; or
- *   `undefined` when the line does not lead with a vocabulary emoji.
+ * Read the leading type emoji against the closed vocabulary, dropping what
+ * `EMOJI_GAP` tolerates between emoji and topic. Undefined when the line does
+ * not lead with a vocabulary emoji.
  */
 function leadingType(line: string): { readonly emoji: string; readonly topic: string } | undefined {
   for (const { emoji } of TITLE_TYPES) {
@@ -339,11 +317,10 @@ function leadingType(line: string): { readonly emoji: string; readonly topic: st
  * with one of the eight type emoji is refused rather than guessed at — the
  * retired `类型｜主题` shape included, because translating a type word the model
  * chose into an emoji it did not choose is this plugin inventing the type.
- * @param raw - the assembled model text.
- * @returns `emoji 主题`.
- * @throws when the model declined (`UNCHANGED`), answered with nothing, led with
- *   something other than a vocabulary emoji, or named no topic; the service then
- *   warns and keeps the title it already has.
+ *
+ * Throws when the model declined (`UNCHANGED`), answered with nothing, led with
+ * something other than a vocabulary emoji, or named no topic; the service then
+ * warns and keeps the title it already has.
  */
 export function formatTitleOutput(raw: string): string {
   const line = unwrapTitleLine(raw)
@@ -389,11 +366,8 @@ function finishError(finish: FinishReason): Error | undefined {
 }
 
 /**
- * Produce one rules-based title revision.
- * @param ctx - context exposing the session-title and LLM services.
- * @param config - current live route policy, or `undefined` when the row carries none.
- * @param request - the service-owned session, message snapshot, route, and cancellation.
- * @returns the accepted-shape title, the exact cited message seqs, and the route used.
+ * Produce one rules-based title revision: the accepted-shape title, the exact
+ * cited message seqs, and the route used.
  */
 async function generateTitle(
   ctx: Context,
@@ -453,10 +427,8 @@ async function generateTitle(
  * the Session's opening message: the service schedules it only for a top-level
  * Session's first eligible human message, before any title exists.
  *
- * Also contributes `/title-refresh`, which re-derives a title on demand; it
- * mounts only where a command registry is composed.
- * @param ctx - context exposing the session-title and LLM services.
- * @param config - optional explicit route policy, read live on each call.
+ * Also contributes `/title-refresh`, which mounts only where a command registry
+ * is composed.
  */
 export function apply(ctx: Context, config?: Config): void {
   ctx.sessionTitle.register({

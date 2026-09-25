@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
- * `CopySessionIdMenuItem` rendered through react-dom directly: the menuitem
- * button the primitives double materializes, the copy icon, the translated
- * label, and the click's two-step contract — close the row menu FIRST, then
- * copy the session id (asserted through `invocationCallOrder`).
+ * `CopySessionIdMenuItem` rendered through react-dom directly. The click's
+ * close-then-copy order is not incidental: the menu must be dismissed BEFORE
+ * the copy, or the notice answering it is trapped behind an open list — hence
+ * the `invocationCallOrder` assertion.
  *
  * Rendered with `createElement`, never JSX: only `.tsx` doubles may use JSX in
  * this package (the vitest include matches only `.spec.ts` under `tests/`).
@@ -16,10 +16,10 @@ import { zh } from '../src/client/locales.ts'
 import { translateZh as t } from './translate.ts'
 
 /**
- * The standard-kit props every slot component receives. The row ignores them,
- * but the composed props type requires them: ui-session and ui-workspace merge
- * `GlobalStandardProps` onto every slot key, so a fixture cast must supply all
- * four selectors or the component's own props type rejects the cast.
+ * The row ignores these, but the composed props type requires them:
+ * ui-session and ui-workspace merge `GlobalStandardProps` onto every slot key,
+ * so a fixture cast must supply all four selectors or the component's own props
+ * type rejects the cast.
  */
 const STANDARD_PROPS = {
   useSessions: (() => {}) as never,
@@ -42,10 +42,6 @@ interface Harness {
   click(): Promise<void>
 }
 
-/**
- * Mount the menu item over a controllable menu-state setter and copy face.
- * @returns the harness driving the mounted tree.
- */
 async function mount(): Promise<Harness> {
   const setMenuOpen = vi.fn()
   const copy = vi.fn()

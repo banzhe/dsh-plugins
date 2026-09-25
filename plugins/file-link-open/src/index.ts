@@ -1,33 +1,20 @@
 /**
- * @banzhe/dsh-file-link-open — Host half.
+ * @banzhe/dsh-file-link-open — Host half. Two routes on the shared
+ * authenticated `/api` channel, both behind the composition's `connection`
+ * trust fence:
  *
- * File-open complement for the right-click menu this plugin adds over file
- * links rendered inside session messages (file mentions and markdown file
- * links). Two routes on the shared authenticated `/api` channel:
- *
- * - GET  /api/file-link-open/info    → the editor whitelist and the app ids
- *   this plugin's own resolution pass verified on this machine, so the
- *   browser can intersect them with the official open-in-app probe and
- *   never show an item that would answer 400.
+ * - GET  /api/file-link-open/info    → the editor whitelist plus the app ids
+ *   this plugin's own resolution pass verified on this machine, so the browser
+ *   can intersect them with the official open-in-app probe and never show an
+ *   item that would answer 400.
  * - POST /api/file-link-open/launch  → open one existing file (or directory)
- *   in a whitelisted editor/IDE, optionally revealing a line. The app is
- *   resolved by the official `@deepseek-ai/dsh-host-open-in-app` resolver — the
- *   same locators the official routes use (macOS `.app` bundles, Windows
- *   `App Paths` registry / Uninstall records / `%ProgramFiles%` scans, Linux
- *   PATH names and desktop entries) — and launched with the file path appended.
- *   A request that names a `line` rewrites the resolved launcher's argv into
- *   that editor's line-selection spelling (`--goto <file>:<n>`, `--line <n>
- *   <file>`); every request also appends that editor's own window-reuse switch
- *   when it has one, so a click lands in the running editor instead of a new
- *   window. See `./launch-args.ts` for which launchers qualify.
+ *   in a whitelisted editor, optionally revealing a line. Resolution reuses the
+ *   official `@deepseek-ai/dsh-host-open-in-app` resolver; the line and
+ *   window-reuse edits on top of it live in `./launch-args.ts`.
  *
- * Security: every route asks the composition's `connection` service for a
- * rejection first (Host/Origin fence + browser authentication, the same
- * model as the official open-in-app host), bodies are bounded JSON, app ids
- * are whitelist-checked against the editor set, the resolver only resolves
- * catalog entries, and paths must be absolute and exist on disk. Launches
- * spawn detached through the official launcher with a credential-scrubbed
- * environment.
+ * Bodies are bounded JSON, app ids are whitelist-checked, and paths must be
+ * absolute and exist on disk. Launches spawn detached through the official
+ * launcher with a credential-scrubbed environment.
  *
  * Implementation derived from https://github.com/cholf5/dsh-plugin-file-actions
  */
@@ -60,8 +47,8 @@ const CATALOG_LAYOUTS = ['lib/types/catalog.js', 'lib/catalog.js']
 
 /**
  * The installed official package's root, reached through its exported
- * `./package.json` subpath (the exports map blocks deep specifier imports,
- * but a resolved file URL inside the package is a plain module import).
+ * `./package.json` subpath: the package's exports map blocks deep specifier
+ * imports, but a resolved file URL inside the package is a plain module import.
  */
 function officialPackageRoot() {
   const require = createRequire(import.meta.url)
@@ -151,7 +138,12 @@ function sendMethodNotAllowed(res: any, allow: string) { // eslint-disable-line 
   res.end()
 }
 
-/** Collect a bounded request body as UTF-8 text; null past the ceiling (stream drained). */
+/**
+ * Collect a bounded request body as UTF-8 text; null past the ceiling.
+ *
+ * A too-large body is drained rather than left unread: an unread stream holds
+ * the socket open, and this route answers 413 immediately.
+ */
 async function readBoundedBody(req: any): Promise<string | null> { // eslint-disable-line @typescript-eslint/no-explicit-any
   const chunks: Buffer[] = []
   let size = 0
@@ -176,9 +168,7 @@ interface LaunchRequest {
 
 /**
  * Validate one POST body at the wire: JSON object with string app/path and an
- * optional positive-integer line.
- * @param text - The bounded request body.
- * @returns The validated request, or null when the shape or the line is invalid.
+ * optional positive-integer line. Null means the shape or the line is invalid.
  */
 export function parseBody(text: string): LaunchRequest | null {
   let body: unknown
@@ -209,10 +199,7 @@ async function pathExists(absolute: string) {
   }
 }
 
-/**
- * Register the info and launch routes behind the connection trust fence.
- * @param ctx - Cordis context; `webServer`, `connection`, and `subprocess` are injected.
- */
+/** Register the info and launch routes behind the connection trust fence. */
 export async function apply(ctx: Context) {
   const launchTimeoutMs = 10_000
 
@@ -249,17 +236,14 @@ export async function apply(ctx: Context) {
 
   /**
    * Lazy once-per-plugin-life resolution; the map is the mutable authority.
-   * Typed through this plugin's own launch shape: the resolver is loaded
+   * Typed through this plugin's own launch shape because the resolver is loaded
    * dynamically, so its own type is not statically visible here.
    */
   let resolutionsTask: Promise<Map<string, ResolvedLaunch>> | undefined
   const availability = (): Promise<Map<string, ResolvedLaunch>> => resolutionsTask
     ??= bundle.resolver.resolveOpenInAppApps(launchTimeoutMs, internalsOf())
 
-  /**
-   * Replace one stale resolution after a missing-executable launch, exactly
-   * like the official host: re-resolve the entry once, or drop it from the map.
-   */
+  /** Replace one stale resolution after a missing-executable launch, as the official host does. */
   const refreshResolution = async (id: string) => {
     const map = await availability()
     const fresh = await bundle.resolver.resolveLaunch(id, launchTimeoutMs, internalsOf())
@@ -356,9 +340,8 @@ export async function apply(ctx: Context) {
         sendJson(res, 400, { code: 'unavailable-app', message: `unknown or unavailable app: ${parsed.app}` })
         return
       }
-      // The line (when the link named one) and the window-reuse switch are
-      // applied to the resolution's own argv — the official resolver itself has
-      // no notion of either.
+      // The line (if the link named one) and the window-reuse switch are applied
+      // to the resolution's own argv; see launch-args.ts.
       const target = withLaunchArgs(resolved, parsed.app, parsed.line, bundle.pathToken)
       let outcome = await bundle.resolver.launchResolved(target, parsed.path, launchTimeoutMs, internalsOf())
       if (outcome === 'missing') {

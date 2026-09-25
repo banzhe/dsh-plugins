@@ -6,17 +6,11 @@
  * and graft one button into the list, cloned off the shipped rename row so it
  * joins the Menu primitive's styling, keyboard walk, and focus return untouched.
  *
- * The DOM contract this code reads (README "DOM contract"; tests build fixtures
- * from the same description):
- * - a real Workspace header row is `[data-row-key^="workspace:"]` with a
- *   non-empty suffix (the ungrouped bucket's suffix is empty and carries no
- *   menu); its FIRST `button` is the "..." trigger, the second is New session;
- * - the open menu portals a flat `<div role="menu">` into `document.body` whose
- *   `div[role=presentation]` viewport holds one wrapper div per `button[role=menuitem]`
- *   (rename first, danger delete last), each button carrying an icon span and a
- *   label span;
- * - closing: the Menu primitive listens for a document-level `keydown` Escape
- *   while open, so dispatching one settles the menu exactly like the keyboard.
+ * The DOM contract this code reads is the README's "DOM contract" table; the
+ * tests build fixtures from the same description.
+ *
+ * Closing goes through the primitive's own Escape listener, so the menu settles
+ * exactly like the keyboard.
  *
  * The open-in-app Host (shipped by the `dsh-web-app` bundle) gates everything:
  * one `GET open-in-app/apps` decides whether the feature arms at all, and a
@@ -41,9 +35,9 @@ const MARKER_VALUE = 'vscode'
 const VSCODE_APP_ID = 'vscode'
 
 /**
- * Angle-bracket glyph for the injected row. The clone carries the rename
- * row's wrapper and button classes but must not keep its edit icon, so the
- * icon span's content is replaced with this inline path.
+ * Angle-bracket glyph for the injected row. The clone carries the rename row's
+ * wrapper and button classes but must not keep its edit icon, so the icon span's
+ * content is replaced with this inline path.
  */
 const CODE_GLYPH = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5"/></svg>'
 
@@ -60,9 +54,8 @@ export interface WorkspaceMenuOptions {
 /**
  * Read the Host's resolved-application list once: the feature arms only when
  * this Host actually resolved VS Code (an uninstalled app, an SSH launch
- * environment, or an unreachable route all read as "no VS Code" — the menu
- * then stays exactly as shipped).
- * @returns whether the `vscode` catalog id is available; never rejects.
+ * environment, or an unreachable route all read as "no VS Code" — the menu then
+ * stays exactly as shipped). Never rejects.
  */
 export async function probeVscode(): Promise<boolean> {
   try {
@@ -76,12 +69,9 @@ export async function probeVscode(): Promise<boolean> {
 }
 
 /**
- * Resolve the arming pair for one event: the Workspace row's ellipsis trigger
- * and the row's Workspace id. Non-matches (no row, empty suffix, a target
- * outside the FIRST button) resolve to null so the caller clears — arming must
- * never survive a press the menu will not answer.
- * @param target - the event target (pointer or key).
- * @returns the trigger and Workspace id, or null when this press arms nothing.
+ * Resolve the arming pair for one event. Non-matches (no row, empty suffix, a
+ * target outside the FIRST button) resolve to null so the caller clears —
+ * arming must never survive a press the menu will not answer.
  */
 function rowAndTrigger(target: EventTarget | null): { trigger: HTMLElement; workspaceId: string } | null {
   if (!(target instanceof Element)) return null
@@ -97,17 +87,13 @@ function rowAndTrigger(target: EventTarget | null): { trigger: HTMLElement; work
 }
 
 /**
- * Graft one menu row into an open Workspace menu: clone the rename row's
- * wrapper (same classes, so the Menu primitive styles and walks it as its
- * own), swap its icon content and label text, mark it, wire its click, and
- * insert it before the danger delete row — the shipped order reads rename →
- * open-in-vscode → delete, with the destructive row still last.
+ * Graft one menu row into an open Workspace menu: clone the rename row's wrapper
+ * (same classes, so the Menu primitive styles and walks it as its own), swap its
+ * icon content and label text, mark it, wire its click, and insert it before the
+ * danger delete row.
  *
  * Exported so the idempotency guard and the malformed-menu bail are directly
  * exercisable; the observer calls it once per armed open.
- * @param menu - the portal menu's `div[role=menu]` element.
- * @param workspaceId - the armed row's Workspace (its click resolves the path).
- * @param options - label/path/toast face from the plugin body.
  */
 export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: WorkspaceMenuOptions): void {
   // A second observation (or a re-entrant call) must not double the row.
@@ -151,13 +137,11 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
 }
 
 /**
- * Install the Workspace-menu half: arm the row's ellipsis on pointer or
- * keyboard activation, and on each portal-menu appearance consume the arm and
- * — when the trigger still holds and the keyboard is where that gesture left
- * it (trigger, body, or inside the menu) — graft the row. The guards keep a
- * stale arm from a cancelled press out of a Session row's menu.
- * @param options - label/path/toast face from the plugin body.
- * @returns the disposer removing both capture listeners and the observer.
+ * Install the Workspace-menu half: arm the row's ellipsis on pointer or keyboard
+ * activation, and on each portal-menu appearance consume the arm and — when the
+ * trigger still holds and the keyboard is where that gesture left it — graft the
+ * row. The guards keep a stale arm from a cancelled press out of a Session row's
+ * menu. Returns the disposer removing both capture listeners and the observer.
  */
 export function installWorkspaceMenu(options: WorkspaceMenuOptions): () => void {
   let pending: { trigger: HTMLElement; workspaceId: string } | null = null

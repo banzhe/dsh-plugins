@@ -1,16 +1,14 @@
 /**
  * Browser half: project the finished-unread Session count onto the installed
  * PWA's icon badge and announce each Session that finishes while the page is
- * open through one system notification. It also owns this feature's settings
- * row, which is where the notification permission is legitimately requested:
- * the browser only honors `Notification.requestPermission()` inside a user
- * gesture, and the row's button is that gesture.
+ * open. Also owns the settings row, which is where the notification permission
+ * is legitimately requested: the browser only honors
+ * `Notification.requestPermission()` inside a user gesture, and the row's button
+ * is that gesture.
  *
- * Inert where it can do nothing: a page whose browser offers neither badging
- * nor a notification constructor still registers its dictionaries and its
- * settings row — so the readout can say *why* nothing happens — and never
- * subscribes to the Session list. The in-app surfaces (the sidebar's green
- * completion dot) remain the authoritative reminder.
+ * Inert where it can do nothing: a page with neither badging nor a notification
+ * constructor still registers its dictionaries and settings row — so the readout
+ * can say *why* nothing happens — and never subscribes to the Session list.
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -31,7 +29,6 @@ import { en, NS, zh, type AppBadgeKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Completion notification and settings-row copy. */
     'app-badge': AppBadgeKey
   }
 }
@@ -44,7 +41,7 @@ const PLUGIN_ID = '@banzhe/dsh-app-notification'
 
 /**
  * Notification tag making a run of completions replace one another instead of
- * stacking. The presenter pairs this with `renotify`, so every replacement
+ * stacking. Paired with `renotify` in the presenter, so every replacement
  * re-alerts instead of being suppressed into the notification center.
  */
 const TAG = 'dsh-session-completed'
@@ -52,11 +49,7 @@ const TAG = 'dsh-session-completed'
 /** Test-notification tag; distinct from {@link TAG} so a probe never displaces a real announcement. */
 const TEST_TAG = 'dsh-session-completed-test'
 
-/**
- * Client plugin body: register the dictionaries and the settings row, then
- * drive the two surfaces from the Session list.
- * @param ctx - client root context.
- */
+/** Client plugin body: register the dictionaries and the settings row, then drive the surfaces. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'app-badge: dictionaries')
   // The row's stylesheet rides the plugin's own fiber: unload removes it.

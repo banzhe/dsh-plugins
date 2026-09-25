@@ -23,7 +23,6 @@ export default defineConfig([
     platform: 'node',
     dts: true,
     clean: false,
-    // Emit `lib/index.js` + `lib/index.d.ts`, which is what package.json declares.
     fixedExtension: false,
   },
   {

@@ -1,8 +1,7 @@
 // @vitest-environment jsdom
 /**
- * The settings row's rendered contract: what the readouts say for each
- * permission/badge state, which buttons are enabled, and what each button does
- * — including the state the readout must land on when the platform refuses.
+ * The settings row's rendered contract: the readouts for each permission/badge
+ * state, which buttons are enabled, and what each button does.
  *
  * Rendered through react-dom directly rather than a testing library: the row is
  * a plain function of its composed slot props, so a fake `t` plus the injected
@@ -15,7 +14,7 @@ import type { NotificationPermissionState } from '../src/client/presenter.ts'
 import { CompletionSettingsRow, type CompletionSettingsInjected } from '../src/client/SettingsRow.tsx'
 import { en, zh, type AppBadgeKey } from '../src/client/locales.ts'
 
-/** Translate through the Chinese dictionary (the key-set source of truth). */
+/** Translate through the Chinese dictionary, the key-set source of truth. */
 const t = ((key: AppBadgeKey, params?: Record<string, unknown>) => {
   const template = zh[key]
   if (params === undefined) return template
@@ -51,12 +50,8 @@ let roots: Root[] = []
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 /**
- * Mount the row over a controllable injected face.
- * @param options.permission - value `permission()` reports and actions reset to.
- * @param options.badge - whether the page supports the icon badge.
- * @param options.requestResult - what `request()` resolves to (defaults to `permission`).
- * @param options.testResult - what `test()` returns (defaults to `permission === 'granted'`).
- * @returns the harness driving the mounted tree.
+ * Mount the row over a controllable injected face. `requestResult` defaults to
+ * `permission` and `testResult` to `permission === 'granted'`.
  */
 async function mount(options: {
   permission: NotificationPermissionState
@@ -164,14 +159,14 @@ describe('CompletionSettingsRow', () => {
   it('re-reads the live permission when the request itself rejects', async () => {
     const row = await mount({ permission: 'denied', rejectRequest: true })
     await row.click(zh['settings.request'])
-    // The readout reports the platform, not the failed attempt.
+    // The readout must report the platform, not the failed attempt.
     expect(row.text()).toContain(zh['settings.permission.denied'])
     expect(row.text()).not.toContain(zh['settings.requesting'])
   })
 
   it('shows the request button as busy while the platform prompt is open', async () => {
-    // A deferred request: the browser's permission prompt is open, so the row
-    // must show the busy label and refuse a second ask.
+    // A deferred request: the platform prompt is open, so the row must show the
+    // busy label and refuse a second ask.
     let settle: ((value: NotificationPermissionState) => void) | undefined
     const pending = new Promise<NotificationPermissionState>((resolve) => { settle = resolve })
     const host = document.createElement('div')

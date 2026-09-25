@@ -1,7 +1,7 @@
 /**
  * Dictionaries for both menu contributions and their toasts. One namespace
  * serves both rows so a locale switch moves them together — they are two
- * entries of one feature (sidebar row-menu extensions), not two features.
+ * entries of one feature, not two features.
  */
 
 /** Namespace registered on the locale service; also the registration's `locale` seat. */

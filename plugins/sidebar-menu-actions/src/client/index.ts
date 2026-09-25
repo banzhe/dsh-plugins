@@ -3,20 +3,17 @@
  * namespace and one notice surface.
  *
  * - **Copy session ID** — an ordinary `sidebar.workspaces.session.menu.item`
- *   slot entry (id `sidebar-menu-actions.copy-session-id`, order 500: after
- *   the shipped pin/rename/fork/archive at 100–400). Registered unconditionally:
- *   it needs nothing from the Host.
+ *   slot entry (order 500: after the shipped pin/rename/fork/archive at
+ *   100–400). Registered unconditionally: it needs nothing from the Host.
  * - **Open a Workspace in VS Code** — DOM graft into the Workspace "..." menu,
- *   which ships with **no slot** (ui-workspace hard-codes rename/delete). Arms
- *   only after `GET open-in-app/apps` resolves `vscode`; otherwise the whole
- *   half stays inert (no listeners, one console line) and the menu renders as
- *   shipped. See `workspaceMenu.ts` for the DOM contract.
+ *   which ships with **no slot**. Arms only after `GET open-in-app/apps`
+ *   resolves `vscode`; otherwise the whole half stays inert. See
+ *   `workspaceMenu.ts` for the DOM contract.
  *
- * Both routes report their outcome through the plugin's notice surface: the
- * shipped `Toast` primitive, mounted by a `shell.overlay` entry that reads the
- * notice store below. Nothing is self-owned — no stylesheet, no element, no
- * timer — so the entry leaves with its slot registration and the primitive owns
- * the banner's styling and hold.
+ * Both routes report through the plugin's notice surface: the shipped `Toast`
+ * primitive, mounted by a `shell.overlay` entry. Nothing is self-owned — no
+ * stylesheet, no element, no timer — so the entry leaves with its slot
+ * registration and the primitive owns the banner's styling and hold.
  */
 
 import type { Context } from '@deepseek-ai/cordis'
@@ -41,7 +38,6 @@ import { installWorkspaceMenu, probeVscode } from './workspaceMenu.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** Sidebar row-menu contributions and their notices. */
     'menu-actions': MenuActionsKey
   }
 }
@@ -49,9 +45,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** Required services: Workspace snapshot (paths), dictionaries, and the slot registry. */
 export const inject = ['workspaces', 'locale', 'slots']
 
-/** Loader-visible plugin body.
- * @param ctx - client root context.
- */
+/** Loader-visible plugin body. */
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'menu-actions: dictionaries')
   const t = ctx.locale.bind(NS)

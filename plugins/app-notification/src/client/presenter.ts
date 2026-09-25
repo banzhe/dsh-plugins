@@ -3,15 +3,11 @@
  * icon badge (`navigator.setAppBadge`) and one system notification per Session
  * that finishes while the page is open.
  *
- * Both APIs are optional and platform-dependent — the badge is unsupported in
- * every non-Chromium browser and currently unreliable on the Windows taskbar,
- * and notifications need a permission the user grants through a gesture. The
- * presenter therefore never throws and never retries: it reads the capability
- * once per apply, reports a refusal through the Cordis logger, and leaves the
- * in-app surfaces (the sidebar's green dot) as the authority.
- *
- * Pure browser-API writes with no React involvement, so disposal is the single
- * `unsubscribe` the caller owns.
+ * Both APIs are optional and platform-dependent, so the presenter never throws
+ * and never retries: it reads the capability once per apply, reports a refusal
+ * through the Cordis logger, and leaves the in-app surfaces (the sidebar's green
+ * dot) as the authority. Pure browser-API writes with no React involvement, so
+ * disposal is the single `unsubscribe` the caller owns.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -29,19 +25,16 @@ interface AppBadgeNavigator {
 /**
  * Read the badging slice of the live `navigator`. The lib.dom `Navigator` type
  * declares both methods required, so reading them through this interface alone
- * is what keeps them optional for the capability guards below; the intersection
- * with `Navigator` would erase that and make every guard look unnecessary.
- * @returns the possibly-absent badging methods.
+ * is what keeps them optional for the capability guards below.
  */
 function appBadgeNavigator(): AppBadgeNavigator {
   return navigator
 }
 
 /**
- * `NotificationOptions` as Chromium implements it. The lib.dom type this package
+ * `NotificationOptions` as Chromium implements it: the lib.dom type this package
  * compiles against stops at `tag`, but the Windows bridge reads one option past
- * it: `renotify`, the only switch that lets a same-`tag` replacement re-alert
- * instead of being suppressed into the notification center.
+ * it — `renotify`, the only switch that lets a same-`tag` replacement re-alert.
  */
 interface RealertingNotificationOptions extends NotificationOptions {
   renotify?: boolean
@@ -78,9 +71,9 @@ export interface CompletionPresenterOptions {
 export type NotificationPermissionState = NotificationPermission | 'unsupported'
 
 /**
- * How the browser answered the capability probes. Support and permission stay
- * separate members on purpose: the permission is granted and revoked at
- * runtime, so it can never be folded into a one-shot capability.
+ * Support and permission stay separate members on purpose: the permission is
+ * granted and revoked at runtime, so it can never be folded into a one-shot
+ * capability.
  */
 export interface CompletionCapabilities {
   /** Both `navigator.setAppBadge` and `navigator.clearAppBadge` exist. */
@@ -91,10 +84,7 @@ export interface CompletionCapabilities {
   readonly notificationGranted: boolean
 }
 
-/**
- * Read the capability probes.
- * @returns which surfaces this page can use; all false outside a capable browser.
- */
+/** Which surfaces this page can use; all false outside a capable browser. */
 export function probeCapabilities(): CompletionCapabilities {
   if (typeof navigator === 'undefined') {
     return { badge: false, notificationSupported: false, notificationGranted: false }
@@ -116,7 +106,6 @@ export function probeCapabilities(): CompletionCapabilities {
  * Read the current notification permission without narrowing it to a boolean:
  * the settings row distinguishes `denied` from `default`, and `unsupported` is
  * the one state the platform cannot report about itself.
- * @returns the live permission, or `unsupported` without a constructor.
  */
 export function notificationPermission(): NotificationPermissionState {
   return typeof Notification === 'function' ? Notification.permission : 'unsupported'
@@ -124,9 +113,8 @@ export function notificationPermission(): NotificationPermissionState {
 
 /**
  * Ask the browser for notification permission. Must run inside a user gesture:
- * every browser discards the request otherwise, which is exactly why the
- * settings row's button — and never plugin activation — is the only caller.
- * @returns the permission the user granted or left unset; `unsupported` without a constructor.
+ * every browser discards the request otherwise, which is why the settings row's
+ * button — and never plugin activation — is the only caller.
  */
 export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
   if (typeof Notification !== 'function') return 'unsupported'
@@ -137,14 +125,9 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
 export class AppBadgePresenter {
   /** Count written by the last successful projection; undefined before the first. */
   private applied: number | undefined
-  /** Bound platform writer, resolved once so the capability probe stays the only guard. */
   private readonly write: ((contents?: number) => Promise<void>) | undefined
-  /** Bound platform retractor, resolved once alongside {@link write}. */
   private readonly retract: (() => Promise<void>) | undefined
 
-  /**
-   * @param logger - Cordis logger for a refused badge write.
-   */
   constructor(private readonly logger: Context['logger']) {
     const badge = appBadgeNavigator()
     this.write = badge.setAppBadge?.bind(badge)
@@ -152,9 +135,8 @@ export class AppBadgePresenter {
   }
 
   /**
-   * Set or clear the badge to match `count`. A repeated count is a no-op, so
-   * unrelated list updates do not re-issue the same platform call.
-   * @param count - finished-unread Sessions; 0 clears the badge.
+   * Set or clear the badge to match `count` (0 clears). A repeated count is a
+   * no-op, so unrelated list updates do not re-issue the same platform call.
    */
   project(count: number): void {
     if (this.applied === count) return
@@ -183,9 +165,6 @@ export class CompletionPresenter {
   private readonly capabilities = probeCapabilities()
   private readonly badge: AppBadgePresenter | undefined
 
-  /**
-   * @param options - logger, per-Session copy, test copy, click target, and tag.
-   */
   constructor(private readonly options: CompletionPresenterOptions) {
     // Only badging is probed once: the API's presence cannot change during a
     // page's life. Notification permission CAN, so it is read per use.
@@ -207,30 +186,21 @@ export class CompletionPresenter {
     return this.badge !== undefined
   }
 
-  /**
-   * Read the live notification permission (never a cached probe result).
-   * @returns the platform's current answer, or `unsupported` without a constructor.
-   */
+  /** Read the live notification permission (never a cached probe result). */
   permission(): NotificationPermissionState {
     return notificationPermission()
   }
 
-  /**
-   * Ask for notification permission. Must be called from a user gesture (the
-   * settings row's button), never from activation.
-   * @returns the resulting permission.
-   */
+  /** Ask for notification permission; must be called from a user gesture. */
   async request(): Promise<NotificationPermissionState> {
     return await requestNotificationPermission()
   }
 
   /**
    * Install the status subscription and publish the current state once. Call
-   * exactly once per presenter — the caller owns the lifetime decision (this
-   * plugin subscribes once, at activation, whenever the page is `viable`).
+   * exactly once per presenter — the caller owns the lifetime decision. The
+   * disposer unsubscribes and retracts the badge.
    * @param status - per-Session status source (`ctx.uiSession.sessionStatus`).
-   * @param list - the sessions list snapshot source, naming the rows the status ids refer to.
-   * @returns the disposer that unsubscribes and retracts the badge.
    */
   attach(status: ObservableSnapshot<SessionStatusSnapshot>, list: ObservableSnapshot<SessionListState>): () => void {
     const sync = (): void => { this.apply(status.getSnapshot(), list.getSnapshot()) }
@@ -247,7 +217,6 @@ export class CompletionPresenter {
   /**
    * Show the settings row's test notification. A distinct tag keeps the probe
    * from replacing (or being replaced by) a real completion announcement.
-   * @returns whether the platform accepted the notification.
    */
   showTest(): boolean {
     return this.notify(this.options.testCopy(), this.options.testTag)
@@ -265,13 +234,10 @@ export class CompletionPresenter {
   }
 
   /**
-   * Build one notification. Both refusal shapes are reported rather than thrown:
-   * a construction that fails synchronously is a warning here, and a display the
-   * platform rejects afterwards arrives on the notification's `error` event.
-   * @param copy - resolved title and body.
-   * @param tag - aggregation tag (same tag replaces the previous notification).
-   * @param onClick - optional click behavior; omitted for the test probe.
-   * @returns whether the platform accepted the construction.
+   * Build one notification, reporting whether the platform accepted the
+   * construction. Both refusal shapes are reported rather than thrown: a
+   * construction that fails synchronously warns here, and a display the platform
+   * rejects afterwards arrives on the notification's `error` event.
    */
   private notify(copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
     // Read live: an ungranted or revoked permission makes construction throw,

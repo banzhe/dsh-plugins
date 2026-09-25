@@ -8,13 +8,11 @@
  * the plugin stringifies ids itself (contract: `String(item.workspaceId)`).
  */
 
-/** One workspace row as `pathOf` reads it. */
 export interface WorkspaceItem {
   readonly workspaceId: string
   readonly path: string
 }
 
-/** The slice of the workspaces service the plugin binds. */
 export interface WorkspacesDouble {
   readonly list: {
     getSnapshot: () => { readonly items: readonly WorkspaceItem[] }
@@ -22,11 +20,6 @@ export interface WorkspacesDouble {
   }
 }
 
-/**
- * Build the workspaces double.
- * @param items - the workspace rows the snapshot reports.
- * @returns the double ready for `ctx.provide('workspaces', …)`.
- */
 export function workspacesDouble(items: readonly WorkspaceItem[]): WorkspacesDouble {
   return {
     list: {

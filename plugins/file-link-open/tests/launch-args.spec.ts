@@ -1,18 +1,13 @@
 /**
- * The argv this plugin adds to an official launch: the editor's line-selection
- * spelling and its window-reuse switch. Every assertion here pins a CLI spelling
- * substituted into the official launcher's argv, so a wrong flag is a red test
- * rather than an editor that opens at the top, or in a new window, or refuses to
- * launch at all.
- *
- * The ids come from the host half's own list, so adding an editor there without
- * deciding on its flags fails the sweeps below.
+ * Pins the CLI spellings substituted into the official launcher's argv, so a
+ * wrong flag is a red test rather than an editor that opens at the top or in a
+ * new window. The ids come from the host half's own list, so adding an editor
+ * there without deciding on its flags fails the sweeps below.
  */
 import { describe, expect, it } from 'vitest'
 import { EDITOR_IDS } from '../src/editors.ts'
 import { lineArgsFor, reuseArgsFor, supportsLaunchArgs, withLaunchArgs } from '../src/launch-args.ts'
 
-/** The placeholder the official catalog exports; every template must keep it. */
 const TOKEN = '{path}'
 
 describe('lineArgsFor', () => {
@@ -35,8 +30,8 @@ describe('lineArgsFor', () => {
   })
 
   it('names a line form for every launchable editor except Android Studio', () => {
-    // Android Studio's launcher documents no line flag. A new id in `editors.ts`
-    // must be added here and to the table deliberately, not silently open at the
+    // Android Studio's launcher documents no line flag; a new id in
+    // `editors.ts` must be added here deliberately, not silently open at the
     // top of the file.
     expect(EDITOR_IDS.filter(id => lineArgsFor(id, 24, TOKEN) === undefined)).toEqual(['androidstudio'])
   })
@@ -96,7 +91,7 @@ describe('reuseArgsFor', () => {
   it('names the reuse switch only where the editor documents one', () => {
     // Every other editor either reuses the running window by default (the
     // JetBrains launchers, `subl`) or documents no such switch (Windsurf,
-    // Android Studio). A new id in `editors.ts` must be decided here.
+    // Android Studio); a new id in `editors.ts` must be decided here.
     expect(EDITOR_IDS.filter(id => reuseArgsFor(id) === undefined)).toEqual([
       'windsurf', 'sublimetext', 'androidstudio', 'intellij', 'pycharm',
       'webstorm', 'phpstorm', 'goland', 'rider', 'rustrover',
@@ -110,7 +105,6 @@ describe('reuseArgsFor', () => {
 })
 
 describe('withLaunchArgs', () => {
-  /** A VS Code-shaped resolution as the official resolver hands it over. */
   const resolved = {
     launch: { kind: 'argv' as const, command: 'Code.exe', args: ['--new-window'] },
     fallbackLaunch: { kind: 'argv' as const, command: 'code', args: [] },
@@ -147,8 +141,8 @@ describe('withLaunchArgs', () => {
   })
 
   it('leaves an editor that needs neither argument untouched', () => {
-    // Android Studio documents no line flag and no window switch, so there is
-    // nothing to add and the resolution must come back by identity.
+    // Android Studio documents neither flag, so nothing is added and the
+    // resolution must come back by identity.
     const androidStudio = { launch: { kind: 'argv' as const, command: 'studio64.exe', args: [] } }
     expect(withLaunchArgs(androidStudio, 'androidstudio', 24, TOKEN)).toBe(androidStudio)
   })

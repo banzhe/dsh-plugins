@@ -4,10 +4,8 @@
  * The published `@deepseek-ai/dsh-client-ui-renderer/client` entry is a BROWSER
  * bundle (`window.__ModuleLoader__.load(...)`), and the real registry's behavior
  * is covered by its own suite in the harness. This double implements only what
- * this plugin's apply uses — `inject(key, callback)` running the callback once
- * the target slot is declared, and `register(options, component)` recording the
- * entry — so the specs can assert WHICH row was registered, WHAT it was injected
- * with, and THAT unloading the plugin's fiber removes it.
+ * this plugin's apply uses, so the specs can assert WHICH row was registered,
+ * WHAT it was injected with, and THAT unloading the plugin's fiber removes it.
  *
  * The fiber tie is the contract that matters: the real `slots.inject` runs its
  * declaration effect on the CALLER's fiber (cordis's service proxy rebinds
@@ -37,10 +35,7 @@ export interface SlotsDoubleEntry {
 export class SlotsDouble extends Service {
   private readonly entries = new Map<string, SlotsDoubleEntry>()
 
-  /**
-   * @param ctx - the context whose fiber owns every registration this double
-   * records, exactly as the real registry routes effects into the caller's fiber.
-   */
+  /** The context whose fiber owns every registration this double records. */
   constructor(ctx: Context) {
     super(ctx, 'slots')
   }
@@ -48,21 +43,13 @@ export class SlotsDouble extends Service {
   /**
    * Run the injection callback on the caller's fiber, so plugin unload disposes
    * whatever it registered (mirrors the real `slots.inject` lifetime contract).
-   * @param _key - target slot key.
-   * @param callback - the registration thunk.
-   * @returns idempotent disposer for the declaration effect.
    */
   inject(_key: string, callback: () => () => void): () => void {
     const dispose = this.ctx.effect(callback, `slots.inject(${JSON.stringify(_key)})`)
     return () => { void dispose() }
   }
 
-  /**
-   * Record one registration.
-   * @param options - registration options (id/order/locale and the inject factory).
-   * @param component - the registered component.
-   * @returns the disposer that removes this entry.
-   */
+  /** Record one registration; returns the disposer that removes this entry. */
   register(
     options: { id?: string; order?: number; locale?: string; inject?: (...args: never[]) => Record<string, never> },
     component: unknown,
@@ -77,11 +64,7 @@ export class SlotsDouble extends Service {
     return () => { this.entries.delete(key) }
   }
 
-  /**
-   * The live registration for one row id, if any.
-   * @param id - the registration id (the row key).
-   * @returns the recorded entry, or undefined once disposed.
-   */
+  /** The live registration for one row id, if any; undefined once disposed. */
   entry(id: string): SlotsDoubleEntry | undefined {
     return this.entries.get(id)
   }
@@ -91,8 +74,6 @@ export class SlotsDouble extends Service {
    * cannot silently assert against an unregistered row. Typed as the plugin's
    * own injected face: `Record<string, …>` would make every member
    * `| undefined` under `noUncheckedIndexedAccess`, forcing `?.` at each call.
-   * @param id - the registration id (the row key).
-   * @returns the injected face.
    */
   injection(id: string): CompletionSettingsInjected {
     const found = this.entries.get(id)

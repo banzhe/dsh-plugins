@@ -1,12 +1,11 @@
 // @vitest-environment jsdom
 /**
- * `createNoticeStore`'s contract: one pending notice at a time, `show`
- * replacing it under a fresh, strictly higher `seq` (the banner's React key, so
- * a repeat restarts the hold rather than extending it), `snapshot` returning a
- * stable reference that only changes with the notice, subscribers woken on
- * every change and removed by exactly the disposer `subscribe` handed out, and
- * `dismiss` dropping the showing it names while a stale `seq` — a notice
- * already replaced — leaves its successor up.
+ * `createNoticeStore`'s contract. The load-bearing parts are the guards, not
+ * the happy path: `show` must bump `seq` even for a repeat of the same text
+ * (the banner is keyed by it, so an equal `seq` would silently extend the
+ * first hold instead of restarting it), `snapshot` must be reference-stable
+ * between notices, and `dismiss` must drop only the showing it names so the
+ * fade of an already-replaced notice cannot take its successor down.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { createNoticeStore } from '../src/client/noticeStore.ts'

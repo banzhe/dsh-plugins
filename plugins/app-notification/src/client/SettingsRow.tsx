@@ -1,19 +1,16 @@
 /**
- * The Completion-attention settings row, registered into the General section's
- * item slot. It owns three things and nothing else:
+ * The Completion-attention settings row. It owns three things and nothing else:
  *
  * - a readout of the two live capabilities (notification permission, icon-badge
  *   support), because a silent plugin is indistinguishable from a broken one;
  * - **Request permission** — the user gesture `Notification.requestPermission()`
- *   requires, which is the whole reason this row exists: without a settings
- *   surface the plugin could never legitimately ask;
- * - **Send test notification** — proves the notification path end to end
- *   without waiting for a real Session to finish.
+ *   requires, which is the whole reason this row exists;
+ * - **Send test notification** — proves the notification path end to end without
+ *   waiting for a real Session to finish.
  *
- * The readout follows the platform, never a cached startup probe: the injected
- * `permission()` is the live read, taken once at mount and again after every
- * action. Permission is granted and revoked behind the page's back, and a stale
- * grant is exactly the bug that makes "why is nothing popping up?" unexplainable.
+ * The readout follows the platform, never a cached startup probe: permission is
+ * granted and revoked behind the page's back, and a stale grant is exactly the
+ * bug that makes "why is nothing popping up?" unexplainable.
  */
 import { useCallback, useState, type ReactNode } from 'react'
 import { Button } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -29,7 +26,7 @@ export interface CompletionSettingsInjected {
   badgeSupported: () => boolean
   /** Ask for notification permission; must be called from a user gesture. */
   request: () => Promise<NotificationPermissionState>
-  /** Raise the test notification. @returns whether the platform accepted it. */
+  /** Raise the test notification; reports whether the platform accepted it. */
   test: () => boolean
 }
 
@@ -47,7 +44,6 @@ const PERMISSION_KEYS = {
   unsupported: 'settings.permission.unsupported',
 } as const satisfies Record<NotificationPermissionState, AppBadgeKey>
 
-/** Locale key naming each badge-support state. */
 const BADGE_KEYS = {
   true: 'settings.badge.supported',
   false: 'settings.badge.unsupported',
@@ -63,11 +59,7 @@ function Fact({ label, value }: { readonly label: string; readonly value: string
   )
 }
 
-/**
- * Render the Completion-attention preference row.
- * @param props - composed slot props (contract in ui-settings/client).
- * @returns the row element tree.
- */
+/** Render the Completion-attention preference row. */
 export function CompletionSettingsRow({
   t, permission, badgeSupported, request, test,
 }: CompletionSettingsRowProps): ReactNode {

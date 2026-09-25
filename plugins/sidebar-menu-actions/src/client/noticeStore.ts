@@ -4,12 +4,12 @@
  * One notice is on screen at a time and a repeat replaces it, so `show` hands
  * out a fresh, monotonically increasing `seq`. The overlay entry keys the
  * shipped `Toast` by that number, which is what makes a second failure restart
- * the banner instead of extending the first one's hold. `dismiss` is guarded
- * by `seq` as well, so the fade of a notice that has already been replaced
- * cannot take its successor down with it.
+ * the banner instead of extending the first one's hold. `dismiss` is guarded by
+ * `seq` as well, so the fade of a notice that has already been replaced cannot
+ * take its successor down with it.
  *
- * No DOM, no timers, no stylesheet: the shipped primitive owns the surface,
- * and this store owns only which notice is pending.
+ * No DOM, no timers, no stylesheet: the shipped primitive owns the surface, and
+ * this store owns only which notice is pending.
  */
 
 /** One pending notice: its text and the sequence identifying this showing. */
@@ -32,10 +32,7 @@ export interface NoticeStore {
   snapshot(): Notice | null
 }
 
-/**
- * Create one notice store.
- * @returns the store: `show`/`dismiss` plus the `useSyncExternalStore` pair.
- */
+/** Create one notice store: `show`/`dismiss` plus the `useSyncExternalStore` pair. */
 export function createNoticeStore(): NoticeStore {
   let current: Notice | null = null
   let seq = 0

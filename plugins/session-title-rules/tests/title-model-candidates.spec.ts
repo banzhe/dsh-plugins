@@ -1,22 +1,17 @@
 /**
  * `titleModelCandidates` / `titleRouteKey` contract.
  *
- * The card's job is to make an uncallable route unselectable. The LLM seam
- * resolves an exact `provider`/`model` pair and rejects anything its adapter
- * does not know (`UNKNOWN_MODEL`), so the directory join is the only thing
- * standing between the user and a stored title model that can never run.
- *
- * The interesting cases are therefore the joins: a route the directory still
- * advertises, a route saved earlier that has since disappeared (which must stay
- * VISIBLE and selectable as itself, or the user cannot clear it), a directory
- * that failed for one provider (its routes are simply absent, not an error), and
- * the effort list that must come from the chosen model rather than the provider.
+ * The card's job is to make an uncallable route unselectable: the LLM seam
+ * rejects any `provider`/`model` pair its adapter does not know, so the join
+ * against the live adapter directory is the only thing standing between the user
+ * and a stored title model that can never run. The rows pin each join — a route
+ * still advertised, a stored route the directory dropped, a directory that
+ * failed for one provider, and an effort list taken from the model.
  */
 import { describe, expect, it } from 'vitest'
 import type { ModelProviderGroup } from '@deepseek-ai/dsh-api-remotes/client'
 import { titleEffortChoices, titleModelCandidates, titleRouteKey } from '../src/client/controller.ts'
 
-/** One provider group as `remote.session.modelCatalog()` returns it. */
 function group(
   id: string,
   name: string,
@@ -32,9 +27,8 @@ function group(
         ? {}
         : {
           reasoning: {
-            // The display name is NOT the id in reality: `llm-pi-ai` titles it
-            // (`high` -> `High`), and the page shows that name while writing the
-            // id. Deriving it here keeps that distinction visible to the tests.
+            // The display name is NOT the id: keep the two distinct here, as
+            // the real directory does, or the split stops being tested.
             efforts: model.efforts.map(effort => ({
               id: effort,
               name: `${effort.charAt(0).toUpperCase()}${effort.slice(1)}`,
@@ -63,8 +57,8 @@ describe('titleRouteKey', () => {
   })
 
   it('cannot collide across a provider/model boundary', () => {
-    // A separator that could appear in a provider or model id would let two
-    // distinct routes share one key, and the select would check the wrong row.
+    // A separator that can appear in an id would let two distinct routes share
+    // one key, and the select would then check the wrong row.
     expect(titleRouteKey({ provider: 'a', model: 'b\u0000c' }))
       .not.toBe(titleRouteKey({ provider: 'a\u0000b', model: 'c' }))
   })
@@ -95,16 +89,16 @@ describe('titleModelCandidates', () => {
     const candidates = titleModelCandidates(DIRECTORY, undefined)
     const cc = candidates.find(candidate => candidate.model === 'cc/deepseek-v4.1-flash')
     const ollama = candidates.find(candidate => candidate.model === 'ollama/deepseek-v4.1-flash')
-    // The two models sit on ONE provider but support different levels; taking
-    // the list from anywhere but the model would offer an unsupported level.
+    // Both models sit on ONE provider but support different levels; reading the
+    // list from anywhere but the model would offer an unsupported level.
     expect(cc?.efforts.map(effort => effort.id)).toEqual(['off', 'low', 'high'])
     expect(ollama?.efforts.map(effort => effort.id)).toEqual(['low', 'high', 'max'])
   })
 
   it('carries each level id and display name separately', () => {
     const [first] = titleModelCandidates(DIRECTORY, undefined)
-    // The page shows `name` and writes `id`; collapsing the two would either
-    // display a lowercase wire value or dispatch a capitalized one.
+    // Collapsing id and name would either display a lowercase wire value or
+    // dispatch a capitalized one.
     expect(first?.efforts).toEqual([
       { id: 'off', name: 'Off' },
       { id: 'low', name: 'Low' },

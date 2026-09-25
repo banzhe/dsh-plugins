@@ -1,13 +1,12 @@
 /**
  * Staged editor for this plugin's title-model policy.
  *
- * The Host owns three volatile fields on the `session-title-rules` entry
- * (`provider`, `model`, `reasoningEffort`); this card stages a draft over them
- * and writes on save. It is deliberately NOT built on `SettingsFormModel`: that
- * model stages per-field TEXT, while this policy is one CHOICE whose two halves
- * (`provider`/`model`) must always move together, plus an effort whose legal
- * values depend on the chosen model. Staging the choice is simpler than
- * teaching a text-field model about a pair invariant.
+ * The Host owns three volatile fields on the `session-title-rules` entry; this
+ * card stages a draft over them and writes on save. It is deliberately NOT built
+ * on `SettingsFormModel`: that model stages per-field TEXT, while this policy is
+ * one CHOICE whose two halves (`provider`/`model`) must always move together,
+ * plus an effort whose legal values depend on the chosen model. Staging the
+ * choice is simpler than teaching a text-field model about a pair invariant.
  *
  * The model directory comes from `remote.session.modelCatalog()` — the same
  * source the composer's model picker reads — so a route selectable here is by
@@ -84,18 +83,15 @@ export interface TitleModelCardState extends SettingsFormShell {
 /** Registration-side face the card binds. */
 export interface TitleModelCardFace {
   hooks: {
-    /** Card snapshot bound by the renderer as useTitleModelCard. */
     titleModelCard: SnapshotStore<TitleModelCardState>
   }
   /** Stage one route key, or `undefined` to follow the session's own route. */
   selectRoute: (key: string | undefined) => void
   /** Stage one reasoning level, or `undefined` for the route default. */
   selectEffort: (effort: string | undefined) => void
-  /** Retry the model directory. */
   retryCatalog: () => void
   /** Persist the staged route and effort as one revision-fenced mutation. */
   save: () => void
-  /** Drop the staged edits. */
   discard: () => void
 }
 
@@ -106,8 +102,6 @@ export interface TitleModelCardFace {
  * is ambiguous whenever it can occur inside either half, so `{a, b\0c}` and
  * `{a\0b, c}` would share one key and the select would check the wrong row.
  * Prefixing the provider's length makes the encoding injective for any input.
- * @param route - provider/model pair to identify.
- * @returns an opaque key for lookup within the card.
  */
 export function titleRouteKey(route: TitleModelRoute): string {
   return `${route.provider.length}:${route.provider}${route.model}`
@@ -129,11 +123,7 @@ function effortsOf(model: ModelCatalogModel): TitleModelEffort[] {
  * model varies per session, so the union of everything the directory advertises
  * stands in. A stored level that nothing advertises any more is appended rather
  * than dropped: the field would otherwise display a value its own dropdown
- * cannot show, and the user could not tell what is configured.
- * @param candidates - routes joined with the directory.
- * @param route - the route a save would write, or `undefined` for the session's.
- * @param selected - the level a save would write, or `undefined` for the default.
- * @returns selectable levels, ids unique, first name seen per id winning.
+ * cannot show.
  */
 export function titleEffortChoices(
   candidates: readonly TitleModelCandidate[],
@@ -154,12 +144,7 @@ export function titleEffortChoices(
   return unique
 }
 
-/**
- * Join the live directory with a stored route that may have disappeared.
- * @param groups - current model directory grouped by provider.
- * @param stored - the route in the effective settings value, when one is set.
- * @returns candidate rows: live routes in directory order, then the unavailable stored route.
- */
+/** Join the live directory with a stored route that may have disappeared. */
 export function titleModelCandidates(
   groups: readonly ModelProviderGroup[],
   stored: TitleModelRoute | undefined,
@@ -225,10 +210,6 @@ export class TitleModelCardController {
   private readonly store: SnapshotStore<TitleModelCardState>
   private readonly unsubscribe: () => void
 
-  /**
-   * @param form - the shared form for the `session-title-rules` entry.
-   * @param ctx - the card plugin's context, whose `remote.session` namespace answers the directory.
-   */
   constructor(
     private readonly form: ConfigForm<TitleModelSettings>,
     private readonly ctx: ClientContext,
@@ -246,10 +227,7 @@ export class TitleModelCardController {
     this.unsubscribe()
   }
 
-  /**
-   * Build the renderer face for this card.
-   * @returns the snapshot and staged card actions injected into the renderer.
-   */
+  /** Build the renderer face: the snapshot and staged card actions. */
   inject(): TitleModelCardFace {
     return {
       hooks: { titleModelCard: this.store },

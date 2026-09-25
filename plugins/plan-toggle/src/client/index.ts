@@ -1,7 +1,7 @@
 /**
  * Plan-toggle plugin, browser half: Shift+Tab in the Composer claims `/plan`
- * the same way the slash menu does. Plan mode changes when that command is
- * sent, not when the key is pressed. An open trigger menu keeps the shortcut.
+ * the same way the slash menu does. Plan mode changes when that command is sent,
+ * not when the key is pressed. An open trigger menu keeps the shortcut.
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { ISessions, SessionFace, SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -41,8 +41,6 @@ function composerFrom(target: EventTarget | null): HTMLElement | null {
  * The Session the main view holds: the row whose `mainView` retention is
  * positive. This duplicates the resolution ui-session performs internally
  * (`publishMain`), which exposes no public accessor for it.
- * @param list - sessions list snapshot.
- * @returns the displayed Session id, or undefined when none is open.
  */
 function mainSessionId(list: SessionListState): SessionId | undefined {
   return Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
@@ -101,7 +99,6 @@ function beginPlan(input: SessionInput, session: SessionFace): boolean {
 
 /**
  * Bind a document listener that claims `/plan` on Shift+Tab in the Composer.
- * @param ctx - client root context, with sessions and conversation already injected.
  */
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions

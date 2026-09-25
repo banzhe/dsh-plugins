@@ -3,11 +3,7 @@
  * The `shell.overlay` notice entry, mounted the way the shell mounts one: the
  * component `SlotsDouble` recorded is rendered over the business face the
  * plugin's `inject` factory returned, so what is pinned is the real
- * store → hook → shipped-`Toast` wiring. Nothing renders while no notice is
- * pending; a copy raises the banner with the dictionary's text; the primitive's
- * completion trigger unmounts it; and a second notice remounts the banner (its
- * `key` is the store's `seq`) instead of extending the first one, which is the
- * behaviour a repeat of the same text exists for.
+ * store → hook → shipped-`Toast` wiring, not a stub of it.
  */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import { act, createElement, type ComponentType } from 'react'
@@ -22,23 +18,16 @@ import { SlotsDouble } from './slots-double.ts'
 import { translateEn as t } from './translate.ts'
 import { workspacesDouble } from './workspaces-double.ts'
 
-/** The overlay entry id the notice surface registers under. */
 const NOTICE = 'sidebar-menu-actions.notice'
-
-/** The slot entry id the Copy-session-ID row registers under (the notice's source). */
 const COPY_ROW = 'sidebar-menu-actions.copy-session-id'
-
-/** The one Session id every copy in this spec writes. */
 const SESSION_ID = 'sess-42'
-
-/** The one Workspace row the snapshot resolves a canonical directory for. */
 const WORKSPACES = [{ workspaceId: 'ws-1', path: '/ws/alpha' }]
 
 /**
- * The standard-kit props every slot component receives. The entry ignores them,
- * but the composed props type requires them: ui-session and ui-workspace merge
- * `GlobalStandardProps` onto every slot key, so a fixture cast must supply all
- * four selectors or the entry's own props type rejects the cast.
+ * The entry ignores these, but the composed props type requires them: ui-session
+ * and ui-workspace merge `GlobalStandardProps` onto every slot key, so a fixture
+ * cast must supply all four selectors or the entry's own props type rejects the
+ * cast.
  */
 const STANDARD_PROPS = {
   useSessions: (() => {}) as never,
@@ -47,32 +36,21 @@ const STANDARD_PROPS = {
   useWorkspaces: (() => {}) as never,
 }
 
-/** Fibers and React roots this spec raised, torn down after each test. */
 let fibers: Fiber[] = []
 let roots: Root[] = []
 
 // React only honors act() when it is told it runs in a test environment.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-/** The mounted overlay entry and the handles driving it. */
 interface Harness {
   /** The root the entry rendered into, so an unmount leaves an empty container. */
   readonly host: HTMLElement
-  /** The banner currently on screen, or null. */
   toast(): HTMLElement | null
-  /** The banner currently on screen, or a failure. */
   banner(): HTMLElement
-  /** Run one session-id copy through the plugin's injected face. */
   copy(): Promise<void>
-  /** Fire the banner primitive's completion trigger (its fade-done callback). */
   finish(): Promise<void>
 }
 
-/**
- * Boot the browser half, then mount the overlay entry `SlotsDouble` recorded
- * over the face its `inject` factory returned.
- * @returns the mounted entry and the handles driving it.
- */
 async function mount(): Promise<Harness> {
   // The probe's route is not this spec's subject; an inert Host is the plain case.
   vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ apps: [] }) })))

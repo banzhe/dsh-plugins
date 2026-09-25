@@ -40,11 +40,7 @@ const SEED: Record<string, unknown> = {
   'react/jsx-runtime': JsxRuntime,
 }
 
-/**
- * Materialize one published browser bundle through a module-table facade.
- * @param packageName - package whose `lib/client.js` to load.
- * @returns the bundle's exports, exactly as the shell's module system yields them.
- */
+/** Materialize one published browser bundle through a module-table facade. */
 function loadClientBundle(packageName: string): Record<string, unknown> {
   const path = resolve('node_modules', packageName, 'lib/client.js')
   const source = readFileSync(path, 'utf8')
@@ -95,7 +91,6 @@ function provideSessions(ctx: Context): void {
  * The declaring component must consume the child through `renderSlot`: the
  * registry's types reject a declaration whose owner never renders it (that
  * would silently drop every contribution).
- * @param ctx - context whose `slots` service receives the declaration.
  */
 function declareGeneralItem(ctx: Context): void {
   ctx.slots.register(

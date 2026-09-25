@@ -1,10 +1,9 @@
 // @vitest-environment jsdom
 /**
- * Browser-half lifecycle over a real Cordis context: the dictionary
- * registration with fiber teardown proving removal, the settings-row
- * registration (which is what carries the permission gesture), the Session-list
- * subscription the presenter installs, and the paths a page without either
- * surface takes.
+ * Browser-half lifecycle over a real Cordis context: dictionary registration
+ * with fiber teardown, the settings-row registration (which is what carries the
+ * permission gesture), the Session-list subscription, and the paths a page
+ * without either surface takes.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -38,8 +37,6 @@ class FakeNotification {
 /**
  * Stub the platform capabilities, and hand back the two Session sources plus
  * the navigation spy the plugin drives.
- * @param options - the badge and permission facts this spec is about.
- * @returns the list, status, and navigation doubles.
  */
 function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): SessionSources & {
   openSession: ReturnType<typeof vi.fn>

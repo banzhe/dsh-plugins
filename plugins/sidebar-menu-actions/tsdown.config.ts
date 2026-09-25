@@ -6,9 +6,8 @@ const id = '@banzhe/dsh-sidebar-menu-actions'
 /**
  * Baseline module-table words the menu row may request without declaring them
  * (the shell's `PLATFORM_MODULES` seed). The row must render through the SAME
- * React instance the shell mounted, and through the SAME `ui-primitives`
- * the shell seeded (`MenuItemButton`, the copy icon), so neither is ever
- * inlined.
+ * React instance the shell mounted, and through the SAME `ui-primitives` the
+ * shell seeded, so neither is ever inlined.
  */
 const PLATFORM_EXTERNALS = [
   'react',

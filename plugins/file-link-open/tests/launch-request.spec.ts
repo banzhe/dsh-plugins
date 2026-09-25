@@ -1,9 +1,7 @@
 /**
- * The launch route's wire contract. `parseBody` is the only gate between an
- * HTTP body and the resolver, so its accept/reject boundary is pinned here —
- * in particular the rule that a malformed `line` is REJECTED rather than
- * dropped: silently opening at the top would hide a client bug behind a
- * plausible-looking launch.
+ * `parseBody` is the only gate between an HTTP body and the resolver, so a
+ * malformed `line` is REJECTED rather than dropped: silently opening at the top
+ * would hide a client bug behind a plausible-looking launch.
  */
 import { describe, expect, it } from 'vitest'
 import { parseBody } from '../src/index.ts'
@@ -11,7 +9,7 @@ import { parseBody } from '../src/index.ts'
 /** The request body text for one value. */
 const body = (value: unknown) => JSON.stringify(value)
 
-/** A well-formed request, with `line` added by the caller. */
+/** A well-formed request whose only variable is `line`. */
 const request = (line?: unknown) => ({ app: 'vscode', path: '/tmp/a.ts', ...(line === undefined ? {} : { line }) })
 
 describe('parseBody', () => {

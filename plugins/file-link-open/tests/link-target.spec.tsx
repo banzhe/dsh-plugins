@@ -1,25 +1,21 @@
 // @vitest-environment jsdom
 /**
- * The fiber walk that recovers a file link's line. The official renderer keeps
- * the line inside its own component and writes only the path to `title`, so
- * these specs render that exact shape (`memo(function MarkdownFileLink({ file,
- * glyph, children }))`) with real React and assert what the walk accepts.
- *
- * The point of the suite is that a React or DSH change moving the fiber shape
- * fails here — loudly — instead of silently dropping to "opens at the top".
+ * The official renderer keeps the link's line inside its own component and
+ * writes only the path to `title`, so these specs render that exact shape with
+ * real React. A React or DSH change moving the fiber shape must fail here —
+ * loudly — instead of silently dropping to "opens at the top".
  */
 import * as React from 'react'
 import * as ReactDOMClient from 'react-dom/client'
 import { afterEach, describe, expect, it } from 'vitest'
 import { classifyContextTarget, lineOfFileLink } from '../src/client/target.ts'
 
-// React 18 only suppresses its "not configured to support act(...)" warning when
-// this flag is set; without it every `act` call below logs a false alarm.
+// React 18 only suppresses its "not configured to support act(...)" warning
+// when this flag is set; without it every `act` call below logs a false alarm.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const { act } = React
 
-/** The hashed-class shape the official renderer emits for a message file link. */
 const FILE_LINK_CLASS = 'md_fileMention md_fileLink'
 
 let container: HTMLDivElement | null = null
@@ -32,7 +28,6 @@ afterEach(() => {
   root = null
 })
 
-/** Render `element` into a fresh detached container and return it. */
 function render(element: React.ReactElement): HTMLDivElement {
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -41,10 +36,8 @@ function render(element: React.ReactElement): HTMLDivElement {
   return container
 }
 
-/**
- * The official component, reproduced: a `memo` wrapper whose `file` prop is
- * consumed internally and never reaches an attribute.
- */
+// A `memo` wrapper whose `file` prop is consumed internally and never reaches
+// an attribute — the shape the walk has to see through.
 const MarkdownFileLink = React.memo(function MarkdownFileLink(props: {
   file: { path: string, line?: number }
   glyph?: boolean
@@ -58,12 +51,10 @@ const MarkdownFileLink = React.memo(function MarkdownFileLink(props: {
   )
 })
 
-/** Render one official-shaped file link for the given destination. */
 function renderFileLink(file: { path: string, line?: number }) {
   return render(<MarkdownFileLink file={file} glyph>source</MarkdownFileLink>)
 }
 
-/** The single file-link button in a rendered container. */
 function buttonOf(view: HTMLElement): HTMLButtonElement {
   const button = view.querySelector('button')
   if (button === null) throw new Error('no file-link button rendered')
@@ -87,7 +78,7 @@ describe('lineOfFileLink', () => {
   })
 
   it('accepts a decoded path that differs from the authored destination', () => {
-    // The official renderer writes the DECODED path to `title`; the fiber
+    // The official renderer writes the DECODED path to `title`, and the fiber
     // carries the same decoded value, so spaces and CJK still match.
     const button = buttonOf(renderFileLink({ path: 'docs/My Notes 中文.md', line: 2 }))
     expect(lineOfFileLink(button, 'docs/My Notes 中文.md')).toBe(2)
@@ -120,8 +111,8 @@ describe('lineOfFileLink', () => {
   })
 
   it('rejects an unrelated ancestor that happens to carry a `file` prop', () => {
-    // A deliverable card (or any owner) with its own `file` prop must not win
-    // over the link's own component: the walk requires file.path === title.
+    // The walk requires file.path === title, so a card whose own `file` prop
+    // differs must not win over the link's component.
     function DeliverableCard(props: { file: { path: string, line?: number }, children?: React.ReactNode }) {
       return <div data-card="1">{props.children}</div>
     }
@@ -144,19 +135,16 @@ describe('lineOfFileLink', () => {
         <button type="button" className={FILE_LINK_CLASS} title="src/a.ts">source</button>
       </Card>,
     )
-    // The plain button's own fiber carries no `file` prop, and the card's
-    // differs from the title, so nothing is accepted.
+    // The plain button's fiber carries no `file` prop, and the card's differs
+    // from the title, so nothing is accepted.
     expect(lineOfFileLink(buttonOf(view), 'src/a.ts')).toBeNull()
   })
 })
 
 describe('lineOfFileLink synthetic fibers', () => {
-  /**
-   * A detached file-link button carrying a hand-built fiber chain. Real React
-   * never produces these shapes; they pin the walk's defensive branches (a
-   * React version that renames the handle, a wrapper with an unrelated prop, a
-   * chain that never reaches the component).
-   */
+  // Real React never produces these shapes; they pin the walk's defensive
+  // branches (a React version that renames the handle, a wrapper with an
+  // unrelated prop, a chain that never reaches the component).
   function buttonWithFiber(key: string, first: unknown): HTMLButtonElement {
     const button = document.createElement('button')
     button.className = FILE_LINK_CLASS
@@ -165,7 +153,6 @@ describe('lineOfFileLink synthetic fibers', () => {
     return button
   }
 
-  /** One fiber level: memoized props plus its parent. */
   function fiber(memoizedProps: unknown, parent?: unknown): Record<string, unknown> {
     return { memoizedProps, return: parent }
   }

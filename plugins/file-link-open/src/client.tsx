@@ -1,20 +1,13 @@
 /**
- * @banzhe/dsh-file-link-open — Client half.
+ * @banzhe/dsh-file-link-open — Client half. A right-click context menu over
+ * file links rendered inside session messages: open in a detected editor, open
+ * the containing folder in the platform file manager, or copy the path.
  *
- * A right-click context menu over file links rendered inside session messages
- * (file mentions and markdown file links): open the file in one of the
- * detected editors/IDEs, open its containing folder in the platform file
- * manager, and copy the relative/absolute path.
- *
- * Pure event delegation on `document`: the official markdown renders every
- * file mention and every markdown file link as a button carrying the path in
- * its `title` (shared hashed fileMention class; the input area's reference
- * chips share the class but mark themselves with `data-ref-chip`, so they are
- * excluded). Left-click keeps the official preview behavior untouched.
- *
- * The viewed session's working directory is published by a null cell in the
- * official `conversation.session.header.utilities` slot (the same seat the
- * official open-in-app button consumes); relative paths resolve against it.
+ * Pure event delegation on `document`; left-click keeps the official preview
+ * behavior untouched. The viewed session's working directory is published by a
+ * null cell in the official `conversation.session.header.utilities` slot (the
+ * seat the official open-in-app button consumes); relative paths resolve
+ * against it.
  *
  * Implementation derived from https://github.com/cholf5/dsh-plugin-file-actions
  */
@@ -85,7 +78,6 @@ export type LocaleKey = keyof typeof en
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** File-link context menu copy. */
     fileLinkOpen: LocaleKey
   }
 }
@@ -98,12 +90,10 @@ const EDITOR_IDS = [
 ] as const
 
 /**
- * Official file-manager catalog ids — first in the official catalog's menu
- * order. Unlike editors these ride the official probe alone: their launch is
- * the official POST /open-in-app/open with the file's directory, the exact
- * call the session-header split button makes, so the official route itself
- * guarantees "menu shows it, click works" and there is nothing for the
- * plugin's own resolution to confirm.
+ * Unlike editors these ride the official probe alone: their launch is the
+ * official POST /open-in-app/open with the file's DIRECTORY, so the official
+ * route itself guarantees "menu shows it, click works" and this plugin's own
+ * resolution has nothing to confirm.
  */
 const FILE_MANAGER_IDS = ['finder', 'explorer', 'filemanager'] as const
 
@@ -202,21 +192,19 @@ function AppIcon(props: { id: string, size: number }) {
 type Translator = (key: LocaleKey, params?: Record<string, string>) => string
 
 /**
- * Build the menu entries — the official `Menu` item union (`MenuEntry`:
- * selectable row, separator, or heading label), so the compiler checks the
- * shape this plugin hands to `<Menu items>`. `state` is the shared plugin state
- * (official probe + plugin info); the two copy entries close the menu. A link
- * that named a line gets a non-selectable heading naming that line, so the
- * target is visible before anything launches.
+ * Build the menu entries as the official `Menu` item union, so the compiler
+ * checks the shape this plugin hands to `<Menu items>`. A link that named a
+ * line gets a non-selectable heading naming it, so the target is visible before
+ * anything launches.
  */
 function buildItems(state: AppState, t: Translator, line: number | null): MenuEntry[] {
   const items: MenuEntry[] = []
   if (line !== null) items.push({ type: 'label', id: 'flo:line', text: t('atLine', { line: String(line) }) })
   const fileManagers = (state.officialApps ?? []).filter(id => (FILE_MANAGER_IDS as readonly string[]).includes(id))
-  // Show an editor only when BOTH the official probe and this plugin's own
+  // An editor is shown only when BOTH the official probe and this plugin's own
   // resolution verified it: the two resolver copies (the host dsh's and the
-  // plugin's pinned one) may differ in version, and this intersection makes
-  // the "menu shows it, click 400s" failure impossible. Older hosts without
+  // plugin's pinned one) may differ in version, and this intersection makes the
+  // "menu shows it, click 400s" failure impossible. Older hosts without
   // `available` keep the official intersection only.
   let editors: string[] = []
   if (state.info !== null) {
@@ -243,10 +231,10 @@ function buildItems(state: AppState, t: Translator, line: number | null): MenuEn
 /** One menu selection: dispatch to the route or the clipboard. */
 function dispatchSelection(id: string, filePath: string, line: number | null, cwd: string | null, deps: { close(): void }) {
   const absolute = resolveWorkspacePath(cwd, filePath)
-  // Every path closes the menu immediately: the detached launches take
-  // seconds to settle on the host, and holding the menu open for that round
-  // trip reads as "the menu never closes". Failures land in the console
-  // instead of an in-menu error row (there is no menu left to host one).
+  // Every path closes the menu immediately: the detached launches take seconds
+  // to settle on the host, and holding the menu open for that round trip reads
+  // as "the menu never closes". Failures land in the console instead of an
+  // in-menu error row (there is no menu left to host one).
   if (id === 'flo:copy-rel') {
     deps.close()
     writeClipboard(relativizeToCwd(filePath, cwd))
@@ -258,8 +246,6 @@ function dispatchSelection(id: string, filePath: string, line: number | null, cw
     return
   }
   if (id.startsWith('flo:fm:')) {
-    // The official launch: the session-header split button's exact call, with
-    // the file's directory standing in for the workspace directory.
     const manager = id.slice(7)
     deps.close()
     void postJson('/open-in-app/open', { app: manager, path: dirnameOf(absolute) }).then((result) => {
@@ -291,7 +277,6 @@ interface ContextState {
   x: number
   y: number
   path: string | null
-  /** Line the link named, or null; published to the host on launch. */
   line: number | null
   cwd: string | null
 }
@@ -305,10 +290,9 @@ export async function apply(ctx: ClientContext) {
   const state: AppState = { officialApps: null, info: null }
 
   /**
-   * Shared state of the context menu: `cwd` is published by the recorder cell
-   * below, `target` is the classified link under the cursor. The whole object
-   * is replaced on every open, and the render closures always read the
-   * variable, never a stale copy.
+   * `cwd` is published by the recorder cell below. The whole object is replaced
+   * on every open, and the render closures always read the variable, never a
+   * stale copy.
    */
   let contextState: ContextState = { open: false, x: 0, y: 0, path: null, line: null, cwd: null }
   const contextContainer = document.createElement('div')
@@ -327,10 +311,9 @@ export async function apply(ctx: ClientContext) {
   const contextRoot = ReactDOMClient.createRoot(contextContainer)
 
   /**
-   * The right-click context menu over one message file link — editors, the
-   * platform file manager, and path copies — anchored at the cursor through
-   * Menu's getAnchorRect (portal mode; the viewport clamp keeps the panel on
-   * screen).
+   * The right-click menu over one message file link, anchored at the cursor
+   * through Menu's getAnchorRect (portal mode; the viewport clamp keeps the
+   * panel on screen).
    */
   function LinkMenu(props: { menu: ContextState, t: Translator }) {
     const menu = props.menu
@@ -367,7 +350,6 @@ export async function apply(ctx: ClientContext) {
     contextRoot.render(<LinkMenu menu={contextState} t={t} />)
   }
 
-  /** Replace the context state with one open menu at x/y over one classified link. */
   function openContextMenu(x: number, y: number, link: LinkTarget) {
     contextState = {
       open: true,
@@ -390,11 +372,11 @@ export async function apply(ctx: ClientContext) {
   document.addEventListener('contextmenu', onContextMenu)
 
   /**
-   * Header utilities cell that publishes the viewed session's workspace
-   * directory for the context menu. Renders nothing: the cell exists for its
-   * standard Session props (sessionId + useSessions — the same seats the
-   * official open-in-app button consumes). A subagent aside rendering its own
-   * header last would win; aside sessions share the workspace in practice.
+   * Renders nothing: the cell exists for its standard Session props (sessionId
+   * + useSessions — the same seats the official open-in-app button consumes), to
+   * publish the viewed session's workspace directory. A subagent aside rendering
+   * its own header last would win; aside sessions share the workspace in
+   * practice.
    */
   function SessionCwdRecorder(props: { sessionId: string, useSessions: (selector: (sessionState: { byId: Record<string, { cwd?: string }> }) => string | undefined) => string | undefined }) {
     const cwd = props.useSessions((sessionState) => {
@@ -410,10 +392,9 @@ export async function apply(ctx: ClientContext) {
     return null
   }
 
-  // The official session-header utilities seat: a null cell registered for
-  // its props. ctx.slots.inject runs the callback per declaration lifetime and
-  // unwinds the registration when this plugin's fiber unloads — no manual
-  // disposer (the official open-in-app registers the same way).
+  // The official session-header utilities seat. ctx.slots.inject runs the
+  // callback per declaration lifetime and unwinds the registration when this
+  // plugin's fiber unloads — no manual disposer.
   ctx.slots.inject('conversation.session.header.utilities', () =>
     ctx.slots.register({
       name: 'conversation.session.header.utilities',

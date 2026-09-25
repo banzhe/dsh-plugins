@@ -4,11 +4,10 @@ import { defineConfig } from 'tsdown'
 const id = '@banzhe/dsh-file-link-open'
 
 /**
- * Baseline module-table words the context-menu row may request without
- * declaring them (the shell's `PLATFORM_MODULES` seed). The menu must render
- * through the SAME React instance the shell mounted, and through the SAME
- * `ui-primitives` the shell seeded (`Menu`, `writeClipboard`), so neither is
- * ever inlined.
+ * Baseline module-table words the context-menu row may request without declaring
+ * them (the shell's `PLATFORM_MODULES` seed). The menu must render through the
+ * SAME React instance the shell mounted, and through the SAME `ui-primitives`
+ * the shell seeded, so neither is ever inlined.
  */
 const PLATFORM_EXTERNALS = [
   'react',

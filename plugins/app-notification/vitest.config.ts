@@ -11,7 +11,7 @@ import { defineConfig } from 'vitest/config'
  * library, and importing it eagerly evaluates katex/shiki/micromark/mdast/clsx —
  * a tree this standalone package does not install. The browser half resolves the
  * REAL module from the shell's module-table seed, so only Node specs need the
- * stand-in (same rationale as `tests/locale-double.ts`).
+ * stand-in.
  */
 export default defineConfig({
   resolve: {

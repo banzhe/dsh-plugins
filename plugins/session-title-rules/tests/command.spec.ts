@@ -2,11 +2,10 @@
  * `/title-refresh` command contract.
  *
  * The registration half runs the real `CommandRuntime` over a real Cordis
- * context, because the interesting facts are the catalog row the composer reads
- * (name, description, and the ABSENCE of an input hint, which is what makes a
- * bare pick execute) and that an argument-free line really reaches the handler.
- * The outcome half drives the handler directly with a stub `refresh`, so each
- * result mapping is pinned without a live model call or a real Session log.
+ * context, because the composer reads the registered catalog row itself —
+ * including the ABSENCE of an input hint, which is what makes a bare pick
+ * execute. The outcome half drives the handler directly with a stub `refresh`,
+ * so each result mapping is pinned without a live model call or a Session log.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
@@ -20,12 +19,11 @@ import {
   type TitleRefreshTarget,
 } from '../src/command.ts'
 
-/** The agent shape the registry hands a handler, named without a direct dep. */
+// Named structurally: this suite has no direct dependency on the agent's package.
 type TestAgent = CommandInvocation['agent']
 
 const TITLE = '0916｜研究｜会话标题刷新命令'
 
-/** A snapshot as `refresh()` returns it; only `title` is read by the command. */
 const SNAPSHOT = {
   title: TITLE,
   messageSeqs: [],
@@ -35,10 +33,9 @@ const SNAPSHOT = {
 } as unknown as SessionTitleSnapshot
 
 /**
- * A Session stand-in that records what reaches it. The command never reads the
- * log — it delegates to `refresh()` — so the only real behaviour under test is
- * that an admitted command still writes its `command/run`/`command/done` pair,
- * which is exactly what `append` observes.
+ * The command never reads the log — it delegates to `refresh()` — so the only
+ * real behaviour under test is that an admitted command still writes its
+ * `command/run`/`command/done` pair, which is what `append` observes.
  */
 interface RecordedSession {
   readonly recorded: Array<{ type: string; data: unknown }>
@@ -50,7 +47,6 @@ function recordingSession(): RecordedSession {
   return { recorded, append: (type, data) => { recorded.push({ type, data }); return undefined } }
 }
 
-/** One recording Session and the stand-in agent the registry addresses commands to. */
 function testAgent(): { agent: TestAgent; session: RecordedSession } {
   const session = recordingSession()
   const agent = {
@@ -62,7 +58,6 @@ function testAgent(): { agent: TestAgent; session: RecordedSession } {
   return { agent, session }
 }
 
-/** A stub title service recording the exact call it received. */
 function stubTarget(): {
   target: TitleRefreshTarget
   refresh: ReturnType<typeof vi.fn>
@@ -71,7 +66,6 @@ function stubTarget(): {
   return { target: { refresh }, refresh }
 }
 
-/** One admitted invocation with an overridable raw input and signal. */
 function invocation(
   agent: TestAgent,
   overrides: { rawInput?: string; signal?: AbortSignal } = {},
@@ -85,7 +79,7 @@ function invocation(
   }
 }
 
-/** Await the `ctx.inject` child that mounts once `commands` resolves. */
+// The command mounts through a child fiber, so its row lands one microtask late.
 function settle(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }

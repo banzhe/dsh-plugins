@@ -2,17 +2,16 @@
  * The contract this plugin's line support actually depends on, read from the
  * INSTALLED official renderer artifact.
  *
- * The walk in `src/client/target.ts` needs `MarkdownFileLink` to keep the
- * parsed destination on its own props (`file`, carrying `path` and `line`) while
+ * The walk in `src/client/target.ts` needs `MarkdownFileLink` to keep the parsed
+ * destination on its own props (`file`, carrying `path` and `line`) while
  * writing only `file.path` to the button's `title`. That is not a documented
  * public API — it is a fact about the shipped component — so it is asserted
  * against the installed build rather than against a copy of its source.
  *
  * Reading the built file (instead of importing it) is deliberate: the artifact
- * pulls a ~30-package tree (katex, shiki, micromark, simple-icons) that this
- * standalone package does not install, which is exactly why the sibling plugins
- * alias a stand-in for it. A textual contract check needs none of that and still
- * fails the moment the official component stops passing `file` through.
+ * pulls a ~30-package tree that this standalone package does not install. A
+ * textual contract check needs none of that and still fails the moment the
+ * official component stops passing `file` through.
  */
 import { createRequire } from 'node:module'
 import { readFileSync } from 'node:fs'

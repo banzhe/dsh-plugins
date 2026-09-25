@@ -1,9 +1,4 @@
-/**
- * Locale bundles for the title-model settings page.
- *
- * The page rides an existing locale namespace (`menu-actions` is NOT reused):
- * this Bundle owns `session-title-rules`, registered in `index.ts`.
- */
+/** Locale bundles for the title-model settings page (namespace `session-title-rules`). */
 
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 
@@ -72,8 +67,6 @@ export const zh: Record<TitleModelLocaleKey, string> = {
 
 /**
  * The form frame's copy, read from this page's dictionary.
- * @param t - the page's locale reader.
- * @returns the labels the shared settings form renders.
  */
 export function formLabels(t: (key: TitleModelLocaleKey) => string): SettingsFormLabels {
   return {

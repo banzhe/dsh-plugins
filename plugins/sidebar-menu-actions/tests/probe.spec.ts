@@ -1,10 +1,8 @@
 // @vitest-environment jsdom
 /**
- * `probeVscode`'s decision table over a stubbed `fetch`: exactly one GET of the
- * document-relative apps route, `false` without reading the body on a non-ok
- * response, `true` only when the payload's `apps` is an array containing
- * `'vscode'`, and a hard `false` for every thrown or rejected outcome — the
- * probe never propagates a failure upward.
+ * `probeVscode`'s decision table over a stubbed `fetch`: every thrown or
+ * rejected outcome must answer `false` — the probe never propagates a failure
+ * upward, because a failed probe simply means the Workspace half stays out.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { probeVscode } from '../src/client/workspaceMenu.ts'
