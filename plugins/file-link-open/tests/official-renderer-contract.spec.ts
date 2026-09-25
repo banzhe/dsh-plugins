@@ -3,10 +3,15 @@
  * INSTALLED official renderer artifact.
  *
  * The walk in `src/client/target.ts` needs `MarkdownFileLink` to keep the parsed
- * destination on its own props (`file`, carrying `path` and `line`) while
- * writing only `file.path` to the button's `title`. That is not a documented
- * public API — it is a fact about the shipped component — so it is asserted
- * against the installed build rather than against a copy of its source.
+ * destination on its own props (`file`, carrying `path` and `line`) and to never
+ * put the line in an attribute. That is not a documented public API — it is a
+ * fact about the shipped component — so it is asserted against the installed
+ * build rather than against a copy of its source.
+ *
+ * DSH 0.1.7-rc.2 made `title` conditional (`title={src === undefined ? file.path
+ * : undefined}`), so a glyph-rendered image link carries no title once the
+ * inline preview resolves. The path therefore comes from the same fiber prop as
+ * the line, and this file pins both halves of that contract.
  *
  * Reading the built file (instead of importing it) is deliberate: the artifact
  * pulls a ~30-package tree that this standalone package does not install. A
@@ -47,9 +52,17 @@ describe('installed official renderer contract', () => {
     expect(body).toMatch(/function MarkdownFileLink\(\{\s*file\b/)
   })
 
-  it('still writes only the path to the button title, so the walk must read props', () => {
-    // The premise of the whole feature: the DOM alone cannot supply the line.
-    expect(body).toMatch(/title:\s*file\.path/)
+  it('keeps the path on the button title for ordinary links, so the walk need not guess', () => {
+    // The common case is unchanged: a non-image link writes its decoded path.
+    expect(body).toMatch(/title:\s*src === void 0 \? file\.path : void 0/)
+  })
+
+  it('may omit the title for a previewed image link, which is why the path falls back to the fiber', () => {
+    // 0.1.7-rc.2 behavior: `fileImages` resolves a preview for an image-classified
+    // path, and the title is dropped so the preview owns the hover affordance.
+    // `pathOfFileLink` covers this by reading the nearest `file` prop instead.
+    expect(body).toMatch(/fileImages/)
+    expect(body).toMatch(/title:\s*src === void 0 \? file\.path : void 0/)
   })
 
   it('still reads the line off that prop when opening', () => {

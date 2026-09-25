@@ -24,7 +24,7 @@ A markdown file link may name a line — `[source](src/a.ts#L24)`, or the range 
 
 Copying always yields the bare path, never `#L24`, so a pasted path still works in a terminal, a script, or another editor.
 
-The official renderer consumes the line inside its own component and writes only the path to the link's `title`, so the line is recovered from the link button's React fiber (one hop, required to match the button's own `title`). This is the trade recorded in [`docs/adr/0004`](../../docs/adr/0004-session-id-from-react-fiber.md) and now [`docs/adr/0005`](../../docs/adr/0005-file-link-line-from-react-fiber.md): a React or DSH change that moves it degrades to "opens at the top of the file" rather than to a wrong launch.
+The official renderer consumes the line inside its own component and never writes it to an attribute, so the line is recovered from the link button's React fiber (bounded to 6 hops, matched by the button's own `title`). Since DSH `0.1.7-rc.2` the path is read from that same fiber prop as well: the built `MarkdownFileLink` writes `title={src === undefined ? file.path : undefined}`, so a glyph-rendered link whose path classifies as an image carries **no** `title` once the inline preview resolves. A title-less button resolves its path from the component named `MarkdownFileLink` — never from whichever ancestor happens to hold a `file` prop, which would launch a card's path instead. This is the trade recorded in [`docs/adr/0004`](../../docs/adr/0004-session-id-from-react-fiber.md) and now [`docs/adr/0005`](../../docs/adr/0005-file-link-line-from-react-fiber.md): a React or DSH change that moves it degrades to "opens at the top of the file" rather than to a wrong launch.
 
 ### Window reuse
 
@@ -46,7 +46,7 @@ A file link therefore lands in the editor you already have open, and a `#L24` li
 | Half | File | Runtime |
 | --- | --- | --- |
 | Host | `lib/index.js` | Node — Cordis loader. Registers `GET /api/file-link-open/info` (capability + local resolution report) and `POST /api/file-link-open/launch`, both behind the official `connection` trust fence with bounded JSON bodies, absolute-path/existence validation, and an optional validated `line`. A request naming a `line` rewrites the resolved launcher's argv into that editor's line-selection spelling, and every request appends that editor's own window-reuse switch; launchers this plugin must not extend (macOS `open -a`, file managers) launch unchanged. |
-| Client | `lib/client.js` | Browser — dsh client module system. Document-level `contextmenu` delegation matching the official file-link buttons (`button[class*="fileMention"][title]:not([data-ref-chip])`); the viewed session's `cwd` is published by a null cell in the official `conversation.session.header.utilities` slot. The link's line comes from the button's React fiber. An editor appears only when **both** the official probe **and** this plugin's own resolution verified it, so a version skew can never produce a "menu shows it, click 400s" failure. |
+| Client | `lib/client.js` | Browser — dsh client module system. Document-level `contextmenu` delegation matching the official file-link buttons (`button[class*="fileMention"]:not([data-ref-chip])`); the viewed session's `cwd` is published by a null cell in the official `conversation.session.header.utilities` slot. The link's path and line both come from the button's React fiber (`title` first, then the `MarkdownFileLink` component). An editor appears only when **both** the official probe **and** this plugin's own resolution verified it, so a version skew can never produce a "menu shows it, click 400s" failure. |
 
 ## Install
 
@@ -75,7 +75,7 @@ pnpm build
 
 ## Known limitations
 
-- The right-click menu depends on the official file-link DOM shape (`fileMention` hash class with the path in `title`); a dsh upgrade that changes it makes the menu silently fall back to the native context menu.
+- The right-click menu depends on the official file-link DOM shape (the `fileMention` hash class). A right-click on a link with no `title` resolves its path from the component named `MarkdownFileLink` in the React fiber; a dsh upgrade that renames or re-shapes that component makes those links (and any `[title]`-less link) silently fall back to the native context menu.
 - The link's **line** additionally depends on the official component keeping `file` on its props; a React or dsh change that moves it degrades to opening at the top of the file, never to a wrong launch. `tests/official-renderer-contract.spec.ts` asserts this against the installed renderer.
 - On macOS every editor resolves to `open -a <bundle>`, which takes no line option, so links there always open at the top. Editing the official catalog to carry a per-platform line form is the follow-up.
 - Android Studio (`studio64.exe`) has no documented line flag and opens at the top.

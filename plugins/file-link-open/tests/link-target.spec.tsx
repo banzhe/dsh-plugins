@@ -226,6 +226,42 @@ describe('classifyContextTarget', () => {
     expect(classifyContextTarget(buttonOf(view))).toBeNull()
   })
 
+  it('classifies a title-less image link from its fiber, as DSH 0.1.7-rc.2 renders one', () => {
+    // rc.2 drops `title` for a previewed image link, so the path has to come
+    // from the same `file` prop the line does. Without this the right-click
+    // menu would silently fall back to the native one for every image link.
+    const view = render(<MarkdownFileLink file={{ path: 'docs/shot.png', line: 7 }} glyph>shot</MarkdownFileLink>)
+    const button = buttonOf(view)
+    expect(button.getAttribute('title')).toBe('docs/shot.png')
+    // The same component shape with the title attribute removed, as the
+    // preview branch renders it.
+    button.removeAttribute('title')
+    expect(classifyContextTarget(button)).toEqual({ path: 'docs/shot.png', line: 7 })
+  })
+
+  it('still refuses a title-less button whose fiber carries no file prop', () => {
+    function Plain(props: { children?: React.ReactNode }) {
+      return <button type="button" className={FILE_LINK_CLASS}>{props.children}</button>
+    }
+    const view = render(<Plain>source</Plain>)
+    expect(classifyContextTarget(buttonOf(view))).toBeNull()
+  })
+
+  it('does not accept an ancestor-only file prop once the title is gone', () => {
+    // With no title the equality check cannot anchor the walk, so the fallback
+    // takes the NEAREST file prop. An ancestor is farther than the button's own
+    // component, but a button with no file prop of its own must not borrow one.
+    function Card(props: { file: { path: string, line?: number }, children?: React.ReactNode }) {
+      return <div data-card="1">{props.children}</div>
+    }
+    const view = render(
+      <Card file={{ path: 'CARD-LEVEL.ts', line: 999 }}>
+        <button type="button" className={FILE_LINK_CLASS}>source</button>
+      </Card>,
+    )
+    expect(classifyContextTarget(buttonOf(view))).toBeNull()
+  })
+
   it.each([
     ['null', null],
     ['a non-element target', { closest: undefined }],

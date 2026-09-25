@@ -4,29 +4,38 @@ packages:
 # strict：pnpm add 只接受 catalog 内的版本，拒绝手写版本号，防止版本再次发散。
 catalogMode: strict
 
-# 统一管理依赖版本：各 package.json 用 "catalog:" 引用，升级只改这里。
+# 统一管理依赖版本：devDependencies 用 "catalog:" 引用，升级只改这里。
 # 所有 @deepseek-ai/dsh-* 固定为同一个 DSH 版本，不使用 caret，避免各插件解析到不同版本。
+#
+# peerDependencies 不能写 "catalog:"：DSH 在 Profile 组装阶段
+# (packages/boot/app-boot/src/plugin-compatibility.ts) 用 semver.satisfies 校验
+# peerDependencies 里的 @deepseek-ai/dsh-* 范围，"catalog:" 不是合法范围，会让整个
+# Bundle 被静默 skip。所以 peerDependencies 写显式版本（见各 plugins/*/package.json）。
+#
+# 注意：peerDependencies 写固定版本意味着 DSH 每发一个版本都要同步重发所有插件，
+# 否则它们在新版本上会被整个 skip。升级 DSH 时必须同时改三处：本文件的 catalog、
+# 各 package.json 的 peerDependencies、以及各 package.json 的自身 version。
 catalog:
   '@deepseek-ai/cordis': ~4.0.4
-  '@deepseek-ai/dsh-api-remotes': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-api-session-controller': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-api-workspace-controller': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-locale': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-store': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-conversation': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-plugin-manager': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-primitives': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-renderer': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-session': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-settings': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-slots': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-client-ui-workspace': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-commands': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-host-open-in-app': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-launch-environment': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-llm': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-session': 0.1.7-alpha.2
-  '@deepseek-ai/dsh-session-title': 0.1.7-alpha.2
+  '@deepseek-ai/dsh-api-remotes': 0.1.7-rc.2
+  '@deepseek-ai/dsh-api-session-controller': 0.1.7-rc.2
+  '@deepseek-ai/dsh-api-workspace-controller': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-locale': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-store': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-conversation': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-plugin-manager': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-primitives': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-renderer': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-session': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-settings': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-slots': 0.1.7-rc.2
+  '@deepseek-ai/dsh-client-ui-workspace': 0.1.7-rc.2
+  '@deepseek-ai/dsh-commands': 0.1.7-rc.2
+  '@deepseek-ai/dsh-host-open-in-app': 0.1.7-rc.2
+  '@deepseek-ai/dsh-launch-environment': 0.1.7-rc.2
+  '@deepseek-ai/dsh-llm': 0.1.7-rc.2
+  '@deepseek-ai/dsh-session': 0.1.7-rc.2
+  '@deepseek-ai/dsh-session-title': 0.1.7-rc.2
   '@deepseek-ai/schemastery': 3.18.4
   '@types/node': ^22.20.0
   '@types/react': ~18.3.31
@@ -45,83 +54,83 @@ minimumReleaseAgeExclude:
   # 插件必须能立刻安装刚发布的 DSH 版本，等待 release age 会让固定版本装不上。
   # 逐个精确版本豁免；升级时必须与上面的 catalog 同步，漏改会让新版本装不上。
   - '@deepseek-ai/cordis@4.0.4'
-  - '@deepseek-ai/dsh-api-remotes@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-api-session-controller@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-api-workspace-controller@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-locale@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-store@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-conversation@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-plugin-manager@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-primitives@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-renderer@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-session@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-settings@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-slots@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-ui-workspace@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-commands@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-llm@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-title@0.1.7-alpha.2'
-  # DSH 0.1.7-alpha.2 的传递依赖闭包（与官方仓库同版本）。
+  - '@deepseek-ai/dsh-api-remotes@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-api-session-controller@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-api-workspace-controller@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-locale@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-store@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-conversation@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-plugin-manager@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-primitives@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-renderer@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-session@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-settings@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-slots@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-ui-workspace@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-commands@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-llm@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-title@0.1.7-rc.2'
+  # DSH 0.1.7-rc.2 的传递依赖闭包（与官方仓库同版本）。
   - '@deepseek-ai/cosmokit@1.8.5'
-  - '@deepseek-ai/dsh-brand@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-timeout@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-typert-protocol@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-util-crypto@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-util-values@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-brand@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-timeout@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-typert-protocol@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-util-crypto@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-util-values@0.1.7-rc.2'
   - '@deepseek-ai/schemastery@3.18.4'
   - '@deepseek-ai/cordis-plugin-group@1.0.4'
   - '@deepseek-ai/cordis-plugin-include@1.0.9'
   - '@deepseek-ai/cordis-plugin-loader@1.0.5'
-  - '@deepseek-ai/dsh-agent-default-model@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-agent-preset-registry@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-agent@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-api-gateway@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-app-boot@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-atomic-write@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-attachment@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-chunked-list@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-connection@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-client-file-upload@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-compaction-image-offload@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-compaction@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-config-editor@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-credentials@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-deque@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-file-reference@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-fs@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-home-paths@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-host-directory-picker@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-host-open-in-app@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-http-proxy@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-invariants@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-launch-environment@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-native-command@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-package-manifest@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-ptc-runtime@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-sandbox-policy@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-sandbox@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-scope@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format-catalog@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format-v1-to-v2@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format-v2-to-v3@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format-v3-to-v4@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-format@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-persistence@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-projection@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-session-query@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-settings@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-skill@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-storage-domain@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-storage@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-subagent@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-subprocess@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-system-prompt@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-tool-todo@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-tools@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-typert-registry@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-user-approval@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-util-time@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-util-workspace-path@0.1.7-alpha.2'
-  - '@deepseek-ai/dsh-workspace@0.1.7-alpha.2'
+  - '@deepseek-ai/dsh-agent-default-model@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-agent-preset-registry@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-agent@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-api-gateway@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-app-boot@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-atomic-write@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-attachment@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-chunked-list@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-connection@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-client-file-upload@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-compaction-image-offload@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-compaction@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-config-editor@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-credentials@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-deque@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-file-reference@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-fs@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-home-paths@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-host-directory-picker@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-host-open-in-app@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-http-proxy@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-invariants@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-launch-environment@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-native-command@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-package-manifest@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-ptc-runtime@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-sandbox-policy@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-sandbox@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-scope@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format-catalog@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format-v0-to-v1@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format-v1-to-v2@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format-v2-to-v3@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format-v3-to-v4@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-format@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-persistence@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-projection@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-session-query@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-settings@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-skill@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-storage-domain@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-storage@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-subagent@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-subprocess@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-system-prompt@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-tool-todo@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-tools@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-typert-registry@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-user-approval@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-util-time@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-util-workspace-path@0.1.7-rc.2'
+  - '@deepseek-ai/dsh-workspace@0.1.7-rc.2'

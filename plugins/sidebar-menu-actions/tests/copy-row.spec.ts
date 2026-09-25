@@ -18,14 +18,16 @@ import { translateZh as t } from './translate.ts'
 /**
  * The row ignores these, but the composed props type requires them:
  * ui-session and ui-workspace merge `GlobalStandardProps` onto every slot key,
- * so a fixture cast must supply all four selectors or the component's own props
- * type rejects the cast.
+ * so a fixture cast must supply all of them or the component's own props
+ * type rejects the cast. `useShortcuts` joined the `session.menu.item` hook
+ * share in DSH 0.1.7-rc.2.
  */
 const STANDARD_PROPS = {
   useSessions: (() => {}) as never,
   useSessionStatus: (() => {}) as never,
   useSessionRetainInfo: (() => {}) as never,
   useWorkspaces: (() => {}) as never,
+  useShortcuts: (() => {}) as never,
 }
 
 const SESSION_ID = 'sess-42'
