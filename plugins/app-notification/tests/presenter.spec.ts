@@ -210,6 +210,57 @@ describe('CompletionPresenter', () => {
     detach()
   })
 
+  it('asks the Desktop shell to raise the window instead of focusing in place', () => {
+    stubCapabilities()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const reveal = vi.fn(async () => {})
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, window: { reveal } })
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(options(open))
+    const detach = presenter.attach(sessions.status, sessions.list)
+
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    FakeNotification.instances[0]?.onclick?.()
+
+    expect(reveal).toHaveBeenCalledTimes(1)
+    expect(open).toHaveBeenCalledWith('a')
+    detach()
+  })
+
+  it('degrades to focusing in place on a shell without the reveal channel', () => {
+    stubCapabilities()
+    const sessions = sessionSources([summary('a', { running: true })])
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, updates: {} })
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(options(open))
+    const detach = presenter.attach(sessions.status, sessions.list)
+
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    const focus = vi.spyOn(window, 'focus')
+    expect(() => { FakeNotification.instances[0]?.onclick?.() }).not.toThrow()
+    expect(focus).toHaveBeenCalled()
+    expect(open).toHaveBeenCalledWith('a')
+    detach()
+  })
+
+  it('survives a refused reveal IPC without an unhandled rejection', async () => {
+    stubCapabilities()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const reveal = vi.fn(() => Promise.reject(new Error('dsh desktop: rejected IPC')))
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, window: { reveal } })
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(options(open))
+    const detach = presenter.attach(sessions.status, sessions.list)
+
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    expect(() => { FakeNotification.instances[0]?.onclick?.() }).not.toThrow()
+    await vi.waitFor(() => { expect(reveal).toHaveBeenCalledTimes(1) })
+    // The click still navigates: a refused raise is not a refused Session switch.
+    expect(open).toHaveBeenCalledWith('a')
+    expect(FakeNotification.instances[0]?.close).toHaveBeenCalled()
+    detach()
+  })
+
   it('re-alerts a completion that reuses the constant Session tag', () => {
     stubCapabilities()
     const sessions = sessionSources([summary('a', { running: true })])

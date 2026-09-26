@@ -40,6 +40,31 @@ interface RealertingNotificationOptions extends NotificationOptions {
   renotify?: boolean
 }
 
+/**
+ * The Desktop shell's window bridge, as the Web UI sees it. `dshDesktop` is the
+ * shell's fixed preload whitelist, so this slice is the capability probe: a page
+ * loaded in a browser has no `dshDesktop` at all, and a shell predating the
+ * channel has one without `window`.
+ */
+interface DesktopWindowBridge {
+  readonly dshDesktop?: {
+    readonly window?: {
+      readonly reveal?: () => Promise<void>
+    }
+  }
+}
+
+/**
+ * Read the shell's window-reveal operation, or undefined when this page cannot
+ * raise its own window. Absence is the version probe, so the plugin never has to
+ * compare protocol versions; it is also why the caller must swallow the
+ * rejection a refused IPC produces.
+ */
+function desktopWindowReveal(): (() => Promise<void>) | undefined {
+  const reveal = (globalThis as DesktopWindowBridge).dshDesktop?.window?.reveal
+  return typeof reveal === 'function' ? reveal : undefined
+}
+
 /** Locale-resolved strings one notification carries. */
 export interface NotificationCopy {
   /** Notification heading. */
@@ -260,10 +285,16 @@ export class CompletionPresenter {
       if (onClick !== undefined) {
         notification.onclick = () => {
           // Chromium on Windows activates the notification, not the page: the
-          // session would switch behind whichever app is in front. Asking here
-          // is what raises this window. A browser that refuses the request
-          // still keeps the in-page navigation.
-          window.focus()
+          // session would switch behind whichever app is in front. The Desktop
+          // shell owns the only working answer, because a renderer cannot make a
+          // hidden or minimized window visible — Electron implements no window
+          // activation policy, so this page cannot raise itself. Where that
+          // bridge is absent (a browser, or a shell that predates the channel)
+          // `window.focus()` is what a browser honors, and is a no-op on Desktop.
+          const reveal = desktopWindowReveal()
+          if (reveal === undefined) window.focus()
+          // A refused sender guard rejects the invoke; nothing here can act on it.
+          else void reveal().catch(() => {})
           onClick()
           notification.close()
         }
