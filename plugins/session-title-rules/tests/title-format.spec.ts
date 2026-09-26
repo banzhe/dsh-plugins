@@ -18,7 +18,7 @@
  * `TITLE_SYSTEM_PROMPT`; its prose is not asserted.
  */
 import { describe, expect, it } from 'vitest'
-import { formatTitleOutput, TITLE_SYSTEM_PROMPT } from '../src/index.ts'
+import { formatTitleOutput, TITLE_SYSTEM_PROMPT } from '../src/prompt.ts'
 
 /** The closed vocabulary, in prompt order, paired with the type word it replaces. */
 const VOCABULARY: Array<[string, string]> = [

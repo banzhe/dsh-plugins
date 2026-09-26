@@ -51,3 +51,7 @@ _Avoid_: unread (unqualified), completed (when you mean the filtered count)
 **Title refresh**:
 Re-deriving a Session's title on demand from its whole conversation, instead of only at the first prompt.
 _Avoid_: retitle (when you mean re-derive), regenerate title (unqualified)
+
+**Title derivation**:
+Producing one title revision from one Session title provider request: resolving the auxiliary route, selecting and framing the messages, consuming the model stream, and accepting or refusing the answer. The automatic first prompt and Title refresh run the same derivation.
+_Avoid_: title generation (unqualified), title provider (when you mean the module)

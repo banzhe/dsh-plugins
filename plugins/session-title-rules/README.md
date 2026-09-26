@@ -4,6 +4,16 @@ Rules-based Session title provider for the `web` Profile, plus the
 `/title-refresh` command. It generates `emoji 主题` from the conversation
 instead of the built-in first-prompt provider's free-form title.
 
+## Module layout
+
+| File | Owns |
+| --- | --- |
+| `src/index.ts` | The Loader row: `name`, `inject`, the live `Config` schema, and the adapter that reads the live policy and the standing title and calls the module. The only place `Volatile` appears. |
+| `src/title.ts` | Title derivation (`deriveTitle`): route resolution, message selection and framing, the model stream, and accepting or refusing the answer. |
+| `src/prompt.ts` | The model-facing half: the closed type vocabulary, the system prompt, and `formatTitleOutput`. An internal seam — the package root does not export it. |
+| `src/command.ts` | `/title-refresh`. Holds no title logic: it maps one invocation onto `ctx.sessionTitle.refresh`. |
+| `src/client/**` | The Web Client half (the title-model settings page). |
+
 ## Install
 
 From this repo root, after `lib/` exists:
@@ -202,7 +212,7 @@ fiber — the same approach as `app-notification`.
 ## Fixed policy
 
 The row's `config` carries only the route above. The caps below stay in
-`src/index.ts`: `maxOutputTokens: 512`, `timeoutMs: 60000`,
+`src/title.ts`: `maxOutputTokens: 512`, `timeoutMs: 60000`,
 `maxInputBytes: 6000`, at most 8 messages (first + 7 most recent), 400
 characters per message. Over-cap input drops the oldest messages; the accepted
 title is finally normalized and truncated to `maxTitleBytes` by the service —

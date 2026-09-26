@@ -1,10 +1,13 @@
 import { defineConfig } from 'vitest/config'
 
 /**
- * Suite for the `/title-refresh` command. Coverage is scoped to `src/command.ts`
- * on purpose: `src/index.ts` is provider code whose every path needs a live
- * auxiliary model call, so a package-wide threshold would demand coverage no
- * unit test can honestly produce.
+ * Suite for title derivation and the `/title-refresh` command. Coverage is
+ * scoped to the three modules the specs reach through their own interfaces:
+ * `src/title.ts` (the derivation), `src/prompt.ts` (its internal formatting
+ * seam), and `src/command.ts`. `src/index.ts` is Loader row glue whose live
+ * reads are covered by the adapter block in `title-route.spec.ts` but whose
+ * registration needs a live Cordis composition, so a package-wide threshold
+ * would demand coverage no unit test can honestly produce.
  */
 export default defineConfig({
   test: {
@@ -12,7 +15,7 @@ export default defineConfig({
     pool: 'forks',
     coverage: {
       provider: 'v8',
-      include: ['src/command.ts'],
+      include: ['src/title.ts', 'src/prompt.ts', 'src/command.ts'],
       reporter: ['text'],
       thresholds: {
         perFile: true,
