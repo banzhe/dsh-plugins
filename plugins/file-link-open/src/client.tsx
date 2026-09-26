@@ -23,7 +23,12 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import * as React from 'react'
 import * as ReactDOMClient from 'react-dom/client'
 import { Menu, writeClipboard, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+import {
+  OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_ICON_PREFIX_ROUTE, OPEN_IN_APP_OPEN_ROUTE,
+} from '@deepseek-ai/dsh-host-open-in-app/shared'
 import { classifyContextTarget, type LinkTarget } from './client/target.ts'
+import { EDITOR_IDS, type EditorId } from './editors.ts'
+import { INFO_ROUTE, LAUNCH_ROUTE } from './routes.ts'
 
 /** Locale namespace owned by this plugin. */
 export const NS = 'fileLinkOpen'
@@ -82,13 +87,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Official open-in-app catalog ids this plugin can launch, with labels. */
-const EDITOR_IDS = [
-  'cursor', 'vscode', 'vscodeinsiders', 'windsurf', 'zed', 'sublimetext',
-  'androidstudio', 'intellij', 'pycharm', 'webstorm', 'phpstorm',
-  'goland', 'rider', 'rustrover',
-] as const
-
 /**
  * Unlike editors these ride the official probe alone: their launch is the
  * official POST /open-in-app/open with the file's DIRECTORY, so the official
@@ -96,6 +94,9 @@ const EDITOR_IDS = [
  * resolution has nothing to confirm.
  */
 const FILE_MANAGER_IDS = ['finder', 'explorer', 'filemanager'] as const
+
+/** One file-manager id; `FILE_MANAGER_IDS.includes` does not narrow by itself. */
+type FileManagerId = (typeof FILE_MANAGER_IDS)[number]
 
 /** Fetch one JSON body with its status; never rejects. */
 async function fetchJson(url: string, options?: RequestInit): Promise<{ ok: boolean, status: number, data: any }> { // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -162,7 +163,7 @@ function dirnameOf(p: string) {
 
 interface AppState {
   officialApps: string[] | null
-  info: { editors: string[], available?: string[] } | null
+  info: { available?: string[] } | null
 }
 
 /** One application's real bundle icon with a generic-glyph fallback (official route). */
@@ -177,7 +178,7 @@ function AppIcon(props: { id: string, size: number }) {
   }
   return (
     <img
-      src={'/open-in-app/icon/' + props.id}
+      src={OPEN_IN_APP_ICON_PREFIX_ROUTE + '/' + props.id}
       width={props.size}
       height={props.size}
       alt=""
@@ -200,25 +201,27 @@ type Translator = (key: LocaleKey, params?: Record<string, string>) => string
 function buildItems(state: AppState, t: Translator, line: number | null): MenuEntry[] {
   const items: MenuEntry[] = []
   if (line !== null) items.push({ type: 'label', id: 'flo:line', text: t('atLine', { line: String(line) }) })
-  const fileManagers = (state.officialApps ?? []).filter(id => (FILE_MANAGER_IDS as readonly string[]).includes(id))
+  const fileManagers = (state.officialApps ?? [])
+    .filter((id): id is FileManagerId => (FILE_MANAGER_IDS as readonly string[]).includes(id))
   // An editor is shown only when BOTH the official probe and this plugin's own
   // resolution verified it: the two resolver copies (the host dsh's and the
   // plugin's pinned one) may differ in version, and this intersection makes the
   // "menu shows it, click 400s" failure impossible. Older hosts without
   // `available` keep the official intersection only.
-  let editors: string[] = []
+  let editors: EditorId[] = []
   if (state.info !== null) {
-    const matched = (state.officialApps ?? []).filter(id => (EDITOR_IDS as readonly string[]).includes(id))
+    const matched = (state.officialApps ?? [])
+      .filter((id): id is EditorId => (EDITOR_IDS as readonly string[]).includes(id))
     const available = state.info.available
     editors = available === null || available === undefined
       ? matched
       : matched.filter(id => available.includes(id))
   }
   fileManagers.forEach((id) => {
-    items.push({ id: 'flo:fm:' + id, icon: <AppIcon id={id} size={16} />, label: t('app.' + id as LocaleKey) })
+    items.push({ id: 'flo:fm:' + id, icon: <AppIcon id={id} size={16} />, label: t(`app.${id}`) })
   })
   editors.forEach((id) => {
-    items.push({ id: 'flo:app:' + id, icon: <AppIcon id={id} size={16} />, label: t('app.' + id as LocaleKey) })
+    items.push({ id: 'flo:app:' + id, icon: <AppIcon id={id} size={16} />, label: t(`app.${id}`) })
   })
   if (fileManagers.length > 0 || editors.length > 0) items.push({ type: 'separator', id: 'flo:sep-copies' })
   items.push(
@@ -248,7 +251,7 @@ function dispatchSelection(id: string, filePath: string, line: number | null, cw
   if (id.startsWith('flo:fm:')) {
     const manager = id.slice(7)
     deps.close()
-    void postJson('/open-in-app/open', { app: manager, path: dirnameOf(absolute) }).then((result) => {
+    void postJson(OPEN_IN_APP_OPEN_ROUTE, { app: manager, path: dirnameOf(absolute) }).then((result) => {
       if (!result.ok) {
         console.warn('file-link-open: open in %s failed (%s)', manager, result.status, result.data)
       }
@@ -260,7 +263,7 @@ function dispatchSelection(id: string, filePath: string, line: number | null, cw
     deps.close()
     // The line rides the launch request only; copying stays a pure path so a
     // pasted path keeps working in a terminal, a script, or another editor.
-    void postJson('/api/file-link-open/launch', {
+    void postJson(LAUNCH_ROUTE, {
       app,
       path: absolute,
       ...(line === null ? {} : { line }),
@@ -403,13 +406,13 @@ export async function apply(ctx: ClientContext) {
       locale: NS,
     }, SessionCwdRecorder))
 
-  void fetchJson('/open-in-app/apps').then((result) => {
+  void fetchJson(OPEN_IN_APP_APPS_ROUTE).then((result) => {
     if (result.ok && result.data !== null && Array.isArray(result.data.apps)) {
       state.officialApps = result.data.apps
       renderContextMenu()
     }
   })
-  void fetchJson('/api/file-link-open/info').then((result) => {
+  void fetchJson(INFO_ROUTE).then((result) => {
     if (result.ok && result.data !== null && typeof result.data === 'object') {
       state.info = result.data
       renderContextMenu()

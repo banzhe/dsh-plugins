@@ -45,8 +45,8 @@ A file link therefore lands in the editor you already have open, and a `#L24` li
 
 | Half | File | Runtime |
 | --- | --- | --- |
-| Host | `lib/index.js` | Node — Cordis loader. Registers `GET /api/file-link-open/info` (capability + local resolution report) and `POST /api/file-link-open/launch`, both behind the official `connection` trust fence with bounded JSON bodies, absolute-path/existence validation, and an optional validated `line`. A request naming a `line` rewrites the resolved launcher's argv into that editor's line-selection spelling, and every request appends that editor's own window-reuse switch; launchers this plugin must not extend (macOS `open -a`, file managers) launch unchanged. |
-| Client | `lib/client.js` | Browser — dsh client module system. Document-level `contextmenu` delegation matching the official file-link buttons (`button[class*="fileMention"]:not([data-ref-chip])`); the viewed session's `cwd` is published by a null cell in the official `conversation.session.header.utilities` slot. The link's path and line both come from the button's React fiber (`title` first, then the `MarkdownFileLink` component). An editor appears only when **both** the official probe **and** this plugin's own resolution verified it, so a version skew can never produce a "menu shows it, click 400s" failure. |
+| Host | `lib/index.js` | Node — Cordis loader. Registers `GET /api/file-link-open/info` (this plugin's own local resolution report) and `POST /api/file-link-open/launch`, both behind the official `connection` trust fence with bounded JSON bodies, absolute-path/existence validation, and an optional validated `line`. Both route paths live in `src/routes.ts` in the two forms the official `.../shared` module uses: the absolute pathname the Host registers beside the document-relative one the browser addresses. A request naming a `line` rewrites the resolved launcher's argv into that editor's line-selection spelling, and every request appends that editor's own window-reuse switch; launchers this plugin must not extend (macOS `open -a`, file managers) launch unchanged. |
+| Client | `lib/client.js` | Browser — dsh client module system. Document-level `contextmenu` delegation matching the official file-link buttons (`button[class*="fileMention"]:not([data-ref-chip])`); the viewed session's `cwd` is published by a null cell in the official `conversation.session.header.utilities` slot. The link's path and line both come from the button's React fiber (`title` first, then the `MarkdownFileLink` component). The editor whitelist and the official route constants are imported, never copied, and each `app.<id>` label is pinned to the id by a template-literal key — an id added without a label is a compile error. An editor appears only when **both** the official probe **and** this plugin's own resolution verified it, so a version skew can never produce a "menu shows it, click 400s" failure. |
 
 ## Install
 
@@ -72,6 +72,8 @@ pnpm test --coverage  # the same specs, with per-file 100% thresholds on the two
 pnpm typecheck
 pnpm build
 ```
+
+> `pnpm test --coverage` currently fails on `src/client/target.ts` (lines 72-73, the `memo`/`forwardRef` unwrap) — a pre-existing gap, unrelated to the specs above.
 
 ## Known limitations
 

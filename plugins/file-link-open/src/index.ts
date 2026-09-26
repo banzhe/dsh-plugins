@@ -3,10 +3,9 @@
  * authenticated `/api` channel, both behind the composition's `connection`
  * trust fence:
  *
- * - GET  /api/file-link-open/info    → the editor whitelist plus the app ids
- *   this plugin's own resolution pass verified on this machine, so the browser
- *   can intersect them with the official open-in-app probe and never show an
- *   item that would answer 400.
+ * - GET  /api/file-link-open/info    → the app ids this plugin's own resolution
+ *   pass verified on this machine, so the browser can intersect them with the
+ *   official open-in-app probe and never show an item that would answer 400.
  * - POST /api/file-link-open/launch  → open one existing file (or directory)
  *   in a whitelisted editor, optionally revealing a line. Resolution reuses the
  *   official `@deepseek-ai/dsh-host-open-in-app` resolver; the line and
@@ -27,6 +26,7 @@ import { launchEnvironmentOf, launchedThroughSsh } from '@deepseek-ai/dsh-launch
 import type { Context } from '@deepseek-ai/cordis'
 import { EDITOR_IDS } from './editors.ts'
 import { withLaunchArgs, type ResolvedLaunch } from './launch-args.ts'
+import { INFO_PATH, LAUNCH_PATH } from './routes.ts'
 
 /** Cordis function-plugin name. */
 export const name = 'file-link-open'
@@ -290,7 +290,7 @@ export async function apply(ctx: Context) {
 
   ctx.effect(() => (ctx as any).webServer.register({ // eslint-disable-line @typescript-eslint/no-explicit-any
     kind: 'exact',
-    path: '/api/file-link-open/info',
+    path: INFO_PATH,
     handler: async (req: any, res: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (rejected((ctx as unknown as { connection: ConnectionLike }).connection, req, res)) return
       if (req.method !== 'GET') {
@@ -304,16 +304,13 @@ export async function apply(ctx: Context) {
       const available = await availability()
         .then((map) => [...map.keys()])
         .catch(() => [])
-      sendJson(res, 200, {
-        editors: [...EDITOR_IDS],
-        available,
-      })
+      sendJson(res, 200, { available })
     },
-  }), 'file-link-open: GET /api/file-link-open/info')
+  }), `file-link-open: GET ${INFO_PATH}`)
 
   ctx.effect(() => (ctx as any).webServer.register({ // eslint-disable-line @typescript-eslint/no-explicit-any
     kind: 'exact',
-    path: '/api/file-link-open/launch',
+    path: LAUNCH_PATH,
     handler: async (req: any, res: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
       if (rejected((ctx as unknown as { connection: ConnectionLike }).connection, req, res)) return
       if (req.method !== 'POST') {
@@ -356,5 +353,5 @@ export async function apply(ctx: Context) {
       if (outcome === 'launched') sendJson(res, 200, { ok: true })
       else sendJson(res, 502, { code: 'launch-failed', message: `failed to launch ${parsed.app}` })
     },
-  }), 'file-link-open: POST /api/file-link-open/launch')
+  }), `file-link-open: POST ${LAUNCH_PATH}`)
 }
