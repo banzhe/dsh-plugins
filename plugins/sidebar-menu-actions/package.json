@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-sidebar-menu-actions",
-  "version": "0.1.7-rc.2-1",
+  "version": "0.2.0-rc.1-1",
   "description": "Sidebar row-menu extensions: open a Workspace in VS Code, copy a Session ID",
   "type": "module",
   "main": "lib/index.js",
@@ -43,15 +43,15 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "catalog:",
-    "@deepseek-ai/dsh-api-workspace-controller": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-locale": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-renderer": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-session": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-slots": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-client-ui-workspace": "0.1.7-rc.2",
-    "@deepseek-ai/dsh-host-open-in-app": "0.1.7-rc.2"
+    "@deepseek-ai/cordis": "4.0.4",
+    "@deepseek-ai/dsh-api-workspace-controller": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-locale": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-session": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.0-rc.1",
+    "@deepseek-ai/dsh-host-open-in-app": "0.2.0-rc.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
