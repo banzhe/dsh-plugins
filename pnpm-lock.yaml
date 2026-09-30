@@ -281,6 +281,67 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
+  plugins/session-attention:
+    dependencies:
+      '@deepseek-ai/cordis':
+        specifier: link:../../../deepseek-harness/vendor/cordis
+        version: link:../../../deepseek-harness/vendor/cordis
+      '@deepseek-ai/dsh-api-session-controller':
+        specifier: link:../../../deepseek-harness/packages/api/session-controller
+        version: link:../../../deepseek-harness/packages/api/session-controller
+      '@deepseek-ai/dsh-client-locale':
+        specifier: link:../../../deepseek-harness/packages/client/locale
+        version: link:../../../deepseek-harness/packages/client/locale
+      '@deepseek-ai/dsh-client-store':
+        specifier: link:../../../deepseek-harness/packages/client/store
+        version: link:../../../deepseek-harness/packages/client/store
+      '@deepseek-ai/dsh-client-ui-primitives':
+        specifier: link:../../../deepseek-harness/packages/client/ui-primitives
+        version: link:../../../deepseek-harness/packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer':
+        specifier: link:../../../deepseek-harness/packages/client/ui-renderer
+        version: link:../../../deepseek-harness/packages/client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-session':
+        specifier: link:../../../deepseek-harness/packages/client/ui-session
+        version: link:../../../deepseek-harness/packages/client/ui-session
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: link:../../../deepseek-harness/packages/client/ui-slots
+        version: link:../../../deepseek-harness/packages/client/ui-slots
+      '@deepseek-ai/dsh-client-ui-workspace':
+        specifier: link:../../../deepseek-harness/packages/client/ui-workspace
+        version: link:../../../deepseek-harness/packages/client/ui-workspace
+      '@deepseek-ai/dsh-session':
+        specifier: link:../../../deepseek-harness/packages/core/session
+        version: link:../../../deepseek-harness/packages/core/session
+    devDependencies:
+      '@types/react':
+        specifier: 'catalog:'
+        version: 18.3.31
+      '@types/react-dom':
+        specifier: 'catalog:'
+        version: 18.3.7(@types/react@18.3.31)
+      '@vitest/coverage-v8':
+        specifier: 'catalog:'
+        version: 4.1.11(vitest@4.1.11)
+      jsdom:
+        specifier: 'catalog:'
+        version: 27.4.0
+      react:
+        specifier: 'catalog:'
+        version: 18.3.1
+      react-dom:
+        specifier: 'catalog:'
+        version: 18.3.1(react@18.3.1)
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.22.14(typescript@6.0.3)
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.11(@types/node@22.20.4)(@vitest/coverage-v8@4.1.11)(jsdom@27.4.0)(vite@8.3.0(@types/node@22.20.4)(yaml@2.9.1))
+
   plugins/session-title-rules:
     dependencies:
       '@deepseek-ai/cordis':
