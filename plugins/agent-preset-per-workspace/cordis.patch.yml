@@ -1,0 +1,3 @@
+- insert:
+    - id: agent-preset-per-workspace
+      name: '@banzhe/dsh-agent-preset-per-workspace'

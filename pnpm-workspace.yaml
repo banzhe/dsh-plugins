@@ -17,6 +17,8 @@ catalogMode: strict
 # 各 package.json 的 peerDependencies、以及各 package.json 的自身 version。
 catalog:
   '@deepseek-ai/cordis': 4.0.4
+  '@deepseek-ai/dsh-agent': 0.2.0-rc.2
+  '@deepseek-ai/dsh-agent-preset-registry': 0.2.0-rc.2
   '@deepseek-ai/dsh-api-remotes': 0.2.0-rc.2
   '@deepseek-ai/dsh-api-session-controller': 0.2.0-rc.2
   '@deepseek-ai/dsh-api-workspace-controller': 0.2.0-rc.2
@@ -36,6 +38,8 @@ catalog:
   '@deepseek-ai/dsh-llm': 0.2.0-rc.2
   '@deepseek-ai/dsh-session': 0.2.0-rc.2
   '@deepseek-ai/dsh-session-title': 0.2.0-rc.2
+  '@deepseek-ai/dsh-storage-domain': 0.2.0-rc.2
+  '@deepseek-ai/dsh-workspace': 0.2.0-rc.2
   '@deepseek-ai/schemastery': 3.18.4
   '@types/node': ^22.20.0
   '@types/react': ~18.3.31
@@ -48,6 +52,7 @@ catalog:
   tsdown: ^0.22.2
   typescript: ^6.0.3
   vitest: ^4.1.8
+  zod: 4.4.3
   zustand: ~4.4.7
 
 # 0.2.0-rc.2 未发布到可依赖的 registry。overrides 用 link: 指向本地 harness 构建产物，
@@ -62,6 +67,8 @@ overrides:
   '@deepseek-ai/dsh-api-remotes': link:../deepseek-harness/packages/api/remotes
   '@deepseek-ai/dsh-api-session-controller': link:../deepseek-harness/packages/api/session-controller
   '@deepseek-ai/dsh-api-workspace-controller': link:../deepseek-harness/packages/api/workspace-controller
+  '@deepseek-ai/dsh-agent': link:../deepseek-harness/packages/core/agent
+  '@deepseek-ai/dsh-agent-preset-registry': link:../deepseek-harness/packages/preset/agent-preset-registry
   '@deepseek-ai/dsh-client-locale': link:../deepseek-harness/packages/client/locale
   '@deepseek-ai/dsh-client-store': link:../deepseek-harness/packages/client/store
   '@deepseek-ai/dsh-client-ui-conversation': link:../deepseek-harness/packages/client/ui-conversation
@@ -78,6 +85,8 @@ overrides:
   '@deepseek-ai/dsh-llm': link:../deepseek-harness/packages/llm/llm
   '@deepseek-ai/dsh-session': link:../deepseek-harness/packages/core/session
   '@deepseek-ai/dsh-session-title': link:../deepseek-harness/packages/session/session-title
+  '@deepseek-ai/dsh-storage-domain': link:../deepseek-harness/packages/storage/storage-domain
+  '@deepseek-ai/dsh-workspace': link:../deepseek-harness/packages/workspace/workspace
 
 minimumReleaseAgeExclude:
   # 插件必须能立刻安装刚发布的 DSH 版本，等待 release age 会让固定版本装不上。
@@ -100,6 +109,7 @@ minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-llm@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session@0.2.0-rc.2'
   - '@deepseek-ai/dsh-session-title@0.2.0-rc.2'
+  - 'zod@4.4.3'
   # DSH 0.2.0-rc.2 的传递依赖闭包（与官方仓库同版本）。
   - '@deepseek-ai/cosmokit@1.8.5'
   - '@deepseek-ai/dsh-brand@0.2.0-rc.2'
