@@ -11,12 +11,25 @@
  * `--dsw-elevation-panel` already draws the 0.5px hairline inside the shadow —
  * ui-theme pairs it with `border: 0` — so neither floating surface here
  * declares a border: one beside the shadow double-draws the shape and shifts
- * layout by its width.
+ * layout by its width. The trigger goes one step further and rebinds
+ * `--dsw-elevation-stroke-color` to `transparent`, the token's own escape
+ * hatch, because its edge belongs to the attention ring; the panel keeps its
+ * hairline, since nothing else outlines it.
  *
  * `.sa-root` restates `pointer-events: none`: ui-layout's overlay layer makes
  * every direct child hit-testable (`.overlayLayer > * { pointer-events: auto }`),
  * and a full-bleed wrapper must not swallow the app's clicks. The doubled class
  * wins on specificity rather than on stylesheet insertion order.
+ *
+ * The toggle's outer outline is the one place a state color is drawn by hand,
+ * and every color is read from ui-theme rather than picked here. Running work
+ * gets the DS blue sweep: the conic ring `ui-settings-account` paints on its
+ * selected onboarding card, same `@property` angle, same `mask-composite:
+ * exclude` content-box trick, same `--dsw-gradient-onboarding-blue-stops`. The
+ * two still rings are flat strokes in the `StateDot` colors the sidebar already
+ * uses for the same facts: `--dsw-alias-state-warn-primary` for a Session
+ * blocked on the user (its amber `warning` dot), `--dsw-alias-state-success-
+ * primary` for one that finished unread (its green `done` dot).
  */
 
 /** Stylesheet text installed once per plugin lifetime. */
@@ -38,8 +51,19 @@ export const OVERLAY_CSS = `
   padding: 0 10px;
   font: inherit;
   font-size: 13px;
+  /* A bare button keeps the UA's 2px outset buttonborder bevel: a grey ring no
+     token knows about, wider than anything this file draws, and sitting exactly
+     where the attention ring goes. Every other button here already says so. */
+  border: 0;
   color: var(--dsw-alias-label-primary);
   background: var(--dsw-alias-bg-layer-2);
+  /* The elevation token's first layer IS a 0.5px hairline in
+     --dsw-elevation-stroke-color (border-l4 by default); rebinding that color to
+     transparent keeps the token's two soft glow layers and drops the grey edge,
+     which is the escape hatch ui-theme documents for exactly this case. The
+     trigger's edge belongs to the attention ring — a grey hairline beside a blue
+     or amber one reads as a second, competing border. */
+  --dsw-elevation-stroke-color: transparent;
   border-radius: var(--dsw-radius-md);
   box-shadow: var(--dsw-elevation-panel);
   cursor: pointer;
@@ -50,6 +74,56 @@ export const OVERLAY_CSS = `
 .sa-row:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
+}
+/* One ring geometry for every state: a transparent 2px pad is masked down to
+   the band outside the content box, so the pseudo paints an outline without
+   moving the button or covering its icon and badge. */
+.sa-trigger[data-attention='waiting']::after,
+.sa-trigger[data-attention='running']::after,
+.sa-trigger[data-attention='unread']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: inherit;
+  pointer-events: none;
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+}
+/* Running work: the DS blue stops, swept around the edge. The first and last
+   stop are the same color, so the rotation loops without a seam. The literals
+   after the token are the shipped values, for a shell that never mounted
+   ui-theme's onboarding palette. */
+.sa-trigger[data-attention='running']::after {
+  background: conic-gradient(
+    from var(--sa-outline-angle),
+    var(--dsw-gradient-onboarding-blue-stops, #3964fe 18.75%, #398efe 51.78%, #6dccff 86.252%, #3964fe)
+  );
+  animation: sa-outline-sweep 6s linear infinite;
+}
+/* Blocked on the user: the amber a warning StateDot paints. It outranks the
+   sweep, and it holds still — waiting for an answer is not activity. */
+.sa-trigger[data-attention='waiting']::after {
+  background: var(--dsw-alias-state-warn-primary);
+}
+/* Finished and not yet read: the green a done StateDot paints. Also still, for
+   the same reason. */
+.sa-trigger[data-attention='unread']::after {
+  background: var(--dsw-alias-state-success-primary);
+}
+@property --sa-outline-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 90deg;
+}
+@keyframes sa-outline-sweep {
+  from { --sa-outline-angle: 90deg; }
+  to { --sa-outline-angle: 450deg; }
+}
+/* The ring stays, its travel does not: reduced motion keeps the blue readable
+   as "running" through color alone. */
+@media (prefers-reduced-motion: reduce) {
+  .sa-trigger[data-attention='running']::after { animation: none; }
 }
 .sa-badge {
   min-width: 16px;

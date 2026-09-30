@@ -88,6 +88,40 @@ describe('deriveAttention', () => {
     const model = deriveAttention(sessionListOf(rows), new Map())
     expect(model.running).toEqual([{ id: 'running', title: 'running' }])
   })
+
+  it('reports a blocked row as waiting, beside the section it already joined', () => {
+    const rows = [
+      sessionRow('blocked-run', { running: true, blocked: true, updatedAt: 2 }),
+      sessionRow('plain-run', { running: true, updatedAt: 1 }),
+      sessionRow('blocked-unread', { completed: true, blocked: true, updatedAt: 3 }),
+    ]
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    // `waiting` is read off the listed rows, never a third section: both of its
+    // members keep the row the panel renders, and `total` counts each once.
+    expect(model.running).toEqual([
+      { id: 'blocked-run', title: 'blocked-run' },
+      { id: 'plain-run', title: 'plain-run' },
+    ])
+    expect(model.unread).toEqual([{ id: 'blocked-unread', title: 'blocked-unread' }])
+    expect(model.waiting).toEqual([
+      { id: 'blocked-unread', title: 'blocked-unread' },
+      { id: 'blocked-run', title: 'blocked-run' },
+    ])
+    expect(model.total).toBe(3)
+  })
+
+  it('never lets a blocked unlisted row into waiting', () => {
+    // A subagent child holding a pending interaction is still not Host-list work,
+    // and a Session the host reports as neither running nor unread has no row in
+    // the panel: the outline must not report a state with no row behind it. The
+    // real flows cannot reach that second shape — a pending interaction is a live
+    // Host request holding the turn open — so this is the fold's backstop.
+    const child = sessionRow('child', { origin: 'subagent', blocked: true })
+    const idle = sessionRow('idle', { blocked: true })
+    const model = deriveAttention(sessionListOf([child, idle]), sessionStatusOf([child, idle]))
+    expect(model.waiting).toEqual([])
+    expect(model.total).toBe(0)
+  })
 })
 
 describe('createAttentionStore', () => {

@@ -9,6 +9,34 @@ attention, behind a toggle.
   Bottom-right because the overlay layer spans the whole frame and, on Windows,
   its top band is the draggable caption strip: a trigger there would not be
   clickable.
+- **Outer outline** — what the list holds, drawn on the toggle's own edge
+  (`data-attention`, absent when nothing needs attention), highest priority
+  first:
+  1. **waiting** — something is blocked on you: a listed Session holds a pending
+     interaction (approval, question, plan review). The ring is
+     `--dsw-alias-state-warn-primary`, the amber a `warning` `StateDot` paints in
+     the sidebar, and it holds still.
+  2. **running** — a 2px ring of the DS blue sweep
+     (`--dsw-gradient-onboarding-blue-stops`, the conic stops `ui-theme` ships
+     for the onboarding card border), its angle animated so the gradient travels
+     around the edge. The first and last stop are the same color, so the loop has
+     no seam.
+  3. **unread** — `--dsw-alias-state-success-primary`, the green a `done`
+     `StateDot` paints for the sidebar's completion dots. Also still.
+  - `waiting` is read off the rows the panel already lists, never a state of its
+    own: a pending interaction is a live Host request holding a turn open, so the
+    Session is running and has a row in the running section, and an unread
+    reminder it never cleared is a row too. The outline therefore can never
+    report a state with nothing behind it.
+  - Every color is read from `ui-theme` tokens; no state color is hand-picked
+    here. Under `prefers-reduced-motion` the sweep drops its animation and the
+    ring stays.
+  - The toggle draws no grey edge of its own: it declares `border: 0`, which kills
+    the UA's `2px outset buttonborder` bevel a bare `button` gets, and rebinds
+    `--dsw-elevation-stroke-color` to `transparent`, which drops the 0.5px
+    hairline layer of `--dsw-elevation-panel` while keeping its two soft glow
+    layers. Either one beside the attention ring reads as a second border. The
+    panel keeps its hairline, since nothing else outlines it.
 - **Panel** — what the toggle opens (entry id `session-attention.panel`, order
   100). Two sections, newest first:
   - **Running** (`进行中`) — the host reports the Session as running
@@ -60,6 +88,9 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
 - The list is derived from `ctx.sessions.list` (`ids` order for stable ties,
   `displayTitle` for labels) plus `ctx.uiSession.sessionStatus`. Sections are
   ordered by `updatedAt`, newest first.
+- `pendingInteraction` is read from the same status snapshot and only ever
+  narrows the outline: it selects the rows that are already listed, so the badge
+  count and the sections are unchanged by it.
 - The store compares content, not object identity: a list or status push that
   does not change the panel keeps the previous snapshot, so unrelated Session
   activity costs no render.
@@ -67,6 +98,9 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
   (`<style data-plugin="@banzhe/dsh-session-attention">`), which leaves with the
   fiber. The wrapper stays click-through; only the toggle, the panel, and their
   controls take pointer events.
+- The outline is derived during render, never stored: `outlineFor(model)` reads
+  the same snapshot the panel lists, so a source push that starts or finishes
+  work repaints the ring in the same update that changes the rows.
 - Archived Sessions are not filtered out: an archived Session the host still
   reports as running or unread stays listed, and opening it works. Filtering
   would mean reading ui-workspace's internal archive set.

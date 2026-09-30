@@ -180,6 +180,64 @@ describe('AttentionOverlay', () => {
     expect(overlay.badge()).toBe('0')
   })
 
+  it('resolves the toggle to a zero border, so the ring is the only edge', async () => {
+    const overlay = await bench([sessionRow('run', { running: true })])
+    const button = overlay.trigger()
+    // The real grey ring was the UA's 2px outset buttonborder bevel, which only a
+    // browser computes; jsdom ships no UA stylesheet for buttons, so this pins
+    // the cascade result instead — an absent declaration reads back as "", and
+    // the injected `border: 0` as a zero border.
+    expect(getComputedStyle(button).borderTopWidth).toBe('0px')
+    expect(getComputedStyle(button).borderTopStyle).toBe('none')
+  })
+
+  it('wears no outline without attention, green for unread, and blue while running', async () => {
+    // Resting toggle: the attribute is absent, which is what leaves the plain
+    // surface in place — an empty string would still match the CSS selectors.
+    const resting = await bench([sessionRow('idle')])
+    expect(resting.trigger().hasAttribute('data-attention')).toBe(false)
+
+    const unread = await bench([sessionRow('finished', { completed: true })])
+    expect(unread.trigger().getAttribute('data-attention')).toBe('unread')
+
+    const running = await bench([sessionRow('run', { running: true })])
+    expect(running.trigger().getAttribute('data-attention')).toBe('running')
+  })
+
+  it('puts a blocked Session first, over running and over unread', async () => {
+    const blocked = await bench([
+      sessionRow('blocked', { running: true, blocked: true, updatedAt: 3 }),
+      sessionRow('run', { running: true, updatedAt: 2 }),
+      sessionRow('finished', { completed: true, updatedAt: 1 }),
+    ])
+    expect(blocked.trigger().getAttribute('data-attention')).toBe('waiting')
+
+    // Only the blocked Session clears: the sweep comes back, not the green.
+    await blocked.update((draft) => {
+      draft.byId['blocked' as SessionId] = sessionRow('blocked', { running: true, updatedAt: 3 })
+    })
+    expect(blocked.trigger().getAttribute('data-attention')).toBe('running')
+  })
+
+  it('reports running over unread, and falls back to green when the work stops', async () => {
+    const overlay = await bench([
+      sessionRow('run', { running: true, updatedAt: 2 }),
+      sessionRow('finished', { completed: true, updatedAt: 1 }),
+    ])
+    expect(overlay.trigger().getAttribute('data-attention')).toBe('running')
+
+    await overlay.update((draft) => {
+      draft.byId['run' as SessionId] = sessionRow('run', { completed: true, updatedAt: 3 })
+    })
+    // Still two rows, both reminders now: the blue sweep leaves with the work.
+    expect(overlay.trigger().getAttribute('data-attention')).toBe('unread')
+
+    await overlay.update((draft) => {
+      draft.ids = []
+    })
+    expect(overlay.trigger().hasAttribute('data-attention')).toBe(false)
+  })
+
   it('jumps to a Session and closes the panel behind it', async () => {
     const overlay = await bench([sessionRow('run', { running: true, displayTitle: 'Build the page' })])
     await overlay.click(overlay.trigger())

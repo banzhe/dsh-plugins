@@ -9,14 +9,21 @@
  *   child exists solely in `byId` with `origin: 'subagent'`. The check is kept
  *   anyway, because that flag is the same rule the shipped sidebar and
  *   app-notification filter on.
- * - `ctx.uiSession.sessionStatus` — `running` and `completionUnread` per
- *   Session. The status wins over the row's own `running` (the row value is
- *   only a display fallback for a Session whose baseline never arrived), which
- *   is exactly the fold `ui-workspace` uses for its rows.
+ * - `ctx.uiSession.sessionStatus` — `running`, `completionUnread` and
+ *   `pendingInteraction` per Session. The status wins over the row's own
+ *   `running` (the row value is only a display fallback for a Session whose
+ *   baseline never arrived), which is exactly the fold `ui-workspace` uses for
+ *   its rows.
  *
  * `running` and `completionUnread` are mutually exclusive in practice (the host
  * deletes the reminder when work starts again); a row carrying both is reported
  * as running, because "still working" is the more actionable fact.
+ *
+ * `pendingInteraction` cuts across both: a Session is usually running while an
+ * approval, a question or a plan review holds its turn, and the host still
+ * reports it running. So `waiting` is not a third bucket competing with the two
+ * sections — it is the subset of the listed rows whose work is blocked on the
+ * user, and the outline reads it first.
  *
  * Blank rows are skipped too: `blank` is the reusable New-Session placeholder,
  * and the host clears it the moment the Session runs or is prompted — so no
@@ -40,6 +47,16 @@ export interface AttentionModel {
   readonly running: readonly AttentionRow[]
   /** Ordinary Sessions that finished while they were not the main view. */
   readonly unread: readonly AttentionRow[]
+  /**
+   * Listed Sessions whose work is blocked on the user: an approval, a question
+   * or a plan review is waiting for an answer.
+   *
+   * Always a subset of `running` and `unread` together, and never part of
+   * {@link AttentionModel.total}: the outline reads it as its highest-priority
+   * fact, so a state the panel cannot show would be a signal with nothing
+   * behind it. Newest first, like the sections.
+   */
+  readonly waiting: readonly AttentionRow[]
   /** Badge number: `running.length + unread.length`. */
   readonly total: number
 }
@@ -65,7 +82,8 @@ function byRecency(left: Candidate, right: Candidate): number {
 
 /**
  * Fold one list snapshot and one status snapshot into the panel's content:
- * the running and finished-unread sections, each newest first.
+ * the running and finished-unread sections, each newest first, plus the listed
+ * subset of them whose work is blocked on the user.
  */
 export function deriveAttention(
   list: SessionListState,
@@ -73,6 +91,7 @@ export function deriveAttention(
 ): AttentionModel {
   const running: Candidate[] = []
   const unread: Candidate[] = []
+  const waiting: Candidate[] = []
   list.ids.forEach((id) => {
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
@@ -81,15 +100,30 @@ export function deriveAttention(
     if (row.origin === 'subagent' || row.blank) return
     const entry = status.get(id)
     const candidate: Candidate = { updatedAt: row.updatedAt, row: { id, title: row.displayTitle } }
+    // A pending interaction is a live Host request holding the turn open, so a
+    // blocked Session is running and has already joined the running section; a
+    // reminder it never cleared lands here the same way. Each branch records the
+    // row in `waiting` beside that section, which is what keeps the outline from
+    // ever reporting a state the panel has no row for.
+    const blocked = entry?.pendingInteraction !== undefined
     if (entry?.running ?? row.running) {
       running.push(candidate)
+      if (blocked) waiting.push(candidate)
       return
     }
-    if (entry?.completionUnread === true) unread.push(candidate)
+    if (entry?.completionUnread === true) {
+      unread.push(candidate)
+      if (blocked) waiting.push(candidate)
+    }
   })
   const runningRows = running.sort(byRecency).map(candidate => candidate.row)
   const unreadRows = unread.sort(byRecency).map(candidate => candidate.row)
-  return { running: runningRows, unread: unreadRows, total: runningRows.length + unreadRows.length }
+  return {
+    running: runningRows,
+    unread: unreadRows,
+    waiting: waiting.sort(byRecency).map(candidate => candidate.row),
+    total: runningRows.length + unreadRows.length,
+  }
 }
 
 /**
@@ -106,6 +140,9 @@ function sectionKey(rows: readonly AttentionRow[]): string {
 function sameModel(left: AttentionModel, right: AttentionModel): boolean {
   return sectionKey(left.running) === sectionKey(right.running)
     && sectionKey(left.unread) === sectionKey(right.unread)
+    // The ring rides this one, so a pending interaction that appears or clears
+    // while the sections stand still is a change, not a no-op.
+    && sectionKey(left.waiting) === sectionKey(right.waiting)
 }
 
 /** Read-only view of the current panel content, plus the plugin's disposer. */

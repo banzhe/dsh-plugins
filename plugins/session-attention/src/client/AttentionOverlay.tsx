@@ -47,6 +47,31 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 /** DOM id tying the toggle to the panel it controls. */
 export const PANEL_ID = 'session-attention-panel'
 
+/**
+ * What the toggle's outer outline reports. `waiting` wears the amber ring, the
+ * same color the sidebar's warning dot uses for a Session blocked on the user;
+ * `running` wears the DS blue sweep; `unread` the completion green. No attention
+ * at all means no outline.
+ */
+export type AttentionOutline = 'waiting' | 'running' | 'unread'
+
+/**
+ * Which outline the current content earns, if any, in strict priority:
+ *
+ * 1. `waiting` — something is blocked on the user, and nothing else matters
+ *    until they answer.
+ * 2. `running` — work is in flight.
+ * 3. `unread` — work finished and nobody has looked.
+ *
+ * An empty list earns nothing, so the resting toggle keeps its plain surface.
+ */
+export function outlineFor(model: AttentionModel): AttentionOutline | undefined {
+  if (model.waiting.length > 0) return 'waiting'
+  if (model.running.length > 0) return 'running'
+  if (model.unread.length > 0) return 'unread'
+  return undefined
+}
+
 /** Business face the plugin injects into the entry. */
 export interface AttentionInjected {
   /** The current running/unread content. Bound to the plugin's store during render. */
@@ -112,6 +137,10 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
     setShowing(false)
   }
   const label = (title: string): string => t('row.open', { title })
+  // The outline is derived, never stored: a source push that changes what is
+  // running or unread re-renders the trigger with the matching attribute, and an
+  // attribute React leaves off entirely when the list is empty.
+  const outline = outlineFor(model)
   return (
     <div className="sa-root">
       {showing && (
@@ -156,6 +185,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
       <button
         type="button"
         className="sa-trigger"
+        data-attention={outline}
         aria-label={t('trigger.label')}
         aria-expanded={showing}
         aria-controls={PANEL_ID}

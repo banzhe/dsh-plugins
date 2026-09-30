@@ -11,8 +11,8 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** A list row with the finished-unread fact the host keeps on the status map. */
-export type SessionRow = SessionSummary & { completed?: boolean }
+/** A list row with the two status facts the host keeps off the list row. */
+export type SessionRow = SessionSummary & { completed?: boolean; blocked?: boolean }
 
 export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -26,10 +26,19 @@ export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionR
   }
 }
 
+/**
+ * The host's pending-interaction value for one Session. Only its presence is a
+ * fact this plugin reads, so the double carries the base shape the merged map
+ * falls back to and never pretends to know a domain's payload.
+ */
+function pendingOf(id: SessionId): SessionStatus['pendingInteraction'] {
+  return { key: `pending:${id}`, kind: 'question', sessionId: id }
+}
+
 export function sessionStatusOf(rows: readonly SessionRow[]): SessionStatusSnapshot {
   return new Map(rows.map(row => [row.id, {
     running: row.running,
-    pendingInteraction: undefined,
+    pendingInteraction: row.blocked === true ? pendingOf(row.id) : undefined,
     completionUnread: row.completed === true,
   } satisfies SessionStatus]))
 }
