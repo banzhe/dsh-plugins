@@ -1,10 +1,10 @@
-/**
+/*
  * The `--dsw-*` token stylesheet this settings row injects for the owning
  * plugin's lifetime.
  *
- * A plain string rather than a CSS module: this Bundle builds its browser half
- * with its own tsdown config, which has no CSS pipeline, so a `.module.css`
- * import has nothing to resolve.
+ * A real stylesheet, imported as text (`./title-model.css?inline`) and inlined
+ * into `lib/client.js` at build time — the ModuleLoader fetches one artifact, so
+ * a `.css` import has nowhere to land. See `tsdown.config.ts` for the seam.
  *
  * These values copy the shell's own settings dropdown (`PreferenceRow` in
  * `ui-chat/src/client/settings/`): a pill button that opens the shared `Menu`,
@@ -13,9 +13,6 @@
  *
  * Class names are prefixed `str-`, so the sheet cannot collide with the shell's.
  */
-
-/** Stylesheet text installed once per plugin lifetime. */
-export const TITLE_MODEL_CSS = `
 .str-row {
   display: flex;
   align-items: center;
@@ -97,4 +94,3 @@ export const TITLE_MODEL_CSS = `
   color: var(--dsw-alias-label-tertiary);
   cursor: default;
 }
-`

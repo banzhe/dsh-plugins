@@ -97,7 +97,15 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
 - The plugin owns no element of its own beyond the injected stylesheet
   (`<style data-plugin="@banzhe/dsh-session-attention">`), which leaves with the
   fiber. The wrapper stays click-through; only the toggle, the panel, and their
-  controls take pointer events.
+  controls take pointer events. The sheet itself is
+  [`src/client/overlay.css`](src/client/overlay.css), imported as
+  `overlay.css?inline`: the ModuleLoader fetches exactly one artifact
+  (`lib/client.js`), so a plain `.css` import would emit a sibling asset nothing
+  requests. `tsdown.config.ts` gets the loader from `@banzhe/dsh-devkit`, which
+  hands back the compiled sheet (Vite resolves `?inline` for the specs, so the
+  specs assert names and rules that survive minification, not the pre-compile
+  text). The devkit also serves `.module.css` sheets with hashed class names, for
+  chrome that should not share this sheet's tag.
 - The outline is derived during render, never stored: `outlineFor(model)` reads
   the same snapshot the panel lists, so a source push that starts or finishes
   work repaints the ring in the same update that changes the rows.

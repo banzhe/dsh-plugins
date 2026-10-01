@@ -23,7 +23,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { TitleModelCard } from './TitleModelCard.tsx'
 import { TitleModelCardController, TITLE_MODEL_NS, type TitleModelSettings } from './controller.ts'
 import { en, zh } from './locales.ts'
-import { TITLE_MODEL_CSS } from './styles.ts'
+// Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
+// sheet is inlined at build time. See `tsdown.config.ts` and `title-model.css`.
+import titleModelCss from './title-model.css?inline'
 
 export type { TitleModelCardProps } from './TitleModelCard.tsx'
 export type {
@@ -46,14 +48,15 @@ export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-title-rules: dictionaries')
   // The card's stylesheet rides the plugin's own fiber: unload removes it. It
   // carries the shell's `--dsw-*` token values, which only resolve inside a
-  // themed document, so it is installed here rather than baked into the bundle.
+  // themed document, so it is a `<style>` tag installed here — not inline
+  // declarations on the elements, which beat every stylesheet in the cascade.
   ctx.effect(() => {
     /* v8 ignore next -- needs a documentless run, not constructible under jsdom */
     if (typeof document === 'undefined') return () => {}
     const tag = document.createElement('style')
     tag.dataset.plugin = PLUGIN_ID
     tag.dataset.pluginCss = `${PLUGIN_ID}/title-model.css`
-    tag.textContent = TITLE_MODEL_CSS
+    tag.textContent = titleModelCss
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'session-title-rules: title model stylesheet')

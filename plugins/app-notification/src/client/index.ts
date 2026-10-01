@@ -23,9 +23,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the `settings.general.item` slot declaration this plugin registers into.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { CompletionPresenter } from './presenter.ts'
-import { SETTINGS_ROW_CSS } from './styles.ts'
 import { CompletionSettingsRow, type CompletionSettingsInjected } from './SettingsRow.tsx'
 import { en, NS, zh, type AppBadgeKey } from './locales.ts'
+// Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
+// sheet is inlined at build time. See `tsdown.config.ts` and `settings-row.css`.
+import settingsRowCss from './settings-row.css?inline'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -59,7 +61,7 @@ export function apply(ctx: ClientContext): void {
     const tag = document.createElement('style')
     tag.dataset.plugin = PLUGIN_ID
     tag.dataset.pluginCss = `${PLUGIN_ID}/settings-row.css`
-    tag.textContent = SETTINGS_ROW_CSS
+    tag.textContent = settingsRowCss
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'app-badge: settings row stylesheet')

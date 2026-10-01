@@ -1,0 +1,22 @@
+{
+  "name": "@banzhe/dsh-devkit",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Build helpers shared by this repo's DSH plugin Bundles: stylesheet loaders for their tsdown client bundles",
+  "type": "module",
+  "exports": {
+    ".": "./src/tsdown-css.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "lightningcss": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

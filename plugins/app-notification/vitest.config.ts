@@ -24,9 +24,16 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.spec.ts'],
     pool: 'forks',
+    // The browser half imports its sheet as `settings-row.css?inline`. Vitest
+    // stubs CSS to an empty module by default, which would hand the plugin an
+    // empty `<style>` and let any stylesheet assertion pass vacuously.
+    css: true,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
+      // `css.d.ts` declares the `?inline` import and emits no code; counting it
+      // as an uncovered file would put a permanent 0% row in the report.
+      exclude: ['src/**/*.d.ts'],
       reporter: ['text'],
       thresholds: {
         perFile: true,

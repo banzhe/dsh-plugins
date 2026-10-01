@@ -203,11 +203,15 @@ settings show is reachable only through `Menu`. `Menu` brings its own stylesheet
 so the card, its elevation, and its keyboard walk need nothing from this Bundle.
 
 Only the row and its trigger are styled here, by an injected `--dsw-*` token sheet
-(`src/client/styles.ts`). Inline styles would not do: inline declarations beat
-every stylesheet, so a control carrying a `style` attribute falls back to browser
-defaults instead of the shell's chrome. This Bundle builds its browser half
-without a CSS pipeline, so the sheet is a plain string installed on the plugin's
-fiber — the same approach as `app-notification`.
+([`src/client/title-model.css`](src/client/title-model.css)), imported as
+`title-model.css?inline` and inlined into `lib/client.js` at build time — the
+ModuleLoader fetches one artifact, so a plain `.css` import would emit a sibling
+asset nothing requests (`@banzhe/dsh-devkit` holds the seam, wired in
+`tsdown.config.ts`). Inline styles would
+not do: inline declarations beat every stylesheet, so a control carrying a
+`style` attribute falls back to browser defaults instead of the shell's chrome.
+The sheet is installed on the plugin's fiber, so unloading the Bundle takes it
+back — the same approach as `app-notification`.
 
 ## Fixed policy
 

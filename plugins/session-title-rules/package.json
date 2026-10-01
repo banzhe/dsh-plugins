@@ -60,6 +60,7 @@
     "@deepseek-ai/schemastery": "3.18.4"
   },
   "devDependencies": {
+    "@banzhe/dsh-devkit": "workspace:*",
     "@deepseek-ai/cordis": "catalog:",
     "@deepseek-ai/dsh-api-remotes": "catalog:",
     "@deepseek-ai/dsh-client-locale": "catalog:",

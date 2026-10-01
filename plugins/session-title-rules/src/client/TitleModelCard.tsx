@@ -10,9 +10,9 @@
  * LLM seam rejects with `UNKNOWN_MODEL`, so both controls choose from a closed
  * set the Host publishes.
  *
- * Styling rides the injected token sheet in `styles.ts`, not inline styles: the
- * shell's controls are styled by class, so a control carrying an inline `style`
- * attribute can never match them. `Menu` brings its own sheet.
+ * Styling rides the injected token sheet in `title-model.css`, not inline styles:
+ * the shell's controls are styled by class, so a control carrying an inline
+ * `style` attribute can never match them. `Menu` brings its own sheet.
  */
 
 import { useRef, useState } from 'react'

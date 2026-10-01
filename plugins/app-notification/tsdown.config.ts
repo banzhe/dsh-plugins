@@ -1,3 +1,4 @@
+import { cssPlugins } from '@banzhe/dsh-devkit'
 import { defineConfig } from 'tsdown'
 
 /** Must match package.json `name`; the ModuleLoader factory id is this string. */
@@ -33,6 +34,10 @@ export default defineConfig([
     dts: false,
     clean: false,
     sourcemap: true,
+    // The sheet is imported as `settings-row.css?inline`, which the shared devkit
+    // resolves to its text: one artifact is fetched, so there is no sibling CSS
+    // asset to link and no bundler CSS pipeline to configure.
+    plugins: cssPlugins(id),
     deps: {
       neverBundle: [...PLATFORM_EXTERNALS],
       alwaysBundle: (specifier: string) =>

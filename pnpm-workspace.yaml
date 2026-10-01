@@ -1,5 +1,8 @@
 packages:
   - plugins/*
+  # Private build helpers the Bundles share (tsdown config, stylesheet loaders):
+  # TS source direct, never published. See docs/adr/0009-css-as-files.md.
+  - devkit
 
 # strict：pnpm add 只接受 catalog 内的版本，拒绝手写版本号，防止版本再次发散。
 catalogMode: strict
@@ -47,6 +50,7 @@ catalog:
   '@vitest/coverage-v8': ^4.1.8
   immer: ^10.1.1
   jsdom: ^27.0.0
+  lightningcss: ^1.33.0
   react: ^18.3.1
   react-dom: ^18.3.1
   tsdown: ^0.22.2

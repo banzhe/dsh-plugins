@@ -13,6 +13,10 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.spec.ts'],
     pool: 'forks',
+    // The browser half imports its sheet as `title-model.css?inline`. Vitest
+    // stubs CSS to an empty module by default, which would hand the plugin an
+    // empty `<style>` and let any stylesheet assertion pass vacuously.
+    css: true,
     coverage: {
       provider: 'v8',
       include: ['src/title.ts', 'src/prompt.ts', 'src/command.ts'],

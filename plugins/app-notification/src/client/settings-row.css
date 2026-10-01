@@ -1,16 +1,15 @@
-/**
+/*
  * The `--dsw-*` token stylesheet the settings row injects for the owning
  * plugin's lifetime.
  *
- * A plain string rather than a CSS module: this package builds its browser
- * bundle with its own tsdown config (no CSS pipeline). Only LAYOUT lives here —
- * controls come from `ui-primitives`, so no button/hover/disabled chrome is
- * restated and no color is hand-picked. Class names are prefixed `ab-` to avoid
- * colliding with the shell's styles.
+ * A real stylesheet, imported as text (`./settings-row.css?inline`) and inlined
+ * into `lib/client.js` at build time — the ModuleLoader fetches one artifact, so
+ * a `.css` import has nowhere to land. See `tsdown.config.ts` for the seam.
+ *
+ * Only LAYOUT lives here — controls come from `ui-primitives`, so no
+ * button/hover/disabled chrome is restated and no color is hand-picked. Class
+ * names are prefixed `ab-` to avoid colliding with the shell's styles.
  */
-
-/** Stylesheet text installed once per plugin lifetime. */
-export const SETTINGS_ROW_CSS = `
 .ab-row {
   display: flex;
   flex-direction: column;
@@ -29,4 +28,3 @@ export const SETTINGS_ROW_CSS = `
 .ab-status { font-size: 12px; line-height: 18px; color: var(--dsw-alias-label-secondary); }
 .ab-status[data-failed='true'] { color: var(--dsw-alias-state-error-primary); }
 .ab-status[data-success='true'] { color: var(--dsw-alias-state-success-primary); }
-`

@@ -1,6 +1,6 @@
 # DSH Plugins
 
-Personal catalog of DeepSeek Harness plugins. Each plugin is an independent installable Bundle in this workspace.
+Personal catalog of DeepSeek Harness plugins. Each plugin is an independent installable Bundle in this workspace; the build helpers those Bundles share live in the private `devkit` package.
 
 ## Language
 

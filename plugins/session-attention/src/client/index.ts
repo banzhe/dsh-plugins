@@ -24,7 +24,9 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
 import { createAttentionStore } from './attention.ts'
 import { en, NS, zh } from './locales.ts'
-import { OVERLAY_CSS } from './styles.ts'
+// Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
+// sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
+import overlayCss from './overlay.css?inline'
 
 /** Required services: Session list, Session status, Workspace navigation, dictionaries, slot registry. */
 export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
@@ -42,7 +44,7 @@ export function apply(ctx: ClientContext): void {
     const tag = document.createElement('style')
     tag.dataset.plugin = PLUGIN_ID
     tag.dataset.pluginCss = `${PLUGIN_ID}/overlay.css`
-    tag.textContent = OVERLAY_CSS
+    tag.textContent = overlayCss
     document.head.appendChild(tag)
     return () => { tag.remove() }
   }, 'session-attention: overlay stylesheet')
