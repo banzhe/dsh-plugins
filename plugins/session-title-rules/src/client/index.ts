@@ -40,7 +40,6 @@ const NS = TITLE_MODEL_NS
 /** Plugin id, stamped onto the injected stylesheet for teardown bookkeeping. */
 const PLUGIN_ID = '@banzhe/dsh-session-title-rules'
 
-/** Required services: settings forms, dictionaries, slots, and the model directory. */
 export const inject = ['configForms', 'locale', 'slots', 'remote', 'remote.session']
 
 /** Register this row's configuration page while the Host serves its namespace. */

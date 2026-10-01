@@ -21,13 +21,11 @@ export interface CopySessionIdInjected {
   copy: (sessionId: string) => void
 }
 
-/** Full component props: runtime share + locale seat + injected business face. */
 export type CopySessionIdMenuItemProps =
   PropsRuntime<'sidebar.workspaces.session.menu.item'>
   & PropsLocale<'menu-actions'>
   & InjectFace<CopySessionIdInjected>
 
-/** Render the Copy-session-ID menu row. */
 export function CopySessionIdMenuItem({
   sessionId, useMenuOpenState, t, copy,
 }: CopySessionIdMenuItemProps) {

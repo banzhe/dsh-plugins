@@ -89,7 +89,6 @@ export interface LaunchShape {
   readonly args?: readonly string[] | undefined
 }
 
-/** An `argv` launcher that carries its own command and arguments. */
 export interface ArgvLaunchShape extends LaunchShape {
   readonly kind: 'argv'
   readonly command: string

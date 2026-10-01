@@ -37,13 +37,11 @@ export interface NoticeToastInjected {
   dismiss: (seq: number) => void
 }
 
-/** Full component props: runtime share + locale seat + injected business face. */
 export type NoticeToastProps =
   PropsRuntime<'shell.overlay'>
   & PropsLocale<'menu-actions'>
   & InjectFace<NoticeToastInjected>
 
-/** Render the pending notice, or null while nothing is pending. */
 export function NoticeToast({ useNotice, dismiss }: NoticeToastProps): ReactNode {
   const notice = useNotice()
   if (notice === null) return null

@@ -27,7 +27,6 @@ export interface SlotRegisterOptions {
   readonly inject?: (() => Record<string, unknown>) | undefined
 }
 
-/** One recorded registration. */
 export interface SlotsDoubleEntry {
   readonly options: {
     readonly name?: string | undefined

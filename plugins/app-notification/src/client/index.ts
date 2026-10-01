@@ -35,7 +35,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Required services: Session list, completion status, workspace navigation, dictionaries, and the settings slot registry. */
 export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
 
 /** Plugin id, stamped onto the injected stylesheet for HMR bookkeeping. */
@@ -51,7 +50,6 @@ const TAG = 'dsh-session-completed'
 /** Test-notification tag; distinct from {@link TAG} so a probe never displaces a real announcement. */
 const TEST_TAG = 'dsh-session-completed-test'
 
-/** Client plugin body: register the dictionaries and the settings row, then drive the surfaces. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'app-badge: dictionaries')
   // The row's stylesheet rides the plugin's own fiber: unload removes it.

@@ -42,10 +42,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Required services: Workspace snapshot (paths), dictionaries, and the slot registry. */
 export const inject = ['workspaces', 'locale', 'slots']
 
-/** Loader-visible plugin body. */
 export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'menu-actions: dictionaries')
   const t = ctx.locale.bind(NS)

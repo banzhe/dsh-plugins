@@ -80,7 +80,6 @@ describe('CompletionObserver', () => {
     const child = (): SessionSummary => sessionRow('child', {
       origin: 'subagent', parentId: 'parent' as SessionId, completed: true,
     })
-    // First fold: the child is already finished while the parent still runs.
     fold(observer, [sessionRow('parent', { running: true }), child()])
     const observation = fold(observer, [sessionRow('parent', { completed: true }), child()])
     expect(observation.completed.map(row => row.id)).toEqual(['parent'])

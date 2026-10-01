@@ -35,20 +35,15 @@ import { basename, dirname, resolve as resolvePath } from 'node:path'
 import { transform } from 'lightningcss'
 import type { TsdownPlugin } from 'tsdown'
 
-/** Suffix naming a CSS Modules sheet. */
 const MODULE_SUFFIX = '.module.css'
 /** Query asking for the sheet as text instead of an injector. */
 const INLINE_QUERY = '?inline'
-/** Virtual-id wrapper for a CSS Modules sheet. */
 const MODULE_PREFIX = '\0dsh-css-module:'
-/** Virtual-id wrapper for a side-effect stylesheet. */
 const GLOBAL_PREFIX = '\0dsh-css-global:'
-/** Virtual-id wrapper for a text import. */
 const INLINE_PREFIX = '\0dsh-css-inline:'
 /** Suffix keeping every virtual id off tsdown's `.css` guard. */
 const VIRTUAL_SUFFIX = '.mjs'
 
-/** Per-bundle options for {@link cssPlugins}. */
 export interface CssPluginOptions {
   /**
    * Also record each sheet on `globalThis.__DSH_PLUGIN_CSS__`, so plugin code can
@@ -75,7 +70,6 @@ export function cssPlugins(id: string, options: CssPluginOptions = {}): TsdownPl
  * Compile a CSS Modules sheet, export its class map and install its text.
  * @param id - plugin id stamped onto the installed tag.
  * @param registry - whether to publish the sheet on the global record.
- * @returns the loader.
  */
 function modulesPlugin(id: string, registry: boolean): TsdownPlugin {
   return {
@@ -113,7 +107,6 @@ function modulesPlugin(id: string, registry: boolean): TsdownPlugin {
  * Compile a side-effect stylesheet and install its text.
  * @param id - plugin id stamped onto the installed tag.
  * @param registry - whether to publish the sheet on the global record.
- * @returns the loader.
  */
 function globalPlugin(id: string, registry: boolean): TsdownPlugin {
   return {
@@ -135,7 +128,6 @@ function globalPlugin(id: string, registry: boolean): TsdownPlugin {
 
 /**
  * Hand a compiled stylesheet back as text, for a plugin-owned install/remove effect.
- * @returns the loader.
  */
 function inlinePlugin(): TsdownPlugin {
   return {
@@ -176,7 +168,6 @@ function stylesheetPath(source: string, importer: string | undefined): string | 
  * @param css - compiled stylesheet text.
  * @param classMap - CSS Modules map, or undefined for a side-effect sheet.
  * @param registry - whether to publish the sheet on the global record.
- * @returns the module's source.
  */
 function injectorModule(
   id: string,

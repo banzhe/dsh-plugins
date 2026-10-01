@@ -65,7 +65,6 @@ function officialPackageRoot() {
   }
 }
 
-/** Import the first module layout that exists among the candidates. */
 async function importFirstLayout(root: string, candidates: string[]) {
   let lastError
   for (const candidate of candidates) {
@@ -188,7 +187,6 @@ export function parseBody(text: string): LaunchRequest | null {
   return { app, path: bodyPath, line }
 }
 
-/** Whether the path names an existing file or directory on disk. */
 async function pathExists(absolute: string) {
   try {
     await stat(absolute)

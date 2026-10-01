@@ -12,7 +12,6 @@
  * this store owns only which notice is pending.
  */
 
-/** One pending notice: its text and the sequence identifying this showing. */
 export interface Notice {
   /** Per-show identity; the banner component's React key. */
   readonly seq: number

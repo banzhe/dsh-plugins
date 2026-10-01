@@ -206,7 +206,6 @@ export class CompletionPresenter {
     return this.badge !== undefined || this.capabilities.notificationSupported
   }
 
-  /** Whether this page supports the installed-PWA icon badge at all. */
   get badgeSupported(): boolean {
     return this.badge !== undefined
   }

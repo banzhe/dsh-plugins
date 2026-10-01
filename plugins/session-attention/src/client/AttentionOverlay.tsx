@@ -80,7 +80,6 @@ export interface AttentionInjected {
   open: (id: SessionId) => void
 }
 
-/** Full component props: runtime share + locale seat + injected business face. */
 export type AttentionOverlayProps =
   PropsRuntime<'shell.overlay'>
   & PropsLocale<'session-attention'>

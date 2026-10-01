@@ -28,13 +28,11 @@ import { en, NS, zh } from './locales.ts'
 // sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
 import overlayCss from './overlay.css?inline'
 
-/** Required services: Session list, Session status, Workspace navigation, dictionaries, slot registry. */
 export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
 
 /** Plugin id, stamped onto the injected stylesheet for HMR bookkeeping. */
 const PLUGIN_ID = '@banzhe/dsh-session-attention'
 
-/** Client plugin body: dictionaries, stylesheet, attention store, overlay entry. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-attention: dictionaries')
   // The panel's stylesheet rides the plugin's own fiber: unload removes it.

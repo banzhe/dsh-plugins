@@ -265,12 +265,10 @@ export class TitleModelCardController {
     return textField(this.form.getSnapshot().value, 'reasoningEffort')
   }
 
-  /** The route a save would write. */
   private desiredRoute(): TitleModelRoute | undefined {
     return this.routeStaged ? this.draftRoute : this.currentRoute()
   }
 
-  /** The effort a save would write. */
   private desiredEffort(): string | undefined {
     return this.effortStaged ? this.draftEffort : this.currentEffort()
   }

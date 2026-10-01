@@ -284,7 +284,6 @@ interface ContextState {
   cwd: string | null
 }
 
-/** Client half: the right-click menu over one message file link. */
 export async function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'file-link-open: dictionaries')
   const t = ctx.locale.bind(NS) as Translator
@@ -426,5 +425,4 @@ export async function apply(ctx: ClientContext) {
   }
 }
 
-/** Required services: the dictionaries and the slot registry. */
 export const inject = ['locale', 'slots']

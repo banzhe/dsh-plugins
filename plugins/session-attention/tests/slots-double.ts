@@ -18,7 +18,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { AttentionInjected } from '../src/client/AttentionOverlay.tsx'
 
-/** One recorded registration. */
 export interface SlotsDoubleEntry {
   readonly options: {
     readonly id?: string | undefined

@@ -30,7 +30,6 @@ export interface CompletionSettingsInjected {
   test: () => boolean
 }
 
-/** Full component props: runtime share + locale seat + injected business face. */
 export type CompletionSettingsRowProps =
   PropsRuntime<'settings.general.item'>
   & PropsLocale<'app-badge'>
@@ -49,7 +48,6 @@ const BADGE_KEYS = {
   false: 'settings.badge.unsupported',
 } as const
 
-/** One labeled readout line. */
 function Fact({ label, value }: { readonly label: string; readonly value: string }): ReactNode {
   return (
     <div className="ab-fact">
@@ -59,7 +57,6 @@ function Fact({ label, value }: { readonly label: string; readonly value: string
   )
 }
 
-/** Render the Completion-attention preference row. */
 export function CompletionSettingsRow({
   t, permission, badgeSupported, request, test,
 }: CompletionSettingsRowProps): ReactNode {

@@ -44,7 +44,6 @@ async function sheet(name: string, content: string): Promise<{ file: string; imp
   return { file, importer: join(root, 'index.ts') }
 }
 
-/** The loader responding to one import form. */
 function loader(name: string, options: CssPluginOptions = {}): Loader {
   const found = (cssPlugins(ID, options) as unknown as Loader[]).find(candidate => candidate.name === name)
   if (found === undefined) throw new Error(`${name} is missing from cssPlugins()`)

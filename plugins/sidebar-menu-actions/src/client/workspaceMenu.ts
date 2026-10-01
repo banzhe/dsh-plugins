@@ -28,7 +28,6 @@ const ROW_PREFIX = 'workspace:'
 /** Marker attribute on the injected button: the idempotency guard and test hook. */
 const MARKER = 'data-menu-actions'
 
-/** Marker value naming this extension's injected row. */
 const MARKER_VALUE = 'vscode'
 
 /** open-in-app catalog id this row launches (the probe and the POST body share it). */

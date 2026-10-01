@@ -6,7 +6,6 @@
 import { describe, expect, it } from 'vitest'
 import { parseBody } from '../src/index.ts'
 
-/** The request body text for one value. */
 const body = (value: unknown) => JSON.stringify(value)
 
 /** A well-formed request whose only variable is `line`. */

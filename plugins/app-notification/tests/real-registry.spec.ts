@@ -173,7 +173,6 @@ describe('app-badge registration against the real slot registry', () => {
     await rendererFiber.await()
     declareGeneralItem(ctx)
     const slots = ctx.get('slots') as unknown as { entries: (k: string) => readonly unknown[] }
-    // The pending registration resolved once the declaration appeared.
     expect(slots.entries('settings.general.item').length).toBeGreaterThan(0)
   })
 

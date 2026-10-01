@@ -19,7 +19,6 @@
 import { Service, type Context } from '@deepseek-ai/cordis'
 import type { CompletionSettingsInjected } from '../src/client/SettingsRow.tsx'
 
-/** One recorded registration. */
 export interface SlotsDoubleEntry {
   readonly options: {
     readonly id?: string | undefined

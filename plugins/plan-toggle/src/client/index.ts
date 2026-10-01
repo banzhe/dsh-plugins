@@ -20,7 +20,6 @@ const PLAN_COMMAND = 'plan'
 
 const PLAN_TOKEN = `/${PLAN_COMMAND} `
 
-/** True when this keydown is Shift+Tab with no other modifiers, first press only. */
 function isPlanToggleKey(event: KeyboardEvent): boolean {
   if (event.repeat || event.isComposing) return false
   if (event.ctrlKey || event.altKey || event.metaKey) return false
@@ -64,7 +63,6 @@ function planTargetOf(value: unknown): boolean | undefined {
   return pending ? !active : active
 }
 
-/** Strip the claimed `/plan ` token from the Composer draft. */
 function argsAfter(draft: string): string {
   const text = draft.trimStart()
   return text.startsWith(PLAN_TOKEN) ? text.slice(PLAN_TOKEN.length) : ''
@@ -97,9 +95,6 @@ function beginPlan(input: SessionInput, session: SessionFace): boolean {
   return input.beginCommand(planClaim(session), { start: 0, end: 0, draftRev })
 }
 
-/**
- * Bind a document listener that claims `/plan` on Shift+Tab in the Composer.
- */
 export function apply(ctx: Context): void {
   const sessions = ctx.get('sessions') as ISessions
   const conversation = ctx.get('conversation') as IConversation
