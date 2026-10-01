@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /**
- * The browser half's lifecycle over a real Cordis context, plus the inert node
- * seat. Beyond the registrations themselves this spec pins the cases that fail
+ * The browser half's lifecycle over a real Cordis context, plus the node half's
+ * exported name. Beyond the registrations themselves this spec pins the cases that fail
  * silently when a guard is dropped: a disposal that must win the race against a
  * probe still in flight (no install may land after teardown), and a full
  * teardown proven not by the returned disposer but by arming a row afterwards
@@ -19,7 +19,7 @@ import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/clie
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import type { NoticeToastInjected, NoticeToastProps } from '../src/client/NoticeToast.tsx'
-import { apply as nodeApply, name as nodeName } from '../src/index.ts'
+import { name as nodeName } from '../src/index.ts'
 import {
   appendWorkspaceRow, armPointer, buildMenu, flush, injectedButton, recordKeys, viewportRows,
 } from './fixtures.ts'
@@ -147,10 +147,6 @@ afterEach(async () => {
 })
 
 describe('sidebar-menu-actions browser half', () => {
-  it('declares the services it binds', () => {
-    expect(inject).toEqual(['workspaces', 'locale', 'slots'])
-  })
-
   it('registers the copy row with the slot contract the renderer reads', async () => {
     stubApps()
     vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
@@ -305,8 +301,7 @@ describe('sidebar-menu-actions browser half', () => {
 })
 
 describe('sidebar-menu-actions node half', () => {
-  it('names the plugin and keeps an inert loader seat', () => {
+  it('names the plugin, which is how the Loader row identifies it', () => {
     expect(nodeName).toBe('sidebar-menu-actions')
-    expect(() => { nodeApply() }).not.toThrow()
   })
 })

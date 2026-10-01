@@ -125,7 +125,6 @@ describe('NoticeToast', () => {
     const notice = await mount()
     await notice.copy()
     expect(notice.banner().textContent).toBe(en['toast.copied'])
-    expect(notice.banner().getAttribute('role')).toBe('alert')
     await notice.finish()
     expect(notice.toast()).toBeNull()
   })

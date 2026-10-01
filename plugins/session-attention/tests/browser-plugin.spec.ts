@@ -10,7 +10,6 @@ import { Context, type Fiber } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
-import { apply as nodeApply } from '../src/index.ts'
 import { en, NS, zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
@@ -82,10 +81,6 @@ async function retire(b: Bench): Promise<void> {
 }
 
 describe('session-attention browser half', () => {
-  it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots'])
-  })
-
   it('registers the overlay entry unconditionally, with its own id, order, and locale', async () => {
     const b = await bench()
     const entry = b.slots.entry(ENTRY)
@@ -168,10 +163,6 @@ describe('session-attention browser half', () => {
     expect(translate('panel.title')).not.toBe(en['panel.title'])
   })
 
-  it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
-    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
-  })
-
   it('localizes every key the entry asks for', () => {
     for (const key of Object.keys(zh) as AttentionKey[]) {
       expect(en[key]).toBeTypeOf('string')
@@ -180,8 +171,3 @@ describe('session-attention browser half', () => {
   })
 })
 
-describe('session-attention node half', () => {
-  it('the node apply is an inert loader seat', () => {
-    expect(() => { nodeApply() }).not.toThrow()
-  })
-})

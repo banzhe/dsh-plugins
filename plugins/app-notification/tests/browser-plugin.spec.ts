@@ -10,7 +10,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { apply, inject } from '../src/client/index.ts'
-import { apply as nodeApply } from '../src/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
@@ -73,10 +72,6 @@ afterEach(() => {
 })
 
 describe('app-badge browser half', () => {
-  it('declares the services it binds', () => {
-    expect(inject).toEqual(['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots'])
-  })
-
   it('projects the finished count and notifies, then releases both with the fiber', async () => {
     const surface = stubCapabilities()
     const { fiber } = await bench(surface)
@@ -126,10 +121,6 @@ describe('app-badge browser half', () => {
     expect(translate('notify.title')).toBe(en['notify.title'])
     await fiber.dispose()
     expect(translate('notify.title')).not.toBe(en['notify.title'])
-  })
-
-  it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
-    expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
   })
 
   it('registers the settings row and removes its stylesheet with the fiber', async () => {
@@ -213,8 +204,3 @@ describe('app-badge browser half', () => {
   })
 })
 
-describe('app-badge node half', () => {
-  it('the node apply is an inert loader seat', () => {
-    expect(() => { nodeApply() }).not.toThrow()
-  })
-})

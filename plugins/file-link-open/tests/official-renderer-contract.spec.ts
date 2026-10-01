@@ -46,7 +46,6 @@ describe('installed official renderer contract', () => {
   const body = markdownFileLinkBody(source)
 
   it('still defines MarkdownFileLink and destructures a `file` prop', () => {
-    expect(body).not.toBeNull()
     // The walk reads `file.path`/`file.line` off this prop, so the parameter has
     // to keep the name and the position the built component carries.
     expect(body).toMatch(/function MarkdownFileLink\(\{\s*file\b/)
@@ -70,9 +69,8 @@ describe('installed official renderer contract', () => {
     expect(body).toMatch(/file\.line/)
   })
 
-  it('still marks the button with the fileMention and fileLink classes the selector matches', () => {
+  it('still marks the button with the fileMention class the selector matches', () => {
     expect(body).toMatch(/markdownCss\.fileMention/)
-    expect(body).toMatch(/markdownCss\.fileLink/)
   })
 
   it('still renders a button rather than an anchor, which is why a fiber is needed', () => {

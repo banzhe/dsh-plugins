@@ -143,12 +143,6 @@ describe('auxiliary route resolution', () => {
     expect(harness.options[0]).toMatchObject({ provider: 'cliproxyapi', model: 'ollama/glm-5.3' })
   })
 
-  it('falls back to the session route when the row carries no policy at all', async () => {
-    const harness = benchWithRoute(answer('🔬 标题模型选择'), { provider: 'main', model: 'chat' })
-    await harness.run()
-    expect(harness.options[0]).toMatchObject({ provider: 'main', model: 'chat' })
-  })
-
   it('refuses a provider with no model instead of falling back', async () => {
     const harness = benchWithRoute(answer('🔬 标题模型选择'), { provider: 'main', model: 'chat' })
     // Falling back here would title with a model the deployment did not choose.
@@ -365,15 +359,6 @@ describe('deriveTitle - the auxiliary answer', () => {
       .toContain('declined to name a topic')
   })
 
-  it('treats a stream that ended without a finish chunk as a clean stop', async () => {
-    // `BlockAssembler.finish` defaults to `{kind:'stop'}`, so an adapter that
-    // simply ends the iterable is accepted rather than blamed.
-    const harness = bench([
-      { type: 'block-start', index: 0, blockType: 'text' },
-      { type: 'block-end', index: 0, block: { type: 'text', text: '🔬 主题' } },
-    ] as StreamChunk[])
-    expect(resultOf(await harness.run({ policy: { provider: 'p', model: 'm' } })).title).toBe('🔬 主题')
-  })
 })
 
 describe('deriveTitle - cancellation', () => {

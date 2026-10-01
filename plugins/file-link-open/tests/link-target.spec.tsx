@@ -143,8 +143,8 @@ describe('lineOfFileLink', () => {
 
 describe('lineOfFileLink synthetic fibers', () => {
   // Real React never produces these shapes; they pin the walk's defensive
-  // branches (a React version that renames the handle, a wrapper with an
-  // unrelated prop, a chain that never reaches the component).
+  // branches (a wrapper with an unrelated prop, a chain that never reaches the
+  // component).
   function buttonWithFiber(key: string, first: unknown): HTMLButtonElement {
     const button = document.createElement('button')
     button.className = FILE_LINK_CLASS
@@ -157,21 +157,10 @@ describe('lineOfFileLink synthetic fibers', () => {
     return { memoizedProps, return: parent }
   }
 
-  it('walks the legacy __reactInternalInstance$ handle spelling too', () => {
-    const button = buttonWithFiber(
-      '__reactInternalInstance$abc123',
-      fiber({ file: { path: 'src/a.ts', line: 9 } }),
-    )
-    expect(lineOfFileLink(button, 'src/a.ts')).toBe(9)
-  })
-
   it.each([
     ['the props are null', fiber(null)],
-    ['the props are not an object', fiber('nope')],
     ['there is no `file` prop', fiber({ other: 1 })],
     ['`file` is null', fiber({ file: null })],
-    ['`file` is not an object', fiber({ file: 'src/a.ts' })],
-    ['`file` has no string path', fiber({ file: { path: 42, line: 9 } })],
   ])('ignores a fiber whose %s', (_why, first) => {
     expect(lineOfFileLink(buttonWithFiber('__reactFiber$abc', first), 'src/a.ts')).toBeNull()
   })

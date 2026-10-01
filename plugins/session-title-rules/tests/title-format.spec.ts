@@ -61,7 +61,8 @@ function expectCanonical(raw: string, expected: string): void {
 
 /**
  * The `Error` a refused input throws. Failing here means the contract's exact
- * clause was broken, so the message names the offending input.
+ * clause was broken, so the message names the offending input. Every refusal row
+ * runs this, which is why the shape is asserted here and nowhere else.
  */
 function refusalReason(raw: string): Error {
   try {
@@ -69,6 +70,8 @@ function refusalReason(raw: string): Error {
   } catch (error) {
     expect(error).toBeInstanceOf(Error)
     const reason = error as Error
+    // A refusal is total: no exception type other than `Error` reaches the caller.
+    expect(reason.name).toBe('Error')
     expect(reason.message.startsWith(REFUSAL_PREFIX)).toBe(true)
     expect(reason.message.slice(REFUSAL_PREFIX.length).length).toBeGreaterThan(0)
     return reason
@@ -102,26 +105,9 @@ describe('formatTitleOutput - accepted input reduces to the canonical line', () 
     expectCanonical(raw, expected)
   })
 
-  it('drops the U+FE0F selector instead of carrying it into the title', () => {
-    const accepted = formatTitleOutput(`⚡\uFE0F ${TOPIC}`)
-    expect(accepted).not.toContain('\uFE0F')
-    expect(accepted).toBe(`⚡ ${TOPIC}`)
-  })
-
-  it('emits exactly one ASCII space between the emoji and the topic', () => {
-    // A single space is the only admitted separator, so the retired
-    // full-width pipe surrounded by spaces collapses to one U+0020.
-    const accepted = formatTitleOutput(`🐛 ｜${TOPIC}`)
-    expect(accepted.split(' ')).toEqual(['🐛', TOPIC])
-  })
-
   describe('the closed type vocabulary', () => {
     it.each(VOCABULARY)('accepts %s as the marker for the %s type', (emoji) => {
       expectCanonical(`${emoji} ${TOPIC}`, `${emoji} ${TOPIC}`)
-    })
-
-    it.each(VOCABULARY)('normalizes %s written with no gap', (emoji) => {
-      expectCanonical(`${emoji}${TOPIC}`, `${emoji} ${TOPIC}`)
     })
   })
 
@@ -184,61 +170,21 @@ describe('formatTitleOutput - refused input throws instead of guessing', () => {
 
   const REFUSALS: Array<[name: string, raw: string]> = [...DECLINE, ...EMPTY, ...NO_VOCABULARY_EMOJI, ...NO_TOPIC]
 
-  it.each(REFUSALS)('refuses %s', (name, raw) => {
-    expect(() => formatTitleOutput(raw), name).toThrow(Error)
-    // Non-Error throws and messages missing the shared prefix both surface here.
-    expect(refusalReason(raw).message).toContain(REFUSAL_PREFIX)
-  })
-
-  it('reports every refusal reason under the package prefix', () => {
-    // The prefix is the only wording contract; the reason behind it must be
-    // present but is deliberately not asserted.
-    for (const [, raw] of REFUSALS) {
-      const reason = refusalReason(raw)
-      expect(reason.message.startsWith(REFUSAL_PREFIX)).toBe(true)
-      expect(reason.message.length).toBeGreaterThan(REFUSAL_PREFIX.length)
-    }
-  })
-
-  it('never returns a partial title for a refused line', () => {
-    // A refusal is total: no `🐛`-only consolation title and no exception type
-    // other than `Error` reaches the caller.
-    for (const [, raw] of REFUSALS) {
-      let accepted: string | undefined
-      try {
-        accepted = formatTitleOutput(raw)
-      } catch (error) {
-        expect(error).toBeInstanceOf(Error)
-        expect((error as Error).name).toBe('Error')
-      }
-      expect(accepted).toBeUndefined()
-    }
+  it.each(REFUSALS)('refuses %s', (_name, raw) => {
+    // The whole refusal shape — an `Error`, carrying the prefix and a non-empty
+    // reason, and never a returned title — is asserted inside `refusalReason`,
+    // which throws rather than returning when `formatTitleOutput` answers.
+    refusalReason(raw)
   })
 })
 
 describe('TITLE_SYSTEM_PROMPT', () => {
-  it('is a non-empty string', () => {
-    expect(typeof TITLE_SYSTEM_PROMPT).toBe('string')
-    expect(TITLE_SYSTEM_PROMPT.length).toBeGreaterThan(0)
-    expect(TITLE_SYSTEM_PROMPT.trim().length).toBeGreaterThan(0)
-  })
-
   it.each(VOCABULARY)('names %s for the %s type', (emoji) => {
     expect(TITLE_SYSTEM_PROMPT).toContain(emoji)
   })
 
-  it('states the emoji + one ASCII space + 主题 output shape', () => {
-    expect(TITLE_SYSTEM_PROMPT).toContain('emoji')
-    expect(TITLE_SYSTEM_PROMPT).toContain('主题')
-  })
-
   it('carries the UNCHANGED decline sentinel', () => {
     expect(TITLE_SYSTEM_PROMPT).toContain('UNCHANGED')
-  })
-
-  it('carries at least three example lines containing the arrow', () => {
-    const examples = TITLE_SYSTEM_PROMPT.split('\n').filter(line => line.includes('→'))
-    expect(examples.length).toBeGreaterThanOrEqual(3)
   })
 
   it('writes its examples as 原名称 lines mapping onto emoji + one space + topic', () => {

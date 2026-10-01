@@ -129,73 +129,33 @@ describe('installWorkspaceMenu', () => {
     expect(viewportRows(menu)).toBe(3)
   })
 
-  it('does not arm on any other key', async () => {
-    install()
-    const row = appendWorkspaceRow('ws-1')
-    armKey(row.trigger, 'Tab')
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
+  /**
+   * Every gesture and target an open must refuse, one row per shape: what they
+   * share is the guard that stops the arm from widening to a row, a key, or a
+   * target it does not own. `install()` runs first, so each row arms against a
+   * live observer.
+   */
+  const NON_ARMING: ReadonlyArray<readonly [label: string, arm: () => void]> = [
+    ['any other key', () => { armKey(appendWorkspaceRow('ws-1').trigger, 'Tab') }],
+    ['the row’s second button', () => { armPointer(appendWorkspaceRow('ws-1').other) }],
+    ['a session row nested inside the workspace row', () => {
+      const row = appendWorkspaceRow('ws-1')
+      const session = document.createElement('div')
+      session.dataset.rowKey = 'session:sess-9'
+      const trigger = document.createElement('button')
+      session.append(trigger)
+      row.row.append(session)
+      armPointer(trigger)
+    }],
+    ['a target outside any workspace row', () => { armPointer(document.body) }],
+    ['a target that is not an element', () => { armPointer(document) }],
+    ['the ungrouped bucket row', () => { armPointer(appendUngroupedRow().trigger) }],
+    ['a workspace row with no buttons', () => { armPointer(appendButtonlessRow('ws-1')) }],
+  ]
 
-  it('does not arm from the row’s second button', async () => {
+  it.each(NON_ARMING)('does not arm from %s', async (_label, arm) => {
     install()
-    const row = appendWorkspaceRow('ws-1')
-    armPointer(row.other)
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
-
-  it('does not arm from a session row nested inside the workspace row', async () => {
-    install()
-    const row = appendWorkspaceRow('ws-1')
-    const session = document.createElement('div')
-    session.dataset.rowKey = 'session:sess-9'
-    const trigger = document.createElement('button')
-    session.append(trigger)
-    row.row.append(session)
-    armPointer(trigger)
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
-
-  it('does not arm from a target outside any workspace row', async () => {
-    install()
-    armPointer(document.body)
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
-
-  it('does not arm from a target that is not an element', async () => {
-    install()
-    armPointer(document)
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
-
-  it('does not arm from the ungrouped bucket row', async () => {
-    install()
-    const row = appendUngroupedRow()
-    armPointer(row.trigger)
-    const menu = buildMenu()
-    document.body.append(menu.menu)
-    await flush()
-    expect(viewportRows(menu)).toBe(2)
-  })
-
-  it('does not arm from a workspace row with no buttons', async () => {
-    install()
-    const row = appendButtonlessRow('ws-1')
-    armPointer(row)
+    arm()
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()

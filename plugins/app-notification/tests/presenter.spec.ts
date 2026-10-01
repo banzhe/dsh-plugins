@@ -183,6 +183,25 @@ describe('AppBadgePresenter', () => {
 })
 
 describe('CompletionPresenter', () => {
+  /**
+   * The two notifications the presenter can raise. Each family of rows below
+   * varies only which one is in flight: both carry the same options, and both
+   * report a refusal the platform decides on after accepting the construction
+   * through the same `error` event.
+   */
+  const RAISED: ReadonlyArray<readonly [label: string, raise: () => () => void]> = [
+    ['a finished Session', () => {
+      const sessions = sessionSources([summary('a', { running: true })])
+      const detach = new CompletionPresenter(options()).attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      return detach
+    }],
+    ['the settings-row probe', () => {
+      expect(new CompletionPresenter(options()).showTest()).toBe(true)
+      return () => {}
+    }],
+  ]
+
   it('projects the finished count and notifies each newly finished Session', () => {
     const badge = stubCapabilities()
     const sessions = sessionSources([summary('a', { running: true })])
@@ -261,13 +280,9 @@ describe('CompletionPresenter', () => {
     detach()
   })
 
-  it('re-alerts a completion that reuses the constant Session tag', () => {
+  it.each(RAISED)('re-alerts %s so a same-tag replacement still shows', (_label, raise) => {
     stubCapabilities()
-    const sessions = sessionSources([summary('a', { running: true })])
-    const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions.status, sessions.list)
-
-    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    const detach = raise()
     expect(FakeNotification.instances).toHaveLength(1)
     // Chromium suppresses every same-tag banner after the first unless renotify
     // is set, which would make the count silently stop alerting.
@@ -275,13 +290,9 @@ describe('CompletionPresenter', () => {
     detach()
   })
 
-  it('logs a display refusal the platform reports after the completion was built', () => {
+  it.each(RAISED)('logs a display refusal the platform reports after %s was accepted', (_label, raise) => {
     stubCapabilities()
-    const sessions = sessionSources([summary('a', { running: true })])
-    const presenter = new CompletionPresenter(options())
-    const detach = presenter.attach(sessions.status, sessions.list)
-
-    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    const detach = raise()
     expect(FakeNotification.instances).toHaveLength(1)
 
     const refusal = new Event('error')
@@ -437,27 +448,6 @@ describe('CompletionPresenter', () => {
     // A test notification has nowhere to go.
     expect(FakeNotification.instances[0]?.onclick).toBeNull()
     expect(open).not.toHaveBeenCalled()
-  })
-
-  it('re-alerts the settings-row probe so a repeated test still shows', () => {
-    stubCapabilities()
-    const presenter = new CompletionPresenter(options())
-    expect(presenter.showTest()).toBe(true)
-    expect(FakeNotification.instances).toHaveLength(1)
-    expect(FakeNotification.instances[0]?.options).toMatchObject({ renotify: true })
-  })
-
-  it('logs a display refusal the platform reports after the probe was accepted', () => {
-    stubCapabilities()
-    const presenter = new CompletionPresenter(options())
-    expect(presenter.showTest()).toBe(true)
-    expect(FakeNotification.instances).toHaveLength(1)
-
-    const refusal = new Event('error')
-    FakeNotification.instances[0]?.onerror?.(refusal)
-    expect(logger.warn).toHaveBeenCalledWith(
-      'app-badge: the platform refused to display the notification', refusal,
-    )
   })
 
   it('showTest reports failure instead of throwing while the permission is missing', () => {
