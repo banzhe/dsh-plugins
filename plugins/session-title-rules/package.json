@@ -2,6 +2,11 @@
   "name": "@banzhe/dsh-session-title-rules",
   "version": "0.2.1-alpha.1.1",
   "description": "Rules-based session title provider (emoji 主题) replacing the built-in first-prompt provider, with a configurable title model",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/banzhe/dsh-plugins.git",
+    "directory": "plugins/session-title-rules"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",

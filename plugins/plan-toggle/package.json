@@ -2,6 +2,11 @@
   "name": "@banzhe/dsh-plan-toggle",
   "version": "0.2.1-alpha.1.1",
   "description": "Toggle plan mode from the Composer with Shift+Tab",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/banzhe/dsh-plugins.git",
+    "directory": "plugins/plan-toggle"
+  },
   "type": "module",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
