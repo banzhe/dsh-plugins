@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import { loadOfficialOpenInApp } from '../src/index.ts'
-import { withLaunchArgs } from '../src/launch-args.ts'
+import { withLaunchArgs, type ResolvedLaunch } from '../src/launch-args.ts'
 
 const ABSOLUTE = '/abs/a.ts'
 
@@ -20,7 +20,7 @@ interface Spawn {
 }
 
 /** Runs the real `launchResolved`, capturing spawns instead of spawning. */
-async function launchAndRecord(resolved: unknown, path: string) {
+async function launchAndRecord(resolved: ResolvedLaunch, path: string) {
   const { resolver } = await loadOfficialOpenInApp()
   const spawns: Spawn[] = []
   const outcome = await resolver.launchResolved(resolved, path, 5, {

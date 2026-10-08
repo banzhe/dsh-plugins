@@ -50,6 +50,9 @@ function loadClientBundle(packageName: string): Record<string, unknown> {
     __ModuleLoader__: { load: (registration: never) => { registrations.push(registration) } },
   }
   try {
+    // The artifact under test IS a bundle: evaluating its source is how the
+    // published browser half gets materialized through the module-table facade.
+    // oxlint-disable-next-line typescript/no-implied-eval, typescript/no-unsafe-call
     new Function(source)()
   } finally {
     ;(globalThis as { window?: unknown }).window = previous

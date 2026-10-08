@@ -57,7 +57,7 @@ export class SlotsDouble extends Service {
     const record: SlotsDoubleEntry = {
       options: { id: options.id, order: options.order, locale: options.locale },
       component,
-      injected: (options.inject?.() ?? {}) as unknown as Record<string, (...args: never[]) => unknown>,
+      injected: options.inject?.() ?? {},
     }
     this.entries.set(key, record)
     return () => { this.entries.delete(key) }

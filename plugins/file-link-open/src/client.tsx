@@ -25,6 +25,7 @@ import * as ReactDOMClient from 'react-dom/client'
 import { Menu, writeClipboard, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
   OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_ICON_PREFIX_ROUTE, OPEN_IN_APP_OPEN_ROUTE,
+  type OpenInAppAppsPayload,
 } from '@deepseek-ai/dsh-host-open-in-app/shared'
 import { classifyContextTarget, type LinkTarget } from './client/target.ts'
 import { EDITOR_IDS, type EditorId } from './editors.ts'
@@ -98,8 +99,8 @@ const FILE_MANAGER_IDS = ['finder', 'explorer', 'filemanager'] as const
 /** One file-manager id; `FILE_MANAGER_IDS.includes` does not narrow by itself. */
 type FileManagerId = (typeof FILE_MANAGER_IDS)[number]
 
-/** Fetch one JSON body with its status; never rejects. */
-async function fetchJson(url: string, options?: RequestInit): Promise<{ ok: boolean, status: number, data: any }> { // eslint-disable-line @typescript-eslint/no-explicit-any
+/** Fetch one JSON body with its status; never rejects. The body stays `unknown`: each caller narrows the shape it expects. */
+async function fetchJson(url: string, options?: RequestInit): Promise<{ ok: boolean, status: number, data: unknown }> {
   try {
     const res = await fetch(url, options)
     try {
@@ -163,7 +164,32 @@ function dirnameOf(p: string) {
 
 interface AppState {
   officialApps: string[] | null
-  info: { available?: string[] } | null
+  /** Null/undefined `available` means the host reported nothing, not "nothing available". */
+  info: { available?: string[] | null | undefined } | null
+}
+
+/** One JSON array of ids, filtering anything else; null when the value is not an array. */
+function stringArrayOf(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const out: string[] = []
+  for (const item of value as unknown[]) {
+    if (typeof item === 'string') out.push(item)
+  }
+  return out
+}
+
+/** The official `/apps` payload's ids, or null when the body is not that shape. */
+function appsOf(data: unknown): string[] | null {
+  if (typeof data !== 'object' || data === null) return null
+  const { apps } = data as Partial<OpenInAppAppsPayload>
+  return stringArrayOf(apps)
+}
+
+/** This plugin's own `/info` payload, or null when the body is not an object. */
+function infoOf(data: unknown): AppState['info'] {
+  if (typeof data !== 'object' || data === null) return null
+  const available = (data as { available?: unknown }).available
+  return { available: available === undefined ? undefined : stringArrayOf(available) }
 }
 
 /** One application's real bundle icon with a generic-glyph fallback (official route). */
@@ -184,7 +210,7 @@ function AppIcon(props: { id: string, size: number }) {
       alt=""
       aria-hidden
       draggable={false}
-      onError={() => setFailed(true)}
+      onError={() => { setFailed(true) }}
     />
   )
 }
@@ -240,12 +266,12 @@ function dispatchSelection(id: string, filePath: string, line: number | null, cw
   // in-menu error row (there is no menu left to host one).
   if (id === 'flo:copy-rel') {
     deps.close()
-    writeClipboard(relativizeToCwd(filePath, cwd))
+    void writeClipboard(relativizeToCwd(filePath, cwd))
     return
   }
   if (id === 'flo:copy-abs') {
     deps.close()
-    writeClipboard(absolute)
+    void writeClipboard(absolute)
     return
   }
   if (id.startsWith('flo:fm:')) {
@@ -284,7 +310,7 @@ interface ContextState {
   cwd: string | null
 }
 
-export async function apply(ctx: ClientContext) {
+export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'file-link-open: dictionaries')
   const t = ctx.locale.bind(NS) as Translator
 
@@ -319,7 +345,7 @@ export async function apply(ctx: ClientContext) {
    */
   function LinkMenu(props: { menu: ContextState, t: Translator }) {
     const menu = props.menu
-    const open = menu.open === true && menu.path !== null
+    const open = menu.open && menu.path !== null
     const items = open
       ? buildItems(state, props.t, menu.line)
       : []
@@ -381,12 +407,7 @@ export async function apply(ctx: ClientContext) {
    * practice.
    */
   function SessionCwdRecorder(props: { sessionId: string, useSessions: (selector: (sessionState: { byId: Record<string, { cwd?: string }> }) => string | undefined) => string | undefined }) {
-    const cwd = props.useSessions((sessionState) => {
-      const row = props.sessionId === undefined || props.sessionId === null
-        ? undefined
-        : sessionState.byId[props.sessionId]
-      return row === null || row === undefined ? undefined : row.cwd
-    })
+    const cwd = props.useSessions((sessionState) => sessionState.byId[props.sessionId]?.cwd)
     React.useEffect(() => {
       contextState.cwd = cwd === undefined || cwd === '' ? null : cwd
       renderContextMenu()
@@ -406,19 +427,19 @@ export async function apply(ctx: ClientContext) {
     }, SessionCwdRecorder))
 
   void fetchJson(OPEN_IN_APP_APPS_ROUTE).then((result) => {
-    if (result.ok && result.data !== null && Array.isArray(result.data.apps)) {
-      state.officialApps = result.data.apps
-      renderContextMenu()
-    }
+    const apps = result.ok ? appsOf(result.data) : null
+    if (apps === null) return
+    state.officialApps = apps
+    renderContextMenu()
   })
   void fetchJson(INFO_ROUTE).then((result) => {
-    if (result.ok && result.data !== null && typeof result.data === 'object') {
-      state.info = result.data
-      renderContextMenu()
-    }
+    const info = result.ok ? infoOf(result.data) : null
+    if (info === null) return
+    state.info = info
+    renderContextMenu()
   })
 
-  return async function dispose() {
+  return function dispose() {
     document.removeEventListener('contextmenu', onContextMenu)
     contextRoot.unmount()
     contextContainer.remove()

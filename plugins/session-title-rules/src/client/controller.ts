@@ -360,6 +360,10 @@ export class TitleModelCardController {
     const accepted = await this.form.mutate(desiredEffort === undefined
       ? [...ops, { op: 'unset' as const, path: ['reasoningEffort'] }]
       : [...ops, { op: 'set' as const, path: ['reasoningEffort'], value: desiredEffort }], this.draftRevision)
+    // `dispose()` can run during the await above, which TypeScript does not
+    // account for: it keeps the earlier `this.disposed` narrowing, so the
+    // recheck reads as always falsy although the field is mutable state.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (generation !== this.saveGeneration || this.disposed) return
     this.saving = false
     this.failed = !accepted
@@ -374,6 +378,8 @@ export class TitleModelCardController {
     this.catalogPartial = false
     this.publish()
     const response = await this.ctx.remote.session.modelCatalog()
+    // Same narrowing gap as `save()`: `dispose()` may land during the await.
+    // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (generation !== this.catalogGeneration || this.disposed) return
     if (response.ok) {
       this.groups = response.value.groups

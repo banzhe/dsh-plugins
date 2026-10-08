@@ -334,6 +334,8 @@ describe('injectMenuItem', () => {
 
   it('reports a non-Error rejection verbatim', async () => {
     const { showToast } = install()
+    // The case is a non-Error rejection; that is the behavior under test.
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     vi.stubGlobal('fetch', vi.fn((): Promise<never> => Promise.reject('nope')))
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { button } = await graft()

@@ -121,7 +121,7 @@ function bench(options: {
 async function boot(bench: Bench): Promise<{ dispose(): Promise<void> }> {
   const fiber = bench.ctx.plugin({ inject: [...inject], apply })
   await (fiber as unknown as { await(): Promise<void> }).await()
-  return fiber as unknown as { dispose(): Promise<void> }
+  return fiber
 }
 
 /** Seeding through the facility means every seeded case also proves the record round-trips its schema. */
@@ -258,8 +258,9 @@ describe('applying a remembered preset', () => {
   })
 
   it('leaves the newest manual pick standing when one lands during its own apply', async () => {
-    let b!: Bench
-    b = bench({
+    // Closed over by `select` below: the pick fires only after this assignment,
+    // so the binding is never read before it holds the bench.
+    const b: Bench = bench({
       select: async (agent, agentPreset) => {
         // The real `select` awaits its remount before appending, so the pick
         // below is committed before this apply's own event arrives.

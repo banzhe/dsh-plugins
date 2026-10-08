@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: the ctx.uiWorkspace service a row jumps through.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
-import { createAttentionStore } from './attention.ts'
+import { createAttentionStore, type AttentionModel } from './attention.ts'
 import { en, NS, zh } from './locales.ts'
 // Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
 // sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
@@ -50,9 +50,18 @@ export function apply(ctx: ClientContext): void {
   const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus)
   ctx.effect(() => () => { store.dispose() }, 'session-attention: attention store lifetime')
 
+  /**
+   * The store's members read as unbound methods to the linter, so the pair is
+   * wrapped once here instead of inline at the call site. It must keep this
+   * identity across renders: `useSyncExternalStore` resubscribes whenever
+   * `subscribe` changes.
+   */
+  const subscribeAttention = (listener: () => void): (() => void) => store.subscribe(listener)
+  const snapshotAttention = (): AttentionModel => store.getSnapshot()
+
   const injected = (): AttentionInjected => ({
     // Bound to the plugin's store during render; the plugin owns the lifetime.
-    useAttention: () => useSyncExternalStore(store.subscribe, store.getSnapshot),
+    useAttention: () => useSyncExternalStore(subscribeAttention, snapshotAttention),
     open: (id) => { ctx.uiWorkspace.openSession(id) },
   })
 

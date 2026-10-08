@@ -376,9 +376,9 @@ describe('deriveTitle - cancellation', () => {
       stream(dispatched: GenerateOptions): AsyncIterable<StreamChunk> {
         options.push(dispatched)
         return (async function* () {
-          yield { type: 'block-start', index: 0, blockType: 'text' } as StreamChunk
+          yield { type: 'block-start', index: 0, blockType: 'text' }
           controller.abort()
-          yield { type: 'text-delta', index: 0, text: '🔬 主题' } as StreamChunk
+          yield { type: 'text-delta', index: 0, text: '🔬 主题' }
         })()
       },
     }
@@ -396,9 +396,9 @@ describe('deriveTitle - cancellation', () => {
     const llm: TitleModelAccess = {
       stream(): AsyncIterable<StreamChunk> {
         return (async function* () {
-          yield { type: 'block-start', index: 0, blockType: 'text' } as StreamChunk
+          yield { type: 'block-start', index: 0, blockType: 'text' }
           controller.abort()
-          yield { type: 'finish', reason: { kind: 'stop' } } as StreamChunk
+          yield { type: 'finish', reason: { kind: 'stop' } }
         })()
       },
     }
@@ -431,7 +431,7 @@ describe('the Loader row adapter', () => {
       provider: { get: () => values.provider },
       model: { get: () => values.model },
       reasoningEffort: { get: () => values.reasoningEffort },
-    } as unknown as Config
+    }
   }
 
   function captured(): { ctx: Context, provider: () => SessionTitleProvider } {

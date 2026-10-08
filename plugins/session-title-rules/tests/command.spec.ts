@@ -173,6 +173,8 @@ describe('executeTitleRefresh', () => {
 
   it('renders a non-Error rejection through its string form', async () => {
     const { agent } = testAgent()
+    // The case is a non-Error rejection; that is the behavior under test.
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     const refresh = vi.fn(() => Promise.reject('plain string failure'))
     const result = await executeTitleRefresh({ refresh }, invocation(agent))
     expect(result).toEqual({

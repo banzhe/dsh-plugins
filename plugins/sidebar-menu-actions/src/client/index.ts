@@ -48,11 +48,22 @@ export function apply(ctx: Context): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'menu-actions: dictionaries')
   const t = ctx.locale.bind(NS)
   const notices = createNoticeStore()
+  /**
+   * The store's members read as unbound methods to the linter, so the pair is
+   * wrapped once here instead of inline at the call site. It must keep this
+   * identity across renders: `useSyncExternalStore` resubscribes whenever
+   * `subscribe` changes.
+   */
+  const subscribeNotices = (listener: () => void): (() => void) => notices.subscribe(listener)
+  const snapshotNotices = (): Notice | null => notices.snapshot()
   /** Stable render-time reader, invoked by the overlay entry on every render. */
-  const useNotice = (): Notice | null => useSyncExternalStore(notices.subscribe, notices.snapshot)
+  const useNotice = (): Notice | null => useSyncExternalStore(subscribeNotices, snapshotNotices)
   /** Surface one resolved notice; the overlay entry renders it through `Toast`. */
-  const showToast = notices.show
-  const noticeInjected = (): NoticeToastInjected => ({ useNotice, dismiss: notices.dismiss })
+  const showToast = (text: string): void => { notices.show(text) }
+  const noticeInjected = (): NoticeToastInjected => ({
+    useNotice,
+    dismiss: (seq: number) => { notices.dismiss(seq) },
+  })
 
   // The notice surface is the shell's overlay seat, registered unconditionally:
   // with no notice pending the entry renders nothing at all.
@@ -78,6 +89,10 @@ export function apply(ctx: Context): void {
     console.warn('sidebar-menu-actions: copy session id failed: the clipboard refused the write')
     showToast(t('toast.copyFailed'))
   }
+  // The injected face declares `copy` as void, but handing over the async
+  // function itself is what lets a spec await the notice update inside `act()`
+  // (tests/browser-plugin.spec.ts reads the returned promise).
+  // oxlint-disable-next-line typescript/no-misused-promises
   const copyInjected = (): CopySessionIdInjected => ({ copy })
 
   // Slot registration waits for ui-workspace's declaration; the entry leaves with it.

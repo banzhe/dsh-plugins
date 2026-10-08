@@ -168,6 +168,9 @@ export function createAttentionStore(
     const next = deriveAttention(list.getSnapshot(), status.getSnapshot())
     if (sameModel(next, model)) return
     model = next
+    // A listener may unsubscribe itself mid-loop, so iterate over a snapshot:
+    // the spread is the point, not a wasted copy.
+    // oxlint-disable-next-line unicorn/no-useless-spread
     for (const listener of [...listeners]) listener()
   }
   const unsubscribeList = list.subscribe(recompute)

@@ -50,6 +50,12 @@ catalog:
   immer: ^10.1.1
   jsdom: ^27.0.0
   lightningcss: ^1.33.0
+  # oxlint：与上游 DSH 同一个 linter，类型感知规则块与上游一致；上游的 @stylistic
+  # 与 sonarjs 风格块刻意未启用（格式化交给 formatter）。
+  # 精确钉版本（不带 caret）：tsgolint 的版本号跟随它内置的 typescript-go，而 oxlint 的
+  # 类型感知面不受 semver 保护。升级时两个必须一起改。
+  oxlint: 1.87.0
+  oxlint-tsgolint: 7.0.2003
   react: ^18.3.1
   react-dom: ^18.3.1
   tsdown: ^0.22.2

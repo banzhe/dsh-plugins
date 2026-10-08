@@ -65,11 +65,13 @@ function officialPackageRoot() {
   }
 }
 
-async function importFirstLayout(root: string, candidates: string[]) {
-  let lastError
+async function importFirstLayout(root: string, candidates: string[]): Promise<unknown> {
+  let lastError: unknown
   for (const candidate of candidates) {
     try {
-      return await import(pathToFileURL(path.join(root, candidate)).href)
+      // Reached by resolved file URL, so the module's own type is not statically
+      // visible; `loadOfficialOpenInApp` validates the shape it gets back.
+      return (await import(pathToFileURL(path.join(root, candidate)).href)) as unknown
     }
     catch (error) {
       lastError = error
@@ -87,31 +89,159 @@ interface ConnectionLike {
 }
 
 /**
+ * One resolution's fields, as much of them as this plugin drives and reads: the
+ * official resolver's own type is not statically visible across the file-URL
+ * import (the package exports only its root and `./shared`), so the surface used
+ * here is declared and then validated at load.
+ */
+interface OfficialResolver {
+  resolveOpenInAppApps(timeoutMs: number, internals: ResolverInternals): Promise<Map<string, ResolvedLaunch>>
+  /** Takes the catalog ROW, not its id: the official locator table comes from `app.platforms`. */
+  resolveLaunch(app: OfficialCatalogEntry, timeoutMs: number, internals: ResolverInternals): Promise<ResolvedLaunch | null>
+  launchResolved(target: ResolvedLaunch, path: string, timeoutMs: number, internals: ResolverInternals): Promise<LaunchOutcome>
+}
+
+/** How one official launch attempt ended; `missing` marks a stale resolution (ENOENT). */
+type LaunchOutcome = 'launched' | 'missing' | 'failed'
+
+/** One detached GUI launch: spawn, then watch the window for early failure. */
+type LauncherHook = (command: string, args: readonly string[], options: {
+  readonly watchMs: number
+  readonly env?: Readonly<Record<string, string>> | undefined
+  readonly windowsHide?: boolean | undefined
+}) => Promise<void>
+
+/** The resolver's injectable hooks; only the ones this plugin (or a spec) supplies. */
+interface ResolverInternals {
+  readonly ssh?: boolean | undefined
+  readonly launch?: LauncherHook | undefined
+  readonly resolveExecutable: (command: string) => Promise<string | null>
+}
+
+/**
+ * One official catalog row. Only `id` is read here, but the resolver rebuilds a
+ * row's locator table from `platforms`, so the row is carried through whole
+ * rather than reconstructed from its id.
+ */
+interface OfficialCatalogEntry {
+  readonly id: string
+  readonly platforms: Readonly<Record<string, unknown>>
+}
+
+/** The official detection catalog: the rows and its own `{path}` placeholder. */
+interface OfficialCatalog {
+  readonly OPEN_IN_APP_CATALOG: readonly OfficialCatalogEntry[]
+  readonly PATH_TOKEN: string
+}
+
+function isFunction(value: unknown): value is (...args: never[]) => unknown {
+  return typeof value === 'function'
+}
+
+/** A usable row: `id` is what the menu intersects, `platforms` what a re-resolution reads. */
+function isCatalogEntry(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false
+  const row = value as { id?: unknown, platforms?: unknown }
+  return typeof row.id === 'string' && typeof row.platforms === 'object' && row.platforms !== null
+}
+
+/** The resolver module, or null when it does not expose the three functions used here. */
+function officialResolverOf(value: unknown): OfficialResolver | null {
+  if (typeof value !== 'object' || value === null) return null
+  const candidate = value as Record<string, unknown>
+  if (
+    !isFunction(candidate.resolveOpenInAppApps)
+    || !isFunction(candidate.resolveLaunch)
+    || !isFunction(candidate.launchResolved)
+  ) {
+    return null
+  }
+  return candidate as unknown as OfficialResolver
+}
+
+/** The catalog module, or null when its rows or path token are unusable. */
+function officialCatalogOf(value: unknown): OfficialCatalog | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { OPEN_IN_APP_CATALOG: rows, PATH_TOKEN: pathToken } = value as {
+    OPEN_IN_APP_CATALOG?: unknown
+    PATH_TOKEN?: unknown
+  }
+  if (!Array.isArray(rows) || !rows.every(isCatalogEntry)) return null
+  if (typeof pathToken !== 'string' || pathToken === '') return null
+  return { OPEN_IN_APP_CATALOG: rows as unknown as readonly OfficialCatalogEntry[], PATH_TOKEN: pathToken }
+}
+
+/**
  * Load the official open-in-app resolver and catalog from the installed
  * dependency — the exact detection and launch layer the official host routes
  * run, tried against every layout the published versions shipped.
  */
-export async function loadOfficialOpenInApp() {
+export async function loadOfficialOpenInApp(): Promise<{
+  resolver: OfficialResolver
+  catalog: readonly OfficialCatalogEntry[]
+  pathToken: string
+}> {
   const root = officialPackageRoot()
-  const [resolver, catalog] = await Promise.all([
+  const [resolverModule, catalogModule] = await Promise.all([
     importFirstLayout(root, RESOLVER_LAYOUTS),
     importFirstLayout(root, CATALOG_LAYOUTS),
   ])
-  if (
-    typeof resolver.resolveOpenInAppApps !== 'function'
-    || typeof resolver.resolveLaunch !== 'function'
-    || typeof resolver.launchResolved !== 'function'
-    || !Array.isArray(catalog.OPEN_IN_APP_CATALOG)
-    || typeof catalog.PATH_TOKEN !== 'string'
-    || catalog.PATH_TOKEN === ''
-  ) {
+  const resolver = officialResolverOf(resolverModule)
+  const catalog = officialCatalogOf(catalogModule)
+  if (resolver === null || catalog === null) {
     throw new Error('file-link-open: the official open-in-app package loaded but does not expose the expected resolver API')
   }
   return { resolver, catalog: catalog.OPEN_IN_APP_CATALOG, pathToken: catalog.PATH_TOKEN }
 }
 
+/** The Node request surface these routes read; an unread body is drained, not left open. */
+interface RouteRequest extends AsyncIterable<Buffer> {
+  readonly method?: string | undefined
+  readonly headers: Record<string, string | string[] | undefined>
+  resume(): void
+}
+
+/** The Node response surface these routes write. */
+interface RouteResponse {
+  statusCode: number
+  setHeader(name: string, value: string): void
+  end(body?: string): void
+}
+
+/** The subprocess capability the official resolver uses for PATH lookups. */
+interface SubprocessLike {
+  /** Resolves one command to its absolute path; throws when it is not on PATH. */
+  resolveExecutable(command: string): Promise<string>
+}
+
+/** The route carrier; `register` returns this plugin's disposer. */
+interface WebServerLike {
+  register(route: {
+    kind: 'exact'
+    path: string
+    handler: (req: RouteRequest, res: RouteResponse) => Promise<void>
+  }): () => void
+}
+
+/**
+ * The three Cordis services this plugin injects. `Context` is typed by the
+ * packages a Bundle declares; these three arrive from the composition, so the
+ * slice actually used is declared here and read through one cast each.
+ */
+function connectionOf(ctx: Context): ConnectionLike {
+  return (ctx as unknown as { connection: ConnectionLike }).connection
+}
+
+function subprocessOf(ctx: Context): SubprocessLike {
+  return (ctx as unknown as { subprocess: SubprocessLike }).subprocess
+}
+
+function webServerOf(ctx: Context): WebServerLike {
+  return (ctx as unknown as { webServer: WebServerLike }).webServer
+}
+
 /** Answer an untrusted/unauthenticated request; true when it was rejected. */
-function rejected(connection: ConnectionLike, req: unknown, res: { statusCode: number, end(): void }) {
+function rejected(connection: ConnectionLike, req: unknown, res: RouteResponse) {
   const rejection = connection.requestRejection(req)
   if (rejection === undefined) return false
   res.statusCode = rejection
@@ -123,7 +253,7 @@ function rejected(connection: ConnectionLike, req: unknown, res: { statusCode: n
 const MAX_BODY_BYTES = 64 * 1024
 
 /** JSON response (no-store: outcomes are live facts). */
-function sendJson(res: any, status: number, payload: unknown) { // eslint-disable-line @typescript-eslint/no-explicit-any
+function sendJson(res: RouteResponse, status: number, payload: unknown) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
   res.setHeader('cache-control', 'no-store')
@@ -131,7 +261,7 @@ function sendJson(res: any, status: number, payload: unknown) { // eslint-disabl
 }
 
 /** 405 with the route's one supported method. */
-function sendMethodNotAllowed(res: any, allow: string) { // eslint-disable-line @typescript-eslint/no-explicit-any
+function sendMethodNotAllowed(res: RouteResponse, allow: string) {
   res.statusCode = 405
   res.setHeader('allow', allow)
   res.end()
@@ -143,7 +273,7 @@ function sendMethodNotAllowed(res: any, allow: string) { // eslint-disable-line 
  * A too-large body is drained rather than left unread: an unread stream holds
  * the socket open, and this route answers 413 immediately.
  */
-async function readBoundedBody(req: any): Promise<string | null> { // eslint-disable-line @typescript-eslint/no-explicit-any
+async function readBoundedBody(req: RouteRequest): Promise<string | null> {
   const chunks: Buffer[] = []
   let size = 0
   for await (const chunk of req) {
@@ -215,7 +345,7 @@ export async function apply(ctx: Context) {
   /** The composition's PATH resolver, completed like the official host's. */
   const resolveExecutableOf = async (command: string): Promise<string | null> => {
     try {
-      return await (ctx as any).subprocess.resolveExecutable(command) // eslint-disable-line @typescript-eslint/no-explicit-any
+      return await subprocessOf(ctx).resolveExecutable(command)
     }
     catch {
       return null
@@ -242,14 +372,14 @@ export async function apply(ctx: Context) {
     ??= bundle.resolver.resolveOpenInAppApps(launchTimeoutMs, internalsOf())
 
   /** Replace one stale resolution after a missing-executable launch, as the official host does. */
-  const refreshResolution = async (id: string) => {
+  const refreshResolution = async (app: OfficialCatalogEntry) => {
     const map = await availability()
-    const fresh = await bundle.resolver.resolveLaunch(id, launchTimeoutMs, internalsOf())
+    const fresh = await bundle.resolver.resolveLaunch(app, launchTimeoutMs, internalsOf())
     if (fresh === null) {
-      map.delete(id)
+      map.delete(app.id)
       return undefined
     }
-    map.set(id, fresh)
+    map.set(app.id, fresh)
     return fresh
   }
 
@@ -260,7 +390,7 @@ export async function apply(ctx: Context) {
   availability().catch(() => {})
 
   /** Read + validate one JSON POST body, answering failures; null when invalid. */
-  const readPost = async (req: any, res: any): Promise<LaunchRequest | null> => { // eslint-disable-line @typescript-eslint/no-explicit-any
+  const readPost = async (req: RouteRequest, res: RouteResponse): Promise<LaunchRequest | null> => {
     const essence = String(req.headers['content-type']).split(';', 1)[0]?.trim().toLowerCase()
     if (essence !== 'application/json') {
       sendJson(res, 415, { code: 'unsupported-media-type', message: 'content-type must be application/json' })
@@ -286,11 +416,11 @@ export async function apply(ctx: Context) {
     return parsed
   }
 
-  ctx.effect(() => (ctx as any).webServer.register({ // eslint-disable-line @typescript-eslint/no-explicit-any
+  ctx.effect(() => webServerOf(ctx).register({
     kind: 'exact',
     path: INFO_PATH,
-    handler: async (req: any, res: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (rejected((ctx as unknown as { connection: ConnectionLike }).connection, req, res)) return
+    handler: async (req: RouteRequest, res: RouteResponse) => {
+      if (rejected(connectionOf(ctx), req, res)) return
       if (req.method !== 'GET') {
         sendMethodNotAllowed(res, 'GET')
         return
@@ -306,11 +436,11 @@ export async function apply(ctx: Context) {
     },
   }), `file-link-open: GET ${INFO_PATH}`)
 
-  ctx.effect(() => (ctx as any).webServer.register({ // eslint-disable-line @typescript-eslint/no-explicit-any
+  ctx.effect(() => webServerOf(ctx).register({
     kind: 'exact',
     path: LAUNCH_PATH,
-    handler: async (req: any, res: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
-      if (rejected((ctx as unknown as { connection: ConnectionLike }).connection, req, res)) return
+    handler: async (req: RouteRequest, res: RouteResponse) => {
+      if (rejected(connectionOf(ctx), req, res)) return
       if (req.method !== 'POST') {
         sendMethodNotAllowed(res, 'POST')
         return
@@ -329,7 +459,7 @@ export async function apply(ctx: Context) {
         sendJson(res, 400, { code: 'unavailable-app', message: `unknown or unavailable app: ${parsed.app}` })
         return
       }
-      const app = bundle.catalog.find((entry: { id: string }) => entry.id === parsed.app)
+      const app = bundle.catalog.find(entry => entry.id === parsed.app)
       const resolved = app === undefined ? undefined : (await availability()).get(app.id)
       if (app === undefined || resolved === undefined) {
         sendJson(res, 400, { code: 'unavailable-app', message: `unknown or unavailable app: ${parsed.app}` })
@@ -340,7 +470,7 @@ export async function apply(ctx: Context) {
       const target = withLaunchArgs(resolved, parsed.app, parsed.line, bundle.pathToken)
       let outcome = await bundle.resolver.launchResolved(target, parsed.path, launchTimeoutMs, internalsOf())
       if (outcome === 'missing') {
-        const fresh = await refreshResolution(parsed.app)
+        const fresh = await refreshResolution(app)
         outcome = fresh === undefined
           ? 'failed'
           : await bundle.resolver.launchResolved(

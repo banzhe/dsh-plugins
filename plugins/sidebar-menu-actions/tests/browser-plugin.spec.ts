@@ -105,9 +105,10 @@ function banner(host: HTMLElement): HTMLElement {
 }
 
 async function copy(slots: SlotsDouble): Promise<void> {
-  const pending = slots.injection(COPY_ROW).copy(SESSION_ID)
   // The injected face declares `copy` as void; its implementation is async, so
   // awaiting the same promise inside act() settles the notice update there.
+  // oxlint-disable-next-line typescript/no-confusing-void-expression
+  const pending = slots.injection(COPY_ROW).copy(SESSION_ID)
   await act(async () => { await Promise.resolve(pending) })
 }
 

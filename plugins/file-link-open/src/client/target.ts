@@ -95,7 +95,7 @@ function isMarkdownFileLink(fiber: Record<string, unknown>): boolean {
  * the link named none, or the fiber walk found no matching component.
  */
 export function lineOfFileLink(button: Element, path: string): number | null {
-  let fiber = fiberHandleOf(button) as Record<string, unknown> | undefined
+  let fiber = fiberHandleOf(button) as Record<string, unknown> | null | undefined
   for (let hops = 0; fiber !== undefined && fiber !== null && hops < MAX_LINE_HOPS; hops += 1) {
     const file = filePropOf(fiber)
     // The nearest matching fiber wins. Requiring the path to equal the button's
@@ -123,7 +123,7 @@ export function lineOfFileLink(button: Element, path: string): number | null {
 export function pathOfFileLink(button: Element): string | null {
   const title = button.getAttribute('title')
   if (title !== null && title !== '') return title
-  let fiber = fiberHandleOf(button) as Record<string, unknown> | undefined
+  let fiber = fiberHandleOf(button) as Record<string, unknown> | null | undefined
   for (let hops = 0; fiber !== undefined && fiber !== null && hops < MAX_LINE_HOPS; hops += 1) {
     if (isMarkdownFileLink(fiber)) {
       const file = filePropOf(fiber)

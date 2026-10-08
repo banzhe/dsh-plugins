@@ -37,6 +37,17 @@ Remove with:
 dsh plugin --profile web remove @banzhe/dsh-<name>
 ```
 
+## Lint
+
+[oxlint](https://oxc.rs) with `oxlint-tsgolint` (type-aware), configured once in `.oxlintrc.json` at the root and run over every Bundle plus `devkit`:
+
+```sh
+pnpm lint
+pnpm lint:fix
+```
+
+The correctness and type-aware rule block is the one upstream DeepSeek Harness lints itself with, so a Bundle reads like the packages it plugs into. Upstream's `@stylistic` and `sonarjs` blocks are deliberately absent: formatting belongs to a formatter, not the linter. Both tools are pinned exactly in the `pnpm-workspace.yaml` catalog.
+
 ## Git hooks
 
 `pnpm install` points `core.hooksPath` at `.githooks/`. On a clone that already has `node_modules`, run it once yourself:
@@ -48,7 +59,7 @@ pnpm hooks:install
 | Hook | Runs |
 | --- | --- |
 | `pre-commit` | `pnpm typecheck` |
-| `pre-push` | `pnpm typecheck`, `pnpm test` |
+| `pre-push` | `pnpm lint`, `pnpm typecheck`, `pnpm test` |
 
 `pre-push` is the same gate as CI's `verify` job, which decides whether a push to `master` publishes. Skip a hook with `git commit --no-verify` or `git push --no-verify`.
 
