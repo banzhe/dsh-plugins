@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-session-attention",
-  "version": "0.2.1-alpha.1.1",
+  "version": "0.2.1-alpha.1.2",
   "description": "shell.overlay panel listing running and finished-unread Sessions, with click-to-jump and a toggle",
   "repository": {
     "type": "git",
