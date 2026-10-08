@@ -1,0 +1,94 @@
+name: release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      has_unpublished: ${{ steps.detect.outputs.has_unpublished }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Detect unpublished versions
+        id: detect
+        run: |
+          set -euo pipefail
+          pending=0
+          for pkg in plugins/*/; do
+            pkg=${pkg%/}
+            name=$(node -p "require('./$pkg/package.json').name")
+            version=$(node -p "require('./$pkg/package.json').version")
+            if [ "$(pnpm view "$name@$version" version 2>/dev/null)" = "$version" ]; then
+              echo "already published: $name@$version"
+              continue
+            fi
+            echo "unpublished: $name@$version"
+            pending=1
+          done
+          if [ "$pending" = 1 ]; then
+            echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_unpublished=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: verify
+    if: needs.verify.outputs.has_unpublished == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      # install runs each plugin's `prepare` only when it actually links modules,
+      # so a warm workspace would otherwise publish with `lib/` missing.
+      - run: pnpm build
+      - name: Verify build output
+        run: |
+          set -euo pipefail
+          for pkg in plugins/*/; do
+            pkg=${pkg%/}
+            shipped=$(node -p "require('./$pkg/package.json').files.join('\n')")
+            while IFS= read -r file; do
+              test -f "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
+            done <<< "$shipped"
+          done
+      # pnpm skips versions already on the registry, so this publishes exactly the
+      # bumped plugins whether a commit bumped one or several.
+      # No --tag: every version here is a prerelease that must stay reachable as
+      # `dsh plugin add @banzhe/dsh-<name>`, which resolves the `latest` tag.
+      - name: Publish unreleased versions
+        run: pnpm -r --filter "./plugins/*" publish --access public --provenance --no-git-checks --report-summary
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Show publish summary
+        if: always()
+        run: test -f pnpm-publish-summary.json && cat pnpm-publish-summary.json || echo "publish did not finish, so no summary was written"
