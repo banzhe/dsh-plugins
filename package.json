@@ -8,8 +8,10 @@
   },
   "scripts": {
     "build": "pnpm -r --filter \"./plugins/*\" build",
-    "typecheck": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" typecheck",
-    "test": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" test"
+    "hooks:install": "git config core.hooksPath .githooks",
+    "prepare": "git config core.hooksPath .githooks",
+    "test": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" test",
+    "typecheck": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" typecheck"
   },
   "devDependencies": {
     "@types/node": "catalog:",

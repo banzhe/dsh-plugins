@@ -37,6 +37,21 @@ Remove with:
 dsh plugin --profile web remove @banzhe/dsh-<name>
 ```
 
+## Git hooks
+
+`pnpm install` points `core.hooksPath` at `.githooks/`. On a clone that already has `node_modules`, run it once yourself:
+
+```sh
+pnpm hooks:install
+```
+
+| Hook | Runs |
+| --- | --- |
+| `pre-commit` | `pnpm typecheck` |
+| `pre-push` | `pnpm typecheck`, `pnpm test` |
+
+`pre-push` is the same gate as CI's `verify` job, which decides whether a push to `master` publishes. Skip a hook with `git commit --no-verify` or `git push --no-verify`.
+
 ## Requirements
 
 - Node `^22.19.0 || >=24.0.0`

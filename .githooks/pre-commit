@@ -1,0 +1,5 @@
+#!/bin/sh
+set -e
+
+test -d node_modules || { echo "run 'pnpm install' first" >&2; exit 1; }
+pnpm typecheck
