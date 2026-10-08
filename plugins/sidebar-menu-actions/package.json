@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-sidebar-menu-actions",
-  "version": "0.2.1-alpha.1-1",
+  "version": "0.2.1-alpha.1.1",
   "description": "Sidebar row-menu extensions: open a Workspace in VS Code, copy a Session ID",
   "type": "module",
   "main": "lib/index.js",

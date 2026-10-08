@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-agent-preset-per-workspace",
-  "version": "0.2.1-alpha.1-1",
+  "version": "0.2.1-alpha.1.1",
   "description": "Remember the agent preset manually picked in each workspace and compose the next new session in that workspace with it, keyed by workspace id; fall back to the global default when the remembered preset is gone",
   "type": "module",
   "main": "lib/index.js",
