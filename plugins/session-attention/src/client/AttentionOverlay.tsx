@@ -49,9 +49,10 @@ export const PANEL_ID = 'session-attention-panel'
 
 /**
  * What the toggle's outer outline reports. `waiting` wears the amber ring, the
- * same color the sidebar's warning dot uses for a Session blocked on the user;
- * `running` wears the DS blue sweep; `unread` the completion green. No attention
- * at all means no outline.
+ * same color the sidebar's warning dot uses for a Session blocked on the user —
+ * and the same the blocked row's own dot wears in the panel; `running` wears the
+ * DS blue sweep; `unread` the completion green. No attention at all means no
+ * outline.
  */
 export type AttentionOutline = 'waiting' | 'running' | 'unread'
 
@@ -86,11 +87,13 @@ export type AttentionOverlayProps =
   & InjectFace<AttentionInjected>
 
 /** One section's rows, newest first, each a jump target. */
-function Section({ title, rows, state, open, rowLabel }: {
+function Section({ title, rows, state, waiting, open, rowLabel }: {
   readonly title: string
   readonly rows: readonly AttentionRow[]
   /** The shipped indicator: the running spinner, or the finished-unread dot. */
   readonly state: StateDotState
+  /** Ids whose turn is blocked on the user, and so wear the amber dot instead. */
+  readonly waiting: ReadonlySet<string>
   readonly open: (id: SessionId) => void
   readonly rowLabel: (title: string) => string
 }): ReactNode {
@@ -106,7 +109,11 @@ function Section({ title, rows, state, open, rowLabel }: {
               aria-label={rowLabel(row.title)}
               onClick={() => { open(row.id) }}
             >
-              <StateDot state={state} size={10} />
+              {/* Blocked on the user: the amber `warning` dot, the color the
+                  toggle's `waiting` ring is drawn in. Waiting for an answer is
+                  not activity, so the spinner would be a lie — and in the unread
+                  section the same rule outranks the green completion dot. */}
+              <StateDot state={waiting.has(row.id) ? 'warning' : state} size={10} />
               <span className="sa-row-title">{row.title}</span>
             </button>
           </li>
@@ -140,6 +147,9 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
   // running or unread re-renders the trigger with the matching attribute, and an
   // attribute React leaves off entirely when the list is empty.
   const outline = outlineFor(model)
+  // The same derived set the outline reads, restated for row lookup: `waiting` is
+  // already the subset of the listed rows that is blocked on the user.
+  const waiting = new Set<string>(model.waiting.map(row => row.id))
   return (
     <div className="sa-root">
       {showing && (
@@ -164,6 +174,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       title={t('section.running')}
                       rows={model.running}
                       state="ongoing"
+                      waiting={waiting}
                       open={jump}
                       rowLabel={label}
                     />
@@ -173,6 +184,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       title={t('section.unread')}
                       rows={model.unread}
                       state="done"
+                      waiting={waiting}
                       open={jump}
                       rowLabel={label}
                     />

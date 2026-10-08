@@ -15,7 +15,8 @@ attention, behind a toggle.
   1. **waiting** — something is blocked on you: a listed Session holds a pending
      interaction (approval, question, plan review). The ring is
      `--dsw-alias-state-warn-primary`, the amber a `warning` `StateDot` paints in
-     the sidebar, and it holds still.
+     the sidebar (and the dot that Session's own panel row wears), and it holds
+     still.
   2. **running** — a 2px ring of the DS blue sweep
      (`--dsw-gradient-onboarding-blue-stops`, the conic stops `ui-theme` ships
      for the onboarding card border), its angle animated so the gradient travels
@@ -44,6 +45,12 @@ attention, behind a toggle.
     own flag).
   - **Unread** (`未读`) — finished while it was not the main view
     (`completionUnread`, the same fact as the sidebar's green dot).
+  - **Row indicator** — the shipped `StateDot`, so no color is hand-picked: the
+    running spinner for work in flight, the green done dot for an unread
+    reminder. A row whose turn is blocked on you wears the amber `warning` dot
+    instead — `--dsw-alias-state-warn-primary`, the same color the toggle's
+    `waiting` ring is drawn in, and it outranks the green in the unread section
+    too. Waiting for an answer is not activity, so no spinner.
 - **Click a row** — `ctx.uiWorkspace.openSession(id)` shows that Session as the
   main view and the panel closes behind it. An unread reminder clears on its own
   because becoming the main view is what clears it on the host.
@@ -89,8 +96,8 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
   `displayTitle` for labels) plus `ctx.uiSession.sessionStatus`. Sections are
   ordered by `updatedAt`, newest first.
 - `pendingInteraction` is read from the same status snapshot and only ever
-  narrows the outline: it selects the rows that are already listed, so the badge
-  count and the sections are unchanged by it.
+  narrows the outline and repaints a row's indicator: it selects the rows that
+  are already listed, so the badge count and the sections are unchanged by it.
 - The store compares content, not object identity: a list or status push that
   does not change the panel keeps the previous snapshot, so unrelated Session
   activity costs no render.

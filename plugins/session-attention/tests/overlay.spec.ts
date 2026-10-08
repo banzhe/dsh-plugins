@@ -56,6 +56,8 @@ interface Harness {
   /** Section headings exactly as rendered. */
   headings(): string[]
   rowLabels(): string[]
+  /** Each row indicator's state, in render order. */
+  stateDots(): string[]
   badge(): string | null
   click(element: HTMLElement): Promise<void>
   escape(): Promise<void>
@@ -102,6 +104,8 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
     panel: () => host.querySelector<HTMLElement>('.sa-panel'),
     headings: () => [...host.querySelectorAll<HTMLElement>('.sa-section-title')].map(node => node.textContent ?? ''),
     rowLabels: () => [...host.querySelectorAll<HTMLElement>('.sa-row')].map(node => node.textContent ?? ''),
+    stateDots: () => [...host.querySelectorAll<HTMLElement>('[data-test-state-dot]')]
+      .map(node => node.dataset['testStateDot'] ?? ''),
     badge: () => host.querySelector<HTMLElement>('.sa-badge')?.textContent ?? null,
     click: async (element: HTMLElement): Promise<void> => { await act(async () => { element.click() }) },
     escape: async (): Promise<void> => {
@@ -157,9 +161,7 @@ describe('AttentionOverlay', () => {
     expect(overlay.headings()).toEqual([zh['section.running'], zh['section.unread']])
     expect(overlay.rowLabels()).toEqual(['newer-run', 'older-run', 'finished'])
     expect(overlay.badge()).toBe('3')
-    const dots = [...overlay.host.querySelectorAll<HTMLElement>('[data-test-state-dot]')]
-      .map(node => node.dataset['testStateDot'])
-    expect(dots).toEqual(['ongoing', 'ongoing', 'done'])
+    expect(overlay.stateDots()).toEqual(['ongoing', 'ongoing', 'done'])
   })
 
   it('renders only the section that has rows', async () => {
@@ -217,6 +219,25 @@ describe('AttentionOverlay', () => {
       draft.byId['blocked' as SessionId] = sessionRow('blocked', { running: true, updatedAt: 3 })
     })
     expect(blocked.trigger().getAttribute('data-attention')).toBe('running')
+  })
+
+  it('gives a blocked row the amber dot instead of the loading spinner', async () => {
+    const overlay = await bench([
+      sessionRow('blocked', { running: true, blocked: true, updatedAt: 3 }),
+      sessionRow('run', { running: true, updatedAt: 2 }),
+    ])
+    await overlay.click(overlay.trigger())
+    expect(overlay.rowLabels()).toEqual(['blocked', 'run'])
+    // `warning` is the same `--dsw-alias-state-warn-primary` the toggle's
+    // `waiting` ring is painted in; only the blocked row trades its spinner.
+    expect(overlay.stateDots()).toEqual(['warning', 'ongoing'])
+
+    // The amber outranks the green too: a blocked reminder never reads as done.
+    await overlay.update((draft) => {
+      draft.byId['blocked' as SessionId] = sessionRow('blocked', { completed: true, blocked: true, updatedAt: 3 })
+      draft.byId['run' as SessionId] = sessionRow('run', { completed: true, updatedAt: 2 })
+    })
+    expect(overlay.stateDots()).toEqual(['warning', 'done'])
   })
 
   it('reports running over unread, and falls back to green when the work stops', async () => {
