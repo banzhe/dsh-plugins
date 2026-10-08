@@ -79,7 +79,8 @@ jobs:
             pkg=${pkg%/}
             shipped=$(node -p "require('./$pkg/package.json').files.join('\n')")
             while IFS= read -r file; do
-              test -f "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
+              # `files` may list directories (e.g. web-icons' `assets`), so -e, not -f.
+              test -e "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
             done <<< "$shipped"
           done
       # pnpm skips versions already on the registry, so this publishes exactly the
