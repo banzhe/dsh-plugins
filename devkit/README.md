@@ -35,8 +35,7 @@ subject of [ADR 0009](../docs/adr/0009-css-as-files.md).
   importable from an out-of-tree Bundle: its loaders sit in a config factory the
   package does not export, and reaching them would drag in harness-internal paths.
   Its [`docs/web-styling.md`](https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/web-styling.md)
-  owns the styling rules our sheets follow. The checkout this workspace links its
-  `@deepseek-ai/*` overrides to is `../deepseek-harness`.
+  owns the styling rules our sheets follow.
 - **Independent restatement: [`dshplugin/dsh-plugin-hub`](https://github.com/dshplugin/dsh-plugin-hub)** —
   its [`tsdown.config.ts`](https://github.com/dshplugin/dsh-plugin-hub/blob/main/tsdown.config.ts)
   is the harness preset rewritten for a package outside the repo — it arrives at

@@ -10,10 +10,9 @@ catalogMode: strict
 # 统一管理依赖版本：devDependencies 用 "catalog:" 引用，升级只改这里。
 # 所有 @deepseek-ai/dsh-* 固定为同一个 DSH 版本，不使用 caret，避免各插件解析到不同版本。
 #
-# peerDependencies 不能写 "catalog:"：DSH 在 Profile 组装阶段
-# (packages/boot/app-boot/src/plugin-compatibility.ts) 用 semver.satisfies 校验
-# peerDependencies 里的 @deepseek-ai/dsh-* 范围，"catalog:" 不是合法范围，会让整个
-# Bundle 被静默 skip。所以 peerDependencies 写显式版本（见各 plugins/*/package.json）。
+# peerDependencies 不能写 "catalog:"：DSH 在 Profile 组装阶段用 semver.satisfies
+# 校验 peerDependencies 里的 @deepseek-ai/dsh-* 范围，"catalog:" 不是合法范围，
+# 会让整个 Bundle 被静默 skip。所以 peerDependencies 写显式版本（见各 plugins/*/package.json）。
 #
 # 注意：peerDependencies 写固定版本意味着 DSH 每发一个版本都要同步重发所有插件，
 # 否则它们在新版本上会被整个 skip。升级 DSH 时必须同时改三处：本文件的 catalog、
@@ -58,39 +57,6 @@ catalog:
   vitest: ^4.1.8
   zod: 4.4.3
   zustand: ~4.4.7
-
-# 0.2.1-alpha.1 未发布到可依赖的 registry。overrides 用 link: 指向本地 harness 构建产物，
-# catalog 与 peerDependencies 仍声明字面版本 0.2.1-alpha.1（兼容性检查读声明范围，不读解析位置）。
-overrides:
-  '@deepseek-ai/cordis': link:../deepseek-harness/vendor/cordis
-  '@deepseek-ai/cosmokit': link:../deepseek-harness/vendor/cosmokit
-  '@deepseek-ai/schemastery': link:../deepseek-harness/vendor/schemastery
-  '@deepseek-ai/cordis-plugin-group': link:../deepseek-harness/vendor/group
-  '@deepseek-ai/cordis-plugin-include': link:../deepseek-harness/vendor/include
-  '@deepseek-ai/cordis-plugin-loader': link:../deepseek-harness/vendor/loader
-  '@deepseek-ai/dsh-api-remotes': link:../deepseek-harness/packages/api/remotes
-  '@deepseek-ai/dsh-api-session-controller': link:../deepseek-harness/packages/api/session-controller
-  '@deepseek-ai/dsh-api-workspace-controller': link:../deepseek-harness/packages/api/workspace-controller
-  '@deepseek-ai/dsh-agent': link:../deepseek-harness/packages/core/agent
-  '@deepseek-ai/dsh-agent-preset-registry': link:../deepseek-harness/packages/preset/agent-preset-registry
-  '@deepseek-ai/dsh-client-locale': link:../deepseek-harness/packages/client/locale
-  '@deepseek-ai/dsh-client-store': link:../deepseek-harness/packages/client/store
-  '@deepseek-ai/dsh-client-ui-conversation': link:../deepseek-harness/packages/client/ui-conversation
-  '@deepseek-ai/dsh-client-ui-plugin-manager': link:../deepseek-harness/packages/client/ui-plugin-manager
-  '@deepseek-ai/dsh-client-ui-primitives': link:../deepseek-harness/packages/client/ui-primitives
-  '@deepseek-ai/dsh-client-ui-renderer': link:../deepseek-harness/packages/client/ui-renderer
-  '@deepseek-ai/dsh-client-ui-session': link:../deepseek-harness/packages/client/ui-session
-  '@deepseek-ai/dsh-client-ui-settings': link:../deepseek-harness/packages/client/ui-settings
-  '@deepseek-ai/dsh-client-ui-slots': link:../deepseek-harness/packages/client/ui-slots
-  '@deepseek-ai/dsh-client-ui-workspace': link:../deepseek-harness/packages/client/ui-workspace
-  '@deepseek-ai/dsh-commands': link:../deepseek-harness/packages/interaction/commands
-  '@deepseek-ai/dsh-host-open-in-app': link:../deepseek-harness/packages/host/open-in-app
-  '@deepseek-ai/dsh-launch-environment': link:../deepseek-harness/packages/util/launch-environment
-  '@deepseek-ai/dsh-llm': link:../deepseek-harness/packages/llm/llm
-  '@deepseek-ai/dsh-session': link:../deepseek-harness/packages/core/session
-  '@deepseek-ai/dsh-session-title': link:../deepseek-harness/packages/session/session-title
-  '@deepseek-ai/dsh-storage-domain': link:../deepseek-harness/packages/storage/storage-domain
-  '@deepseek-ai/dsh-workspace': link:../deepseek-harness/packages/workspace/workspace
 
 minimumReleaseAgeExclude:
   # 插件必须能立刻安装刚发布的 DSH 版本，等待 release age 会让固定版本装不上。
