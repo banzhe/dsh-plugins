@@ -1,0 +1,3 @@
+- insert:
+    - id: web-icons
+      name: '@banzhe/dsh-web-icons'
