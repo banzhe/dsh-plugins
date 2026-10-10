@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-web-icons",
-  "version": "0.2.1-alpha.1.1",
+  "version": "0.2.1-alpha.2.1",
   "description": "Serve the Web launcher icon set (favicon, PWA manifest icons, apple-touch-icon) from a Bundle-owned snapshot, so the browser surface stops depending on whichever dsh-web-frontend the running harness ships",
   "repository": {
     "type": "git",
