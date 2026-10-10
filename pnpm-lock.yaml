@@ -27,6 +27,9 @@ catalogs:
     '@deepseek-ai/dsh-client-locale':
       specifier: 0.2.1-alpha.2
       version: 0.2.1-alpha.2
+    '@deepseek-ai/dsh-client-shortcuts':
+      specifier: 0.2.1-alpha.2
+      version: 0.2.1-alpha.2
     '@deepseek-ai/dsh-client-store':
       specifier: 0.2.1-alpha.2
       version: 0.2.1-alpha.2
@@ -366,10 +369,19 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(0498296ebec4f2768f3084b7beccaab9)
+      '@deepseek-ai/dsh-client-locale':
+        specifier: 'catalog:'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
+      '@deepseek-ai/dsh-client-shortcuts':
+        specifier: 'catalog:'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-conversation':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-client-ui-session':
+        specifier: 'catalog:'
+        version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
+      '@deepseek-ai/dsh-client-ui-slots':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/dsh-session':
@@ -839,6 +851,11 @@ packages:
 
   '@deepseek-ai/dsh-client-locale@0.2.1-alpha.2':
     resolution: {integrity: sha512-DqAlZVpGjydjpkIwW0GPIr5uTEIKDs1uXngeaoNnJneF944iXdBOzp3ZQffJ8jxdg0YMud0GZtQp2ZjWpBuHrg==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ~4.0.5-alpha.1
+
+  '@deepseek-ai/dsh-client-shortcuts@0.2.1-alpha.2':
+    resolution: {integrity: sha512-mc0/bdJejsURwLlsY6VpQRT/1nDUDyR8hxfAWFPPQ8vlqBMuHgXcJOEeRpx5z/fSdx4emFEAD9AO0N6xL2xyig==}
     peerDependencies:
       '@deepseek-ai/cordis': ~4.0.5-alpha.1
 
@@ -2760,6 +2777,13 @@ snapshots:
   '@deepseek-ai/dsh-client-locale@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)':
     dependencies:
       '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.10-alpha.1)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
+      '@deepseek-ai/schemastery': 3.18.5-alpha.1
+
+  '@deepseek-ai/dsh-client-shortcuts@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)':
+    dependencies:
+      '@deepseek-ai/cordis': 4.0.5-alpha.1(@deepseek-ai/cordis-plugin-include@1.0.10-alpha.1)(@deepseek-ai/cordis-plugin-loader@1.0.6-alpha.1)
+      '@deepseek-ai/dsh-util-crypto': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
+      '@deepseek-ai/dsh-util-values': 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)
       '@deepseek-ai/schemastery': 3.18.5-alpha.1
 
   '@deepseek-ai/dsh-client-store@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)':
