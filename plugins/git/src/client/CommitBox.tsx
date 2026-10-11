@@ -41,7 +41,7 @@ function MessageField({ value, label, placeholder, disabled, onChange, onSubmit 
       disabled={disabled}
       onChange={(event) => { onChange(event.currentTarget.value) }}
       onKeyDown={(event) => {
-        const composing = event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229
+        const composing = event.nativeEvent.isComposing || event.key === 'Process'
         if (event.key !== 'Enter' || event.shiftKey || composing) return
         event.preventDefault()
         onSubmit()
