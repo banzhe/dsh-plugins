@@ -48,11 +48,11 @@ attention, behind a toggle.
     (`sessionListMetadata.lastPromptAt`, the durable fact the list projection
     carries — so it survives a page reload), and a new prompt restarts it. A
     row whose projection has not been read yet shows no number; the plugin
-    fires one `refreshProjections` read per Session version (`updatedAt`), not
-    per list publication — the read republishes the list before the metadata
-    key exists. A later prompt advances `updatedAt` and is read again. A failed
-    read is retried once immediately; a second failure waits for a newer
-    `updatedAt`. The number is
+    reads one `refreshProjections` call per **displayed** session version
+    (`updatedAt`), not per list publication — the read republishes the list
+    before the metadata key exists. A later prompt advances `updatedAt` and is
+    read again. A failed read is retried once immediately; a second failure
+    waits for a newer `updatedAt`. The number is
     re-rendered by a one-second interval that exists only while the panel is
     open.
     - **Running subagents** — each running row renders its running subagent
@@ -66,14 +66,13 @@ attention, behind a toggle.
       re-anchors it); the cell appears once the child's projection read has
       landed, one `refreshProjections` read per child version (`updatedAt`),
       claimed from the same versioned store the parent reads use. An idle
-      parent with a running child
-      is listed as a **container row** in this section anyway: no spinner dot
-      and no duration (it holds no human prompt to count from), title in the
-      secondary label tone. Children are not badge rows: `total` counts
-      top-level rows only. A catalog-only child that is not held by this
-      client reports running late (the row's `running` is only backed while
-      the client holds the child); it appears when the host publishes its
-      status through the shared list channel.
+      parent with a running child is listed as a **container row** in this
+      section anyway: no spinner dot and no duration (it holds no human prompt
+      to count from), title in the secondary label tone. Children are not
+      badge rows: `total` counts top-level rows only. A catalog-only child
+      that is not held by this client reports running late (the row's
+      `running` is only backed while the client holds the child); it appears
+      when the host publishes its status through the shared list channel.
   - **Unread** (`未读`) — finished while it was not the main view
     (`completionUnread`, the same fact as the sidebar's green dot).
   - **Row indicator** — the shipped `StateDot`, so no color is hand-picked: the
@@ -169,3 +168,11 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
   content comparison, so a busy Session's pushes cost no render.
 - Labels follow the app locale through the `session-attention` namespace
   (zh/en).
+- Projection reads go to the rows the panel lists — running rows, their
+  running children, and unread rows — never the whole session list. A large
+  workspace (hundreds of Sessions) otherwise opens into that many concurrent
+  `session/projections` calls on first load, which exhausts the browser's
+  connection pool for several seconds (`ERR_INSUFFICIENT_RESOURCES`) and
+  blocks unrelated API traffic. An unread row reads once for its anchor cell
+  cost only when it is already flagged by the host; a settled-idle Session
+  never reads, because the panel renders no anchor for it.

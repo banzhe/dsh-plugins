@@ -23,7 +23,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: the ctx.uiWorkspace service a row jumps through.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
-import { createAttentionStore, type AttentionModel } from './attention.ts'
+import { createAttentionStore, deriveAttention, type AttentionModel } from './attention.ts'
 import { en, NS, zh } from './locales.ts'
 // Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
 // sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
@@ -58,6 +58,14 @@ export function apply(ctx: ClientContext): void {
   // republishes this list before the metadata key exists — `refreshProjections`
   // marks the list dirty on the way out — so "key absent" cannot mean "not yet
   // read", or the effect would refresh every publication forever.
+  //
+  // Only the running rows the panel displays read (a container row reads only
+  // through its running children): their timing anchors are the only cells the
+  // panel renders, and an unread row carries none. The fold's visibility facts
+  // (running, container, children) come from the status map and the row flags,
+  // which precede any read, so the model's row set alone decides what to read —
+  // a large host list otherwise opens into hundreds of concurrent projection
+  // calls that swamp the browser's connection pool.
   ctx.effect(() => {
     // `updatedAt` already read, or claimed by a call still in flight. A failed
     // read leaves no entry, so the one retry below is not mistaken for a duplicate.
@@ -98,12 +106,24 @@ export function apply(ctx: ClientContext): void {
     // with the parent's prompts, and a child version is read once the same
     // way its parent's is.
     const pull = (): void => {
-      const { byId } = ctx.sessions.list.getSnapshot()
-      for (const id of Object.keys(byId) as SessionId[]) {
-        const row = byId[id]
-        if (row === undefined) continue
-        if (row.origin !== 'subagent' && !row.blank) read(id, row.updatedAt, true, readAt)
-        if (row.origin === 'subagent') read(id, row.updatedAt, true, childReadAt)
+      // The fold's current row set, children included: exactly the rows whose
+      // anchors a cell renders. A row that leaves the panel is dropped without
+      // ceremony; if it returns, its claim still holds for that version, so no
+      // duplicate read is stacked.
+      const snapshot = ctx.sessions.list.getSnapshot()
+      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot())
+      // The model rows carry no version (the fold sorts on the inner value);
+      // the read version comes from the row the id still has on the list.
+      const claimed = (claims: Map<SessionId, number>, id: SessionId): void => {
+        const row = snapshot.byId[id]
+        if (row !== undefined) read(id, row.updatedAt, true, claims)
+      }
+      // A container row renders no anchor of its own, so only its children
+      // read; every other running row reads its own version beside them.
+      // Unread rows never carry an anchor, so they read nothing.
+      for (const row of running) {
+        if (row.container !== true) claimed(readAt, row.id)
+        for (const child of row.children ?? []) claimed(childReadAt, child.id)
       }
     }
     pull()

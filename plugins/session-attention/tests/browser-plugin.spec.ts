@@ -8,11 +8,12 @@
  */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
 import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
-import { sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
+import { parentWithChildren, sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
 
 const ENTRY = 'session-attention.panel'
@@ -201,31 +202,77 @@ describe('session-attention browser half', () => {
 })
 
 describe('durable prompt-time reads', () => {
-  it('reads each listed row once, children included, and skips blanks and missing rows', async () => {
+  it('reads the displayed rows and their running children, not the whole list', async () => {
     const b = await bench([
-      sessionRow('a'),
+      sessionRow('a', { running: true }),
       sessionRow('b', { lastPromptAt: 50 }),
-      sessionRow('sub', { origin: 'subagent' }),
+      sessionRow('done', { completed: true }),
+      sessionRow('sub', { origin: 'subagent', parentId: 'a' as SessionId, running: true }),
       sessionRow('blank', { blank: true }),
     ])
     await flushMicrotasks()
-    // Children read too, from the same store: their `subagentTiming` rides the
-    // same refresh RPC. Blank stays out both ways.
-    expect(b.refreshProjections).toHaveBeenCalledTimes(3)
-    expect(refreshedIds(b)).toEqual(['a', 'b', 'sub'])
+    // The panel lists `a` (running, with the running child mounted under it)
+    // and nothing else: the idle and settled rows render no anchor, and the
+    // blank placeholder never lists. The child rides the parent, listed even
+    // though the host list does not have it; the child's own version read is
+    // what carries the child's turn timing.
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(refreshedIds(b)).toEqual(['a', 'sub'])
+    expect(callsFor(b, 'b')).toBe(0)
+    expect(callsFor(b, 'done')).toBe(0)
     expect(callsFor(b, 'blank')).toBe(0)
 
     b.surface.publish((draft) => {
       draft.ids.push('missing' as never)
     })
     await flushMicrotasks()
-    expect(b.refreshProjections).toHaveBeenCalledTimes(3)
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
     expect(callsFor(b, 'missing')).toBe(0)
   })
 
-  it('reads a running subagent version once, rereads when its updatedAt moves', async () => {
-    const b = await bench([sessionRow('sub', { origin: 'subagent', running: true, updatedAt: 2 })])
+  it('reads a row that enters the panel, and drops the row that leaves it', async () => {
+    const b = await bench([sessionRow('a', { running: true })])
     await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(1)
+
+    // The row finishes without a reminder. The host publishes the list and the
+    // status separately, so the fold first sees the new row beside the old
+    // running status — one read for that version — and then the settled truth.
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 2, completed: false })
+    })
+    await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(2)
+
+    // The row is out of the panel now: later versions of it stay unread.
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 4, completed: false })
+    })
+    await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(2)
+  })
+
+  it('never reads a container row, but reads its running children', async () => {
+    const rows = parentWithChildren(sessionRow('parent'), [
+      ['child-1', { running: true }],
+      ['child-2', {}],
+    ])
+    const b = await bench(rows)
+    await flushMicrotasks()
+    // The container parent's `lastPromptAt` renders nowhere (no duration on a
+    // container row), but the running child's turn timing is the block's own
+    // cell, so the child's version reads even though the host list does not
+    // list the child.
+    expect(refreshedIds(b)).toEqual(['child-1'])
+  })
+
+  it('reads a running child version once, rereads when its updatedAt moves', async () => {
+    const b = await bench(parentWithChildren(sessionRow('parent', { running: true, updatedAt: 2 }), [
+      ['sub', { running: true, updatedAt: 2 }],
+    ]))
+    await flushMicrotasks()
+    // The running parent reads its own version beside the child's.
+    expect(callsFor(b, 'parent')).toBe(1)
     expect(callsFor(b, 'sub')).toBe(1)
 
     // The same child version republished: the claim holds, no reread.
@@ -233,18 +280,21 @@ describe('durable prompt-time reads', () => {
     await flushMicrotasks()
     expect(callsFor(b, 'sub')).toBe(1)
 
-    // A settled child has no more timing to read — but the claim map still
-    // compares by version, so a same-version idle republication stays silent,
-    // and only a newer version reads again.
+    // A settled child never mounts. The host publishes the list beside the old
+    // running status first — the fold still sees the child for that instant,
+    // one read for the new version — then the settled truth, which reads no
+    // more.
     b.surface.update((draft) => {
-      draft.byId['sub' as never] = sessionRow('sub', { origin: 'subagent', updatedAt: 3 })
+      draft.byId['sub' as never] = sessionRow('sub', {
+        origin: 'subagent', parentId: 'parent' as SessionId, updatedAt: 3,
+      })
     })
     await flushMicrotasks()
     expect(callsFor(b, 'sub')).toBe(2)
   })
 
   it('does not reread when the same version is republished without metadata', async () => {
-    const b = await bench([sessionRow('a', { updatedAt: 5 })])
+    const b = await bench([sessionRow('a', { running: true, updatedAt: 5 })])
     await flushMicrotasks()
     expect(callsFor(b, 'a')).toBe(1)
     expect(metadataOf(b, 'a')).not.toHaveProperty('sessionListMetadata')
@@ -263,13 +313,13 @@ describe('durable prompt-time reads', () => {
     expect(metadataOf(b, 'a')).not.toHaveProperty('sessionListMetadata')
   })
 
-  it('reads only a newly listed eligible session', async () => {
-    const b = await bench([sessionRow('a')])
+  it('reads only a newly eligible session', async () => {
+    const b = await bench([sessionRow('a', { running: true })])
     expect(callsFor(b, 'a')).toBe(1)
 
     b.surface.update((draft) => {
       draft.ids.push('b' as never)
-      draft.byId['b' as never] = sessionRow('b')
+      draft.byId['b' as never] = sessionRow('b', { running: true })
     })
     await flushMicrotasks()
     expect(b.refreshProjections).toHaveBeenCalledTimes(2)
@@ -278,23 +328,23 @@ describe('durable prompt-time reads', () => {
   })
 
   it('rereads a session only when updatedAt increases', async () => {
-    const b = await bench([sessionRow('a', { updatedAt: 10, displayTitle: 'a' })])
+    const b = await bench([sessionRow('a', { running: true, updatedAt: 10, displayTitle: 'a' })])
     expect(callsFor(b, 'a')).toBe(1)
 
     b.surface.update((draft) => {
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 10, displayTitle: 'renamed' })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 10, displayTitle: 'renamed' })
     })
     await flushMicrotasks()
     expect(b.refreshProjections).toHaveBeenCalledTimes(1)
 
     b.surface.update((draft) => {
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 9, displayTitle: 'renamed' })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 9, displayTitle: 'renamed' })
     })
     await flushMicrotasks()
     expect(b.refreshProjections).toHaveBeenCalledTimes(1)
 
     b.surface.update((draft) => {
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 11, displayTitle: 'renamed' })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 11, displayTitle: 'renamed' })
     })
     await flushMicrotasks()
     expect(b.refreshProjections).toHaveBeenCalledTimes(2)
@@ -306,7 +356,7 @@ describe('durable prompt-time reads', () => {
     b.refreshProjections.mockRejectedValueOnce(new Error('unread'))
     b.surface.update((draft) => {
       draft.ids.push('a' as never)
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 3 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 3 })
     })
     expect(b.refreshProjections).toHaveBeenCalledTimes(1)
     await expect(b.refreshProjections.mock.results[0]?.value).rejects.toThrow('unread')
@@ -324,7 +374,7 @@ describe('durable prompt-time reads', () => {
     b.refreshProjections.mockRejectedValue(new Error('down'))
     b.surface.update((draft) => {
       draft.ids.push('a' as never)
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 1 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 1 })
     })
     await flushMicrotasks()
     expect(refreshedIds(b)).toEqual(['a', 'a'])
@@ -334,7 +384,7 @@ describe('durable prompt-time reads', () => {
     expect(b.refreshProjections).toHaveBeenCalledTimes(2)
 
     b.surface.update((draft) => {
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 2 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 2 })
     })
     await flushMicrotasks()
     // A newer version is its own read plus one retry, then it stops too.
@@ -349,7 +399,7 @@ describe('durable prompt-time reads', () => {
     }))
     b.surface.update((draft) => {
       draft.ids.push('a' as never)
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 4 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 4 })
     })
     b.surface.publish(() => {})
     expect(b.refreshProjections).toHaveBeenCalledTimes(1)
@@ -370,7 +420,7 @@ describe('durable prompt-time reads', () => {
     }))
     b.surface.update((draft) => {
       draft.ids.push('a' as never)
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 1 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 1 })
     })
     expect(b.refreshProjections).toHaveBeenCalledTimes(1)
     expect(b.refreshProjections).toHaveBeenCalledWith('a')
@@ -382,7 +432,7 @@ describe('durable prompt-time reads', () => {
     await flushMicrotasks()
     b.surface.publish(() => {})
     b.surface.update((draft) => {
-      draft.byId['a' as never] = sessionRow('a', { updatedAt: 2 })
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 2 })
     })
     await flushMicrotasks()
     expect(refreshedIds(b)).toEqual(['a'])
