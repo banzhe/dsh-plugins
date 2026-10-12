@@ -15,7 +15,10 @@ import { PANEL_ID, type AttentionInjected, type AttentionOverlayProps } from '..
 import { apply, inject } from '../src/client/index.ts'
 import { zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
-import { sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
+import {
+  parentWithChildren, sessionRow, sessionSources,
+  type SessionRow, type SessionSources,
+} from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
 
 const ENTRY = 'session-attention.panel'
@@ -343,5 +346,98 @@ describe('AttentionOverlay', () => {
     expect(overlay.headings()).toEqual([zh['section.unread']])
     expect(overlay.rowLabels()).toEqual(['done'])
     expect(overlay.badge()).toBe('1')
+  })
+
+  it('renders running subagents as indented children under their parent', async () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true, displayTitle: 'Parent' }), [
+      ['child-1', { running: true, displayTitle: 'Worker' }],
+      ['child-2', {}],
+    ])
+    const overlay = await bench(rows)
+    await overlay.click(overlay.trigger())
+    // Only the running child mounts, between the parent and the section's end.
+    expect(overlay.rowLabels()).toEqual(['Parent', 'Worker'])
+    // One indented child row, wearing the running spinner.
+    expect(overlay.stateDots()).toEqual(['ongoing', 'ongoing'])
+    expect(overlay.host.querySelectorAll('.sa-child-row')).toHaveLength(1)
+
+    // The child settles: the block leaves with it, the parent stays listed.
+    await overlay.update((draft) => {
+      draft.byId['child-1' as SessionId] = sessionRow('child-1', {
+        origin: 'subagent', parentId: 'parent' as SessionId, completed: true,
+      })
+    })
+    expect(overlay.rowLabels()).toEqual(['Parent'])
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+  })
+
+  it('shows an idle parent as a container row while its subagents run', async () => {
+    const rows = parentWithChildren(sessionRow('parent', { displayTitle: 'Parent' }), [
+      ['child-1', { running: true, displayTitle: 'Worker' }],
+    ])
+    const overlay = await bench(rows)
+    await overlay.click(overlay.trigger())
+    // The container row carries no dot and no duration cell; the child carries
+    // the running spinner. One row on the badge.
+    expect(overlay.badge()).toBe('1')
+    expect(overlay.rowLabels()).toEqual(['Parent', 'Worker'])
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+    expect(overlay.host.querySelectorAll('.sa-row-duration')).toHaveLength(0)
+    const container = overlay.host.querySelector<HTMLButtonElement>('.sa-row[data-container]')
+    expect(container?.textContent).toContain('Parent')
+
+    // The last child settles and the container row leaves with it.
+    await overlay.update((draft) => {
+      draft.byId['child-1' as SessionId] = sessionRow('child-1', {
+        origin: 'subagent', parentId: 'parent' as SessionId, completed: true,
+      })
+    })
+    expect(overlay.panel()?.textContent).toContain(zh['panel.empty'])
+  })
+
+  it('jumps to a running subagent row like any session row', async () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true, displayTitle: 'Worker' }],
+    ])
+    const overlay = await bench(rows)
+    await overlay.click(overlay.trigger())
+    const child = overlay.host.querySelector<HTMLButtonElement>('.sa-child-row')
+    if (child === null) throw new Error('no child row is mounted')
+    expect(child.getAttribute('aria-label')).toBe(zh['row.open'].replace('{title}', 'Worker'))
+    await overlay.click(child)
+    expect(overlay.open).toHaveBeenCalledWith('child-1')
+    expect(overlay.panel()).toBeNull()
+  })
+
+  it('shows a running child its own open-turn duration once its timing is read', async () => {
+    const now = Date.now()
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true, displayTitle: 'Worker' }],
+    ])
+    const overlay = await bench(rows)
+    await overlay.click(overlay.trigger())
+    // Before the child's projection read lands, the child row has no cell.
+    expect(overlay.host.querySelectorAll('.sa-child-row .sa-row-duration')).toHaveLength(0)
+
+    // The read arrives: the anchor is the child's own open turn, and it ticks
+    // with the panel clock. The parent's row is untouched by the child time.
+    await overlay.update((draft) => {
+      draft.byId['child-1' as SessionId] = sessionRow('child-1', {
+        origin: 'subagent', parentId: 'parent' as SessionId,
+        running: true, displayTitle: 'Worker', activeSince: now - 65_000,
+      })
+    })
+    const cells = () => [...overlay.host.querySelectorAll<HTMLElement>('.sa-child-row .sa-row-duration')]
+      .map(node => node.textContent ?? '')
+    expect(cells()).toEqual(['1:05'])
+
+    // A new turn re-anchors: the child count restarts from the newer time.
+    await overlay.update((draft) => {
+      draft.byId['child-1' as SessionId] = sessionRow('child-1', {
+        origin: 'subagent', parentId: 'parent' as SessionId,
+        running: true, displayTitle: 'Worker', activeSince: now - 5000,
+      })
+    })
+    expect(cells()).toEqual(['0:05'])
   })
 })

@@ -11,8 +11,10 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createAttentionStore, deriveAttention, formatDuration, runElapsed,
 } from '../src/client/attention.ts'
+import type { SessionRow } from './session-list-double.ts'
 import {
-  sessionListOf, sessionRow, sessionSources, sessionStatusOf,
+  parentWithChildren, sessionListOf, sessionRow, sessionSources,
+  sessionStatusOf, subagentRow,
 } from './session-list-double.ts'
 
 /** One status entry with only the fields this plugin reads. */
@@ -151,6 +153,147 @@ describe('deriveAttention', () => {
     expect(model.total).toBe(0)
   })
 
+  it('never lists subagent children of their own, at rest or running', () => {
+    // The old spec pinned children out of the panel entirely; the tree keeps
+    // that rule for the row itself and mounts a running child under its parent.
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true }],
+      ['child-2', {}],
+      ['child-3', { completed: true }],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      children: [{ id: 'child-1', title: 'child-1' }],
+    }])
+    // One panel row for the parent: the children ride it, not the count.
+    expect(model.total).toBe(1)
+    expect(model.unread).toEqual([])
+  })
+
+  it('lists an idle parent carrying only running subagents, as a container row', () => {
+    const rows = parentWithChildren(sessionRow('parent'), [
+      ['child-1', { running: true }],
+      ['child-2', {}],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent', title: 'parent', container: true,
+      children: [{ id: 'child-1', title: 'child-1' }],
+    }])
+    expect(model.total).toBe(1)
+  })
+
+  it('does not list an idle parent whose subagents have all settled', () => {
+    const rows = parentWithChildren(sessionRow('parent'), [
+      ['child-1', { completed: true }],
+      ['child-2', {}],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([])
+    expect(model.unread).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
+  it('falls a running child back to the row flag when the status knows nothing', () => {
+    // The parent is idle: its only listing fact is the child's own row flag.
+    const rows = parentWithChildren(sessionRow('parent'), [['child-1', { running: true }]])
+    const model = deriveAttention(sessionListOf(rows), new Map())
+    expect(model.running).toEqual([{
+      id: 'parent', title: 'parent', container: true,
+      children: [{ id: 'child-1', title: 'child-1' }],
+    }])
+  })
+
+  it('orders children by the parent catalog, then retained rows in list order', () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['cat-1', { running: true }],
+      ['cat-2', { running: true }],
+    ])
+    // A retained fallback row the catalog does not know: it appends last.
+    const list = sessionListOf(rows)
+    const retained = subagentRow('retained', { parentId: 'parent' as SessionId, running: true })
+    list.ids.push(retained.id)
+    list.byId[retained.id] = retained
+
+    const model = deriveAttention(list, sessionStatusOf([...rows, retained]))
+    expect(model.running[0]?.children).toEqual([
+      { id: 'cat-1', title: 'cat-1' },
+      { id: 'cat-2', title: 'cat-2' },
+      { id: 'retained', title: 'retained' },
+    ])
+  })
+
+  it('labels a catalog child from its title projection, then the catalog label', () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['titled', { running: true, title: 'Projected' }],
+      ['labelled', { running: true }],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running[0]?.children).toEqual([
+      { id: 'titled', title: 'Projected' },
+      { id: 'labelled', title: 'labelled' },
+    ])
+  })
+
+  it('keeps the prompt time on an idle container row that has one', () => {
+    // A container row is not a running run, so the panel renders no duration
+    // even when the metadata projection still carries an old prompt time.
+    const rows = parentWithChildren(sessionRow('parent', { lastPromptAt: 42 }), [
+      ['child-1', { running: true }],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      lastPromptAt: 42,
+      container: true,
+      children: [{ id: 'child-1', title: 'child-1' }],
+    }])
+  })
+
+  it('carries the child open-turn start as the child row anchor', () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true, activeSince: 500 }],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      children: [{ id: 'child-1', title: 'child-1', turnedAt: 500 }],
+    }])
+
+    // A child whose timing projection has not been read renders no anchor.
+    const unreadTiming = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true }],
+    ])
+    expect(deriveAttention(sessionListOf(unreadTiming), sessionStatusOf(unreadTiming)).running)
+      .toEqual([{ id: 'parent', title: 'parent', children: [{ id: 'child-1', title: 'child-1' }] }])
+  })
+
+  it('counts a child row from its open turn, not its parent prompt', () => {
+    expect(runElapsed({ id: 'c' as SessionId, title: 'c', turnedAt: 10_000 }, 13_500)).toBe(3500)
+    // The anchor is the child's own: a parent field never leaks in.
+    expect(runElapsed({ id: 'c' as SessionId, title: 'c' }, 13_500)).toBeUndefined()
+  })
+
+  it('re-anchors a child row when a new turn opens under the same parent', () => {
+    // A settled child's `active` leaves and a new turn opens with a newer
+    // `since`: the child's anchor moves, which is a re-key the store repaints.
+    const rows = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true, activeSince: 500 }],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running[0]?.children).toEqual([{ id: 'child-1', title: 'child-1', turnedAt: 500 }])
+
+    const rows2 = parentWithChildren(sessionRow('parent', { running: true }), [
+      ['child-1', { running: true, activeSince: 9000 }],
+    ])
+    const model2 = deriveAttention(sessionListOf(rows2), sessionStatusOf(rows2))
+    expect(model2.running[0]?.children).toEqual([{ id: 'child-1', title: 'child-1', turnedAt: 9000 }])
+  })
+
   it('stamps running rows with the durable prompt time and leaves unread rows without one', () => {
     const rows = [
       sessionRow('run', { running: true, updatedAt: 1, lastPromptAt: 100 }),
@@ -206,6 +349,27 @@ describe('deriveAttention', () => {
     const second = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
     expect(first.running[0]?.lastPromptAt).toBe(42)
     expect(second.running[0]?.lastPromptAt).toBe(42)
+  })
+
+  it('repaints when a subagent starts under a parent whose other facts stand still', () => {
+    const rows = parentWithChildren(sessionRow('parent', { running: true, updatedAt: 1 }), [
+      ['child-1', {}],
+    ])
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{ id: 'parent', title: 'parent' }])
+
+    // The child starts: same parent row fields, new children block.
+    const started: SessionRow[] = rows.map(row => row.id === 'parent'
+      ? sessionRow('parent', { running: true, updatedAt: 1 })
+      : row.id === ('child-1' as SessionId)
+        ? subagentRow('child-1', { running: true })
+        : row)
+    const startedModel = deriveAttention(sessionListOf(started), sessionStatusOf(started))
+    expect(startedModel.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      children: [{ id: 'child-1', title: 'child-1' }],
+    }])
   })
 })
 

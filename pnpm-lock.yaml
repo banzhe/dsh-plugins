@@ -81,6 +81,9 @@ catalogs:
     '@deepseek-ai/dsh-storage-domain':
       specifier: 0.2.1-alpha.2
       version: 0.2.1-alpha.2
+    '@deepseek-ai/dsh-subagent':
+      specifier: 0.2.1-alpha.2
+      version: 0.2.1-alpha.2
     '@deepseek-ai/dsh-workspace':
       specifier: 0.2.1-alpha.2
       version: 0.2.1-alpha.2
@@ -486,6 +489,9 @@ importers:
       '@deepseek-ai/dsh-session':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)(@deepseek-ai/dsh-scope@0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1))
+      '@deepseek-ai/dsh-subagent':
+        specifier: 'catalog:'
+        version: 0.2.1-alpha.2(97b07c882f22a03ea61d764e74968b66)
       '@types/react':
         specifier: 'catalog:'
         version: 18.3.31

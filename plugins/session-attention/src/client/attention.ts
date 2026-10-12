@@ -13,7 +13,9 @@
  *   `pendingInteraction` per Session. The status wins over the row's own
  *   `running` (the row value is only a display fallback for a Session whose
  *   baseline never arrived), which is exactly the fold `ui-workspace` uses for
- *   its rows.
+ *   its rows. Subagent children read the same status map: a child the fold
+ *   mounts under its parent is running by the same rule the panel applies to
+ *   main-view rows.
  *
  * `running` and `completionUnread` are mutually exclusive in practice (the host
  * deletes the reminder when work starts again); a row carrying both is reported
@@ -28,9 +30,14 @@
  * Blank rows are skipped too: `blank` is the reusable New-Session placeholder,
  * and the host clears it the moment the Session runs or is prompted — so no
  * running and no finished session is ever hidden by this filter.
+ *
+ * Subagent children are not panel rows of their own: they mount under their
+ * parent's running row (and an idle parent with a running child is a container
+ * row in the running section), carrying no prompt time — a child's work
+ * started with the delegation, not with a human prompt the child owns.
  */
 import type {
-  SessionListState, SessionProjectionSnapshot,
+  SessionListState, SessionProjectionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
@@ -46,10 +53,32 @@ export interface AttentionRow {
   /**
    * Durable wall-clock ms of the latest human prompt (`sessionListMetadata.
    * lastPromptAt`): the run the row is in started with that prompt, so the
-   * panel counts from it. Absent until the projection has been read, and for
-   * the `unread` rows, whose work has already stopped.
+   * panel counts from it. Absent until the projection has been read, for the
+   * `unread` rows, whose work has already stopped, and for a container row.
    */
   readonly lastPromptAt?: number
+  /**
+   * Running subagent children of the row, catalog order first (the parent's
+   * `subagentCatalog` projection array, which the Host folds in parent catalog
+   * event order), retain-backed rows last in list order. Only running children
+   * mount: a finished or finished-unread child has dropped out of the fold by
+   * the time its parent renders. Container rows (themselves idle, running
+   * children only) mount children too, but carry no prompt time of their own.
+   */
+  readonly children?: readonly AttentionRow[]
+  /**
+   * Marks an idle parent listed only because running children hang from it: a
+   * container row renders without the spinner and without a duration, since
+   * it holds no human prompt of its own to count from.
+   */
+  readonly container?: boolean
+  /**
+   * The open turn's start on a running child row (`subagentTiming.active.
+   * since`): the child's work began with its current turn, not with a human
+   * prompt of its own, so this is what a child's duration counts from.
+   * Absent until the child's projection read has landed.
+   */
+  readonly turnedAt?: number
 }
 
 /** The whole panel content: two sections, newest first, plus their sum. */
@@ -100,10 +129,70 @@ function byRecency(left: Candidate, right: Candidate): number {
   return right.updatedAt - left.updatedAt
 }
 
+/** The status-sourced running fact for one row, with the row's own flag as fallback. */
+function isRunning(row: SessionSummary, status: SessionStatusSnapshot): boolean {
+  return status.get(row.id)?.running ?? row.running
+}
+
+/**
+ * The running subagent children of one parent row, labeled from the child
+ * row's `displayTitle` (the controller already derives it from the title
+ * projection, then the catalog label, then the id). Catalog order comes
+ * first, because that is the Host's own child order; rows the catalog does
+ * not know follow in `byId` order.
+ */
+function runningChildrenOf(
+  parent: SessionId,
+  byId: SessionListState['byId'],
+  catalog: readonly SessionId[] | undefined,
+  status: SessionStatusSnapshot,
+  timingOf: ReadonlyMap<SessionId, number>,
+): AttentionRow[] | undefined {
+  const seen = new Set<SessionId>()
+  const ordered: SessionSummary[] = []
+  for (const id of catalog ?? []) {
+    const row = byId[id]
+    if (row === undefined || row.parentId !== parent || seen.has(id)) continue
+    seen.add(id)
+    ordered.push(row)
+  }
+  for (const id of idsOf(byId)) {
+    const row = byId[id]
+    if (row === undefined || seen.has(id) || row.parentId !== parent) continue
+    seen.add(id)
+    ordered.push(row)
+  }
+  const children = ordered
+    .filter(row => row.origin === 'subagent' && isRunning(row, status))
+    .map((row): AttentionRow => {
+      const turnedAt = timingOf.get(row.id)
+      return turnedAt === undefined
+        ? { id: row.id, title: row.displayTitle }
+        : { id: row.id, title: row.displayTitle, turnedAt }
+    })
+  return children.length === 0 ? undefined : children
+}
+
+/**
+ * The open-turn start of one running child, from its `subagentTiming`
+ * projection. `undefined` before the child's own projection read has landed —
+ * the child row renders without a duration until the number exists, exactly
+ * like a parent row before `lastPromptAt` is read.
+ */
+function activeSinceOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
+  return projections?.values.subagentTiming?.active?.since
+}
+
+/** The ids that have rows, in `byId` enumeration order. */
+function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
+  return Object.keys(byId) as SessionId[]
+}
+
 /**
  * Fold one list snapshot and one status snapshot into the panel's content:
  * the running and finished-unread sections, each newest first, plus the listed
- * subset of them whose work is blocked on the user.
+ * subset of them whose work is blocked on the user. Running subagent children
+ * mount under their parent's running row.
  */
 export function deriveAttention(
   list: SessionListState,
@@ -112,11 +201,30 @@ export function deriveAttention(
   const running: Candidate[] = []
   const unread: Candidate[] = []
   const waiting: Candidate[] = []
+  // The open-turn start per running child id, read from the child's own
+  // projection block — the same block the parent's catalog rides.
+  const timingOf = new Map<SessionId, number>()
+  for (const [id, projection] of Object.entries(list.projectionsBySession)) {
+    const since = activeSinceOf(projection)
+    if (since !== undefined) timingOf.set(id as SessionId, since)
+  }
+  // Catalog child order, keyed by parent id. The `subagentCatalog` projection
+  // rides the parent row's projection block; a child order the Host published
+  // is the order the block folds in parent catalog event order.
+  const catalogOrder = new Map<SessionId, readonly SessionId[]>()
+  list.ids.forEach((id) => {
+    const row = list.byId[id]
+    if (row === undefined || row.origin === 'subagent' || row.blank) return
+    const catalog = list.projectionsBySession[id]?.values.subagentCatalog
+    if (catalog === undefined) return
+    catalogOrder.set(id, catalog.map(entry => entry.id))
+  })
   list.ids.forEach((id) => {
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
     if (row === undefined) return
-    // Subagent children never appear; the New-Session placeholder is not task work.
+    // Subagent children never appear as panel rows of their own; the
+    // New-Session placeholder is not task work.
     if (row.origin === 'subagent' || row.blank) return
     const entry = status.get(id)
     // A pending interaction is a live Host request holding the turn open, so a
@@ -130,12 +238,19 @@ export function deriveAttention(
     // fact the list projection already carries: counting from it needs no
     // client-side timer of the plugin's own.
     const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
-    if (isRunning) {
+    const children = runningChildrenOf(id, list.byId, catalogOrder.get(id), status, timingOf)
+    if (isRunning || children !== undefined) {
       const candidate: Candidate = {
         updatedAt: row.updatedAt,
-        row: lastPromptAt === undefined
-          ? { id, title: row.displayTitle }
-          : { id, title: row.displayTitle, lastPromptAt },
+        row: {
+          id,
+          title: row.displayTitle,
+          ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
+          // An idle parent with running children is a container row: no
+          // spinner, no dot, and no duration. The children are the signal.
+          ...(isRunning ? {} : { container: true }),
+          ...(children === undefined ? {} : { children }),
+        },
       }
       running.push(candidate)
       if (blocked) waiting.push(candidate)
@@ -164,10 +279,23 @@ export function deriveAttention(
  * on identity, and an unrelated list update must not cost a render.
  *
  * The prompt time rides the same comparison: it moves only when the user
- * prompts again, which is exactly a new run and a new count.
+ * prompts again, which is exactly a new run and a new count. Children and the
+ * container flag ride the key too: a subagent starting or finishing under a
+ * parent whose fact otherwise stands still is a change the panel must repaint,
+ * and the flag is what moves a parent into and out of the container look.
  */
 function sectionKey(rows: readonly AttentionRow[]): string {
-  return rows.map(row => `${row.id}\u0000${row.title}\u0000${row.lastPromptAt ?? ''}`).join('\u0001')
+  return rows.map(row => [
+    row.id,
+    row.title,
+    row.lastPromptAt ?? '',
+    row.container ? 'c' : '',
+    // A child's open-turn start moves when a new turn opens: a re-key, not a
+    // repaint of a standing number — the clock re-anchors in the same update.
+    row.children === undefined
+      ? ''
+      : row.children.map(child => `${child.id}\u0002${child.title}\u0002${child.turnedAt ?? ''}`).join('\u0003'),
+  ].join('\u0000')).join('\u0001')
 }
 
 /** Whether two models would render identically. */
@@ -225,12 +353,15 @@ export function createAttentionStore(
 
 /**
  * The wall-clock time one listed run has been going, in ms, counted from the
- * latest human prompt to `now`. `undefined` before the projection has been
- * read — the row renders without a duration until the number exists.
+ * row's own anchor to `now`: a parent row's anchor is the latest human prompt
+ * (`lastPromptAt`), a child row's is the start of its open turn (`turnedAt`).
+ * `undefined` before the anchor projection has been read — the row renders
+ * without a duration until the number exists.
  */
 export function runElapsed(row: AttentionRow, now: number): number | undefined {
-  if (row.lastPromptAt === undefined) return undefined
-  return Math.max(0, now - row.lastPromptAt)
+  const anchor = row.lastPromptAt ?? row.turnedAt
+  if (anchor === undefined) return undefined
+  return Math.max(0, now - anchor)
 }
 
 /**

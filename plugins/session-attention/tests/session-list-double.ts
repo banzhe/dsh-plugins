@@ -11,12 +11,34 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
+/**
+ * The `SubagentCatalogEntry` wire row, restated from
+ * `@deepseek-ai/dsh-subagent` with the brand erased — the package lands in the
+ * client only through the controller's peer edge, which a plugin's dependency
+ * graph does not resolve, and the JSON round-trip makes the brand invisible
+ * anyway. The `ProjectionMap`'s own copy is the branded one, so a fixture
+ * entry needs the brand to ride into `values.subagentCatalog`.
+ */
+type WireCatalogEntry = {
+  readonly id: SessionId
+  readonly createdAt: number
+} & (
+  | { readonly mode: 'one-shot'; readonly label?: string }
+  | { readonly mode: 'external'; readonly label?: string }
+  | { readonly mode: 'continuable'; readonly label: string }
+  | { readonly mode: 'unknown'; readonly label?: string }
+)
+
 /** A list row with the two status facts the host keeps off the list row. */
 export type SessionRow = SessionSummary & {
   completed?: boolean
   blocked?: boolean
   /** The durable prompt time the metadata projection reports, when read. */
   lastPromptAt?: number | null
+  /** Catalog entries the row's `subagentCatalog` projection reports. */
+  catalog?: readonly WireCatalogEntry[]
+  /** The child's open-turn start (`subagentTiming.active.since`), when read. */
+  activeSince?: number
 }
 
 export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionRow {
@@ -36,11 +58,34 @@ function projectionOf(row: SessionRow): SessionProjectionSnapshot {
   return {
     state: 'ready',
     error: null,
-    values: row.lastPromptAt === undefined ? {} : {
+    values: {
       // Wire shape of the `sessionListMetadata` projection view.
-      sessionListMetadata: { blank: false, lastPromptAt: row.lastPromptAt },
+      ...(row.lastPromptAt === undefined ? {} : {
+        sessionListMetadata: { blank: false, lastPromptAt: row.lastPromptAt },
+      }),
+      // The parent-owned child catalog, exactly as `projectList` republishes
+      // it from the parent's projection store. The wire block value is
+      // mutable-array JSON, so the double hands a copy over.
+      ...(row.catalog === undefined ? {} : { subagentCatalog: [...row.catalog] }),
+      // The child's own open-turn timing, the same wire block. `settledMs`
+      // is the fold's second fact; the panel reads only the `since`.
+      ...(row.activeSince === undefined ? {} : {
+        subagentTiming: { settledMs: 0, active: { since: row.activeSince, through: row.activeSince } },
+      }),
     },
   }
+}
+
+/** One listed subagent child row, the shape the host list or catalog carries. */
+export function subagentRow(id: string, over: Partial<SessionRow> = {}): SessionRow {
+  return sessionRow(id, {
+    origin: 'subagent',
+    parentId: 'parent' as SessionId,
+    // The controller derives `displayTitle` from the durable title first, so a
+    // fixture row carrying `title` carries the same `displayTitle`.
+    ...(over.title === undefined ? {} : { displayTitle: over.title }),
+    ...over,
+  })
 }
 
 /**
@@ -75,6 +120,26 @@ export function sessionListOf(rows: readonly SessionRow[]): SessionListState {
     phase: 'ready',
     projectionsBySession: Object.fromEntries(rows.map(row => [row.id, projectionOf(row)])),
   }
+}
+
+/**
+ * Rows of one parent with a child catalog, ready to drive through
+ * {@link sessionSources}: the parent row plus its child rows, in catalog
+ * order, with a session-row id alias for readability (`parent`, `child-1`…).
+ */
+export function parentWithChildren(
+  parent: SessionRow,
+  children: readonly (readonly [id: string, over: Partial<SessionRow>])[],
+): SessionRow[] {
+  return [
+    { ...parent, catalog: children.map(([id]) => subagentCatalogEntry(id)) },
+    ...children.map(([id, over]) => subagentRow(id, { parentId: parent.id, ...over })),
+  ]
+}
+
+/** The catalog entry one child id shapes, with the id as the label. */
+export function subagentCatalogEntry(id: string): WireCatalogEntry {
+  return { id: id as SessionId, createdAt: 0, mode: 'one-shot', label: id }
 }
 
 export interface SessionSources {

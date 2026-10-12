@@ -124,22 +124,53 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
             <button
               type="button"
               className="sa-row"
+              data-container={row.container === true || undefined}
               aria-label={rowLabel(row.title)}
               onClick={() => { open(row.id) }}
             >
               {/* Blocked on the user: the amber `warning` dot, the color the
                   toggle's `waiting` ring is drawn in. Waiting for an answer is
                   not activity, so the spinner would be a lie — and in the unread
-                  section the same rule outranks the green completion dot. */}
-              <StateDot state={waiting.has(row.id) ? 'warning' : state} size={10} />
+                  section the same rule outranks the green completion dot. A
+                  container row holds no turn of its own: its children carry the
+                  activity, so it draws no dot at all. */}
+              {row.container !== true && (
+                <StateDot state={waiting.has(row.id) ? 'warning' : state} size={10} />
+              )}
               <span className="sa-row-title">{row.title}</span>
               {/* Counted from the latest human prompt the list projection
                   carries; absent until that projection has been read. The
-                  panel's own one-second tick re-renders the number. */}
-              {row.lastPromptAt !== undefined && (
+                  panel's own one-second tick re-renders the number. A container
+                  row may still carry an old prompt time in the durable facts,
+                  but its run is not its own work, so no cell. */}
+              {row.lastPromptAt !== undefined && row.container !== true && (
                 <Duration row={row} now={now} />
               )}
             </button>
+            {/* Running subagent children of this row, catalog order first, each
+                a jump target of its own. The container row's children are the
+                only activity the row reports. A child's own duration counts
+                from its open turn (`turnedAt`), not its parent's prompt. */}
+            {row.children !== undefined && (
+              <ul className="sa-list sa-children">
+                {row.children.map(child => (
+                  <li key={child.id}>
+                    <button
+                      type="button"
+                      className="sa-row sa-child-row"
+                      aria-label={rowLabel(child.title)}
+                      onClick={() => { open(child.id) }}
+                    >
+                      <StateDot state={state} size={10} />
+                      <span className="sa-row-title">{child.title}</span>
+                      {child.turnedAt !== undefined && (
+                        <Duration row={child} now={now} />
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

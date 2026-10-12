@@ -55,6 +55,25 @@ attention, behind a toggle.
     `updatedAt`. The number is
     re-rendered by a one-second interval that exists only while the panel is
     open.
+    - **Running subagents** — each running row renders its running subagent
+      children (`origin: 'subagent'`, same status rule as the parent) as an
+      indented block under it, catalog order first and retained rows the
+      catalog does not know appended in list order. A settled, finished, or
+      finished-unread child never mounts. A running child also shows its own
+      duration, counted from the start of its open turn
+      (`subagentTiming.active.since` — the child has no human prompt of its
+      own, so a child count follows the child's turn, and a new turn
+      re-anchors it); the cell appears once the child's projection read has
+      landed, one `refreshProjections` read per child version (`updatedAt`),
+      claimed from the same versioned store the parent reads use. An idle
+      parent with a running child
+      is listed as a **container row** in this section anyway: no spinner dot
+      and no duration (it holds no human prompt to count from), title in the
+      secondary label tone. Children are not badge rows: `total` counts
+      top-level rows only. A catalog-only child that is not held by this
+      client reports running late (the row's `running` is only backed while
+      the client holds the child); it appears when the host publishes its
+      status through the shared list channel.
   - **Unread** (`未读`) — finished while it was not the main view
     (`completionUnread`, the same fact as the sidebar's green dot).
   - **Row indicator** — the shipped `StateDot`, so no color is hand-picked: the
@@ -69,8 +88,10 @@ attention, behind a toggle.
 - **Escape** and the panel's close button close it; the open state is in-memory
   (a reload starts closed).
 
-Excluded on purpose: subagent children (`origin: 'subagent'` — they are not
-Host-list members anyway) and blank New-Session placeholders. The status
+Excluded on purpose: subagent children as panel rows of their own (`origin:
+'subagent'` — they are not Host-list members anyway; a **running** one mounts
+under its parent's running row instead, and a settled one does not display) and
+blank New-Session placeholders. The status
 snapshot decides running versus finished-unread, and the row's own `running` is
 only the fallback for a Session whose baseline never arrived; a status entry
 carrying both is listed as running, because "still working" is the more
@@ -134,9 +155,13 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
 - Archived Sessions are not filtered out: an archived Session the host still
   reports as running or unread stays listed, and opening it works. Filtering
   would mean reading ui-workspace's internal archive set.
-- A parent Session whose only activity is a running subagent is not listed as
-  running (the row's own flag is what counts); the parent is normally running
-  itself while it delegates.
+- A parent Session whose only activity is a running subagent is listed as a
+  container row in the running section (see above); a running parent is
+  normally running itself while it delegates.
+- Subagent children show no duration inherited from the parent: a child's
+  work started with its own current turn, and the child's open turn start
+  (`subagentTiming.active.since`) is what its cell counts from — a per-child
+  durable fact the same versioned projection read the parents use.
 - A running row's elapsed time is measured from the Session's latest human
   prompt (`lastPromptAt`), not from the row's `updatedAt`: the activity
   timestamp moves on every push, which would be a clock that restarts whenever

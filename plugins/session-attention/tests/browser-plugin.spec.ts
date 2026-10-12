@@ -201,7 +201,7 @@ describe('session-attention browser half', () => {
 })
 
 describe('durable prompt-time reads', () => {
-  it('reads each eligible row once and skips subagent, blank, and missing rows', async () => {
+  it('reads each listed row once, children included, and skips blanks and missing rows', async () => {
     const b = await bench([
       sessionRow('a'),
       sessionRow('b', { lastPromptAt: 50 }),
@@ -209,17 +209,38 @@ describe('durable prompt-time reads', () => {
       sessionRow('blank', { blank: true }),
     ])
     await flushMicrotasks()
-    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
-    expect(refreshedIds(b)).toEqual(['a', 'b'])
-    expect(callsFor(b, 'sub')).toBe(0)
+    // Children read too, from the same store: their `subagentTiming` rides the
+    // same refresh RPC. Blank stays out both ways.
+    expect(b.refreshProjections).toHaveBeenCalledTimes(3)
+    expect(refreshedIds(b)).toEqual(['a', 'b', 'sub'])
     expect(callsFor(b, 'blank')).toBe(0)
 
     b.surface.publish((draft) => {
       draft.ids.push('missing' as never)
     })
     await flushMicrotasks()
-    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(b.refreshProjections).toHaveBeenCalledTimes(3)
     expect(callsFor(b, 'missing')).toBe(0)
+  })
+
+  it('reads a running subagent version once, rereads when its updatedAt moves', async () => {
+    const b = await bench([sessionRow('sub', { origin: 'subagent', running: true, updatedAt: 2 })])
+    await flushMicrotasks()
+    expect(callsFor(b, 'sub')).toBe(1)
+
+    // The same child version republished: the claim holds, no reread.
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(callsFor(b, 'sub')).toBe(1)
+
+    // A settled child has no more timing to read — but the claim map still
+    // compares by version, so a same-version idle republication stays silent,
+    // and only a newer version reads again.
+    b.surface.update((draft) => {
+      draft.byId['sub' as never] = sessionRow('sub', { origin: 'subagent', updatedAt: 3 })
+    })
+    await flushMicrotasks()
+    expect(callsFor(b, 'sub')).toBe(2)
   })
 
   it('does not reread when the same version is republished without metadata', async () => {

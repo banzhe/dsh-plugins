@@ -51,8 +51,9 @@ export function apply(ctx: ClientContext): void {
   const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus)
   ctx.effect(() => () => { store.dispose() }, 'session-attention: attention store lifetime')
 
-  // The run-duration column counts from `lastPromptAt`, which the list
-  // carries only after a projection read. One read per listed Session version
+  // The run-duration column counts from `lastPromptAt` for main rows and from
+  // a running child's open-turn start (`subagentTiming.active.since`, one read
+  // per child version) for subagent rows. One read per listed Session version
   // (`updatedAt`, which advances when the user prompts again). The read itself
   // republishes this list before the metadata key exists — `refreshProjections`
   // marks the list dirty on the way out — so "key absent" cannot mean "not yet
@@ -61,20 +62,26 @@ export function apply(ctx: ClientContext): void {
     // `updatedAt` already read, or claimed by a call still in flight. A failed
     // read leaves no entry, so the one retry below is not mistaken for a duplicate.
     const readAt = new Map<SessionId, number>()
+    const childReadAt = new Map<SessionId, number>()
     let disposed = false
-    const read = (id: SessionId, updatedAt: number, retry: boolean): void => {
-      if ((readAt.get(id) ?? -1) >= updatedAt) return
-      readAt.set(id, updatedAt)
+    const read = (
+      id: SessionId,
+      updatedAt: number,
+      retry: boolean,
+      claims: Map<SessionId, number>,
+    ): void => {
+      if ((claims.get(id) ?? -1) >= updatedAt) return
+      claims.set(id, updatedAt)
       void ctx.sessions.refreshProjections(id).then(() => {
         if (disposed) return
         const current = ctx.sessions.list.getSnapshot().byId[id]
         // A prompt that landed while this read was in flight is a newer
         // version than the value just fetched. The claim above keeps a
         // duplicate publication from stacking calls.
-        if (current !== undefined && current.updatedAt > updatedAt) read(id, current.updatedAt, true)
+        if (current !== undefined && current.updatedAt > updatedAt) read(id, current.updatedAt, true, claims)
       }, () => {
         if (disposed) return
-        if (readAt.get(id) !== updatedAt) return
+        if (claims.get(id) !== updatedAt) return
         const current = ctx.sessions.list.getSnapshot().byId[id]
         const same = current !== undefined && current.updatedAt === updatedAt
         // One retry for this version. The failed read already republished
@@ -83,17 +90,21 @@ export function apply(ctx: ClientContext): void {
         // every later publication of the same version. A newer `updatedAt`
         // still reads, because the claim compares by version.
         if (!retry || !same) return
-        readAt.delete(id)
-        read(id, updatedAt, false)
+        claims.delete(id)
+        read(id, updatedAt, false, claims)
       })
     }
+    // Children claim from their own map: a child's `updatedAt` does not move
+    // with the parent's prompts, and a child version is read once the same
+    // way its parent's is.
     const pull = (): void => {
-      const { ids, byId } = ctx.sessions.list.getSnapshot()
-      ids.forEach((id) => {
+      const { byId } = ctx.sessions.list.getSnapshot()
+      for (const id of Object.keys(byId) as SessionId[]) {
         const row = byId[id]
-        if (row === undefined || row.origin === 'subagent' || row.blank) return
-        read(id, row.updatedAt, true)
-      })
+        if (row === undefined) continue
+        if (row.origin !== 'subagent' && !row.blank) read(id, row.updatedAt, true, readAt)
+        if (row.origin === 'subagent') read(id, row.updatedAt, true, childReadAt)
+      }
     }
     pull()
     const unsubscribe = ctx.sessions.list.subscribe(pull)

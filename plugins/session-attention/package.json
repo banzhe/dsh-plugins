@@ -57,7 +57,8 @@
     "@deepseek-ai/dsh-client-ui-session": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.1-alpha.2",
     "@deepseek-ai/dsh-client-ui-workspace": "0.2.1-alpha.2",
-    "@deepseek-ai/dsh-session": "0.2.1-alpha.2"
+    "@deepseek-ai/dsh-session": "0.2.1-alpha.2",
+    "@deepseek-ai/dsh-subagent": "0.2.1-alpha.2"
   },
   "devDependencies": {
     "@banzhe/dsh-devkit": "workspace:*",
@@ -71,6 +72,7 @@
     "@deepseek-ai/dsh-client-ui-slots": "catalog:",
     "@deepseek-ai/dsh-client-ui-workspace": "catalog:",
     "@deepseek-ai/dsh-session": "catalog:",
+    "@deepseek-ai/dsh-subagent": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitest/coverage-v8": "catalog:",

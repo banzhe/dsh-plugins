@@ -210,6 +210,28 @@
   font-variant-numeric: tabular-nums;
   color: var(--dsw-alias-label-tertiary);
 }
+/* The running-subagent block under one parent row. Indented through padding so
+   the parent row's own hover band stays full-bleed; the list keeps the same
+   markers the parent's list uses (no bullet), so the tree is drawn by aligning
+   the indented child dot under the parent's. */
+.sa-children {
+  margin: 0 0 2px;
+  padding-left: 18px;
+}
+/* The container look: an idle parent holding only running children carries no
+   dot of its own, so its title starts where the dot would sit, in the same
+   secondary tone as the dot next to it, and no pressed-in hover: the row is a
+   grouping heading as much as a jump target. */
+.sa-row[data-container] {
+  color: var(--dsw-alias-label-secondary);
+}
+.sa-row[data-container]:hover { background: none; }
+.sa-child-row {
+  padding-top: 3px;
+  padding-bottom: 3px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-secondary);
+}
 .sa-empty {
   margin: 0;
   padding: 16px 12px;
