@@ -69,7 +69,10 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
   const surface = sessionSources(rows)
   const open = vi.fn()
   const ctx = new Context()
-  ctx.provide('sessions', { list: surface.list } as unknown as ISessions)
+  ctx.provide('sessions', {
+    list: surface.list,
+    refreshProjections: () => Promise.resolve(),
+  } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: open } as never)
   ctx.provide('locale', new LocaleDouble() as never)
@@ -257,6 +260,28 @@ describe('AttentionOverlay', () => {
       draft.ids = []
     })
     expect(overlay.trigger().hasAttribute('data-attention')).toBe(false)
+  })
+
+  it('shows each running row\'s elapsed time, counting from the prompt time', async () => {
+    // `now` is sampled at panel render: a row whose prompt is 65s old renders
+    // 1:05, and a row whose projection has not been read renders no cell.
+    const now = Date.now()
+    const overlay = await bench([
+      sessionRow('timed', { running: true, updatedAt: 1, lastPromptAt: now - 65_000 }),
+      sessionRow('unread-timed', { running: true, updatedAt: 2, lastPromptAt: null }),
+    ])
+    await overlay.click(overlay.trigger())
+    const durations = () => [...overlay.host.querySelectorAll<HTMLElement>('.sa-row-duration')]
+      .map(node => node.textContent ?? '')
+    expect(durations()).toEqual(['1:05'])
+
+    // A new prompt is a new run: the count restarts from the newer time.
+    await overlay.update((draft) => {
+      draft.byId['timed' as SessionId] = sessionRow('timed', {
+        running: true, updatedAt: 6, lastPromptAt: now - 5000,
+      })
+    })
+    expect(durations()).toEqual(['0:05'])
   })
 
   it('jumps to a Session and closes the panel behind it', async () => {

@@ -20,7 +20,7 @@ import {
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { AttentionModel, AttentionRow } from './attention.ts'
+import { formatDuration, runElapsed, type AttentionModel, type AttentionRow } from './attention.ts'
 import type { AttentionKey } from './locales.ts'
 
 /**
@@ -86,14 +86,32 @@ export type AttentionOverlayProps =
   & PropsLocale<'session-attention'>
   & InjectFace<AttentionInjected>
 
+/** The elapsed clock of one running row, counted from its latest human prompt. */
+function Duration({ row, now }: {
+  readonly row: AttentionRow
+  readonly now: number
+}): ReactNode {
+  const elapsed = runElapsed(row, now) ?? 0
+  return (
+    <span className="sa-row-duration" data-duration-ms={elapsed}>
+      {formatDuration(elapsed)}
+    </span>
+  )
+}
+
 /** One section's rows, newest first, each a jump target. */
-function Section({ title, rows, state, waiting, open, rowLabel }: {
+function Section({ title, rows, state, waiting, now, open, rowLabel }: {
   readonly title: string
   readonly rows: readonly AttentionRow[]
   /** The shipped indicator: the running spinner, or the finished-unread dot. */
   readonly state: StateDotState
   /** Ids whose turn is blocked on the user, and so wear the amber dot instead. */
   readonly waiting: ReadonlySet<string>
+  /**
+   * The shared clock sample the panel re-renders every second: one number so
+   * every row's duration moves in the same update.
+   */
+  readonly now: number
   readonly open: (id: SessionId) => void
   readonly rowLabel: (title: string) => string
 }): ReactNode {
@@ -115,6 +133,12 @@ function Section({ title, rows, state, waiting, open, rowLabel }: {
                   section the same rule outranks the green completion dot. */}
               <StateDot state={waiting.has(row.id) ? 'warning' : state} size={10} />
               <span className="sa-row-title">{row.title}</span>
+              {/* Counted from the latest human prompt the list projection
+                  carries; absent until that projection has been read. The
+                  panel's own one-second tick re-renders the number. */}
+              {row.lastPromptAt !== undefined && (
+                <Duration row={row} now={now} />
+              )}
             </button>
           </li>
         ))}
@@ -127,6 +151,16 @@ function Section({ title, rows, state, waiting, open, rowLabel }: {
 export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProps): ReactNode {
   const model = useAttention()
   const [showing, setShowing] = useState(false)
+  // The wall-clock sample the running rows' durations are formatted against.
+  // It ticks only while the panel is open: the toggle's badge and outline are
+  // content-driven, and nothing visible in the closed state moves with time.
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!showing) return
+    setNow(Date.now())
+    const timer = window.setInterval(() => { setNow(Date.now()) }, 1000)
+    return () => { window.clearInterval(timer) }
+  }, [showing])
   // Escape closes the panel, and only while it is open: the listener rides the
   // panel's own lifetime instead of the page's.
   useEffect(() => {
@@ -175,6 +209,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       rows={model.running}
                       state="ongoing"
                       waiting={waiting}
+                      now={now}
                       open={jump}
                       rowLabel={label}
                     />
@@ -185,6 +220,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       rows={model.unread}
                       state="done"
                       waiting={waiting}
+                      now={now}
                       open={jump}
                       rowLabel={label}
                     />

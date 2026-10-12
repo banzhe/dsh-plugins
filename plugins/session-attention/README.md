@@ -42,7 +42,19 @@ attention, behind a toggle.
   100). Two sections, newest first:
   - **Running** (`进行中`) — the host reports the Session as running
     (`running` on the Session status snapshot, falling back to the list row's
-    own flag).
+    own flag). Each running row also shows how long the current run has been
+    going, `m:ss` or `h:mm:ss`, right-aligned in the panel's tertiary label
+    tone. The count starts at the Session's latest human prompt
+    (`sessionListMetadata.lastPromptAt`, the durable fact the list projection
+    carries — so it survives a page reload), and a new prompt restarts it. A
+    row whose projection has not been read yet shows no number; the plugin
+    fires one `refreshProjections` read per Session version (`updatedAt`), not
+    per list publication — the read republishes the list before the metadata
+    key exists. A later prompt advances `updatedAt` and is read again. A failed
+    read is retried once immediately; a second failure waits for a newer
+    `updatedAt`. The number is
+    re-rendered by a one-second interval that exists only while the panel is
+    open.
   - **Unread** (`未读`) — finished while it was not the main view
     (`completionUnread`, the same fact as the sidebar's green dot).
   - **Row indicator** — the shipped `StateDot`, so no color is hand-picked: the
@@ -116,11 +128,19 @@ dsh plugin --profile web remove @banzhe/dsh-session-attention
 - The outline is derived during render, never stored: `outlineFor(model)` reads
   the same snapshot the panel lists, so a source push that starts or finishes
   work repaints the ring in the same update that changes the rows.
+- The durations are formatted from client wall-clock time, never localized
+  through the namespace: `m:ss` / `h:mm:ss` are read the same everywhere, and
+  the `row.open` key already carries the row's only locale text.
 - Archived Sessions are not filtered out: an archived Session the host still
   reports as running or unread stays listed, and opening it works. Filtering
   would mean reading ui-workspace's internal archive set.
 - A parent Session whose only activity is a running subagent is not listed as
   running (the row's own flag is what counts); the parent is normally running
   itself while it delegates.
+- A running row's elapsed time is measured from the Session's latest human
+  prompt (`lastPromptAt`), not from the row's `updatedAt`: the activity
+  timestamp moves on every push, which would be a clock that restarts whenever
+  the Session works. The prompt time rides the row and is part of the store's
+  content comparison, so a busy Session's pushes cost no render.
 - Labels follow the app locale through the `session-attention` namespace
   (zh/en).

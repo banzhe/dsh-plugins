@@ -29,16 +29,27 @@
  * and the host clears it the moment the Session runs or is prompted — so no
  * running and no finished session is ever hidden by this filter.
  */
-import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type {
+  SessionListState, SessionProjectionSnapshot,
+} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** One listed Session: enough to label a row and jump to it. */
+/**
+ * One listed Session: enough to label a row, jump to it, and time its run.
+ */
 export interface AttentionRow {
   readonly id: SessionId
   /** Human-facing label, straight from the list row (`displayTitle`). */
   readonly title: string
+  /**
+   * Durable wall-clock ms of the latest human prompt (`sessionListMetadata.
+   * lastPromptAt`): the run the row is in started with that prompt, so the
+   * panel counts from it. Absent until the projection has been read, and for
+   * the `unread` rows, whose work has already stopped.
+   */
+  readonly lastPromptAt?: number
 }
 
 /** The whole panel content: two sections, newest first, plus their sum. */
@@ -73,6 +84,15 @@ interface Candidate {
 }
 
 /**
+ * The durable prompt time one list row carries, when its projection has been
+ * read. The row's `projectionValues` is a `Partial`, so absence is the normal
+ * pre-read state, not an error.
+ */
+function lastPromptAtOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
+  return projections?.values.sessionListMetadata?.lastPromptAt ?? undefined
+}
+
+/**
  * Newest first. The sort is stable, so equal timestamps keep Host list order —
  * candidates are pushed in `list.ids` order.
  */
@@ -99,19 +119,30 @@ export function deriveAttention(
     // Subagent children never appear; the New-Session placeholder is not task work.
     if (row.origin === 'subagent' || row.blank) return
     const entry = status.get(id)
-    const candidate: Candidate = { updatedAt: row.updatedAt, row: { id, title: row.displayTitle } }
     // A pending interaction is a live Host request holding the turn open, so a
     // blocked Session is running and has already joined the running section; a
     // reminder it never cleared lands here the same way. Each branch records the
     // row in `waiting` beside that section, which is what keeps the outline from
     // ever reporting a state the panel has no row for.
     const blocked = entry?.pendingInteraction !== undefined
-    if (entry?.running ?? row.running) {
+    const isRunning = entry?.running ?? row.running
+    // The run the row is in started with the latest human prompt, a durable
+    // fact the list projection already carries: counting from it needs no
+    // client-side timer of the plugin's own.
+    const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
+    if (isRunning) {
+      const candidate: Candidate = {
+        updatedAt: row.updatedAt,
+        row: lastPromptAt === undefined
+          ? { id, title: row.displayTitle }
+          : { id, title: row.displayTitle, lastPromptAt },
+      }
       running.push(candidate)
       if (blocked) waiting.push(candidate)
       return
     }
     if (entry?.completionUnread === true) {
+      const candidate: Candidate = { updatedAt: row.updatedAt, row: { id, title: row.displayTitle } }
       unread.push(candidate)
       if (blocked) waiting.push(candidate)
     }
@@ -131,9 +162,12 @@ export function deriveAttention(
  * object identity, so a source notification that does not actually change the
  * panel keeps the previous snapshot object — `useSyncExternalStore` re-renders
  * on identity, and an unrelated list update must not cost a render.
+ *
+ * The prompt time rides the same comparison: it moves only when the user
+ * prompts again, which is exactly a new run and a new count.
  */
 function sectionKey(rows: readonly AttentionRow[]): string {
-  return rows.map(row => `${row.id}\u0000${row.title}`).join('\u0001')
+  return rows.map(row => `${row.id}\u0000${row.title}\u0000${row.lastPromptAt ?? ''}`).join('\u0001')
 }
 
 /** Whether two models would render identically. */
@@ -187,4 +221,30 @@ export function createAttentionStore(
       listeners.clear()
     },
   }
+}
+
+/**
+ * The wall-clock time one listed run has been going, in ms, counted from the
+ * latest human prompt to `now`. `undefined` before the projection has been
+ * read — the row renders without a duration until the number exists.
+ */
+export function runElapsed(row: AttentionRow, now: number): number | undefined {
+  if (row.lastPromptAt === undefined) return undefined
+  return Math.max(0, now - row.lastPromptAt)
+}
+
+/**
+ * `m:ss` before an hour, `h:mm:ss` from there — compact, and the same digit
+ * count within one magnitude so the column does not jitter as it counts. A run
+ * shorter than a second reads `0:00`, like a timer that has just started.
+ */
+export function formatDuration(ms: number): string {
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const minutes = Math.floor(totalSeconds / 60) % 60
+  const hours = Math.floor(totalSeconds / 3600)
+  const pair = (value: number): string => String(value).padStart(2, '0')
+  return hours > 0
+    ? `${hours}:${pair(minutes)}:${pair(seconds)}`
+    : `${minutes}:${pair(seconds)}`
 }

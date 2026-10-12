@@ -34,6 +34,7 @@ interface Bench {
   readonly slots: SlotsDouble
   readonly surface: SessionSources
   readonly openSession: ReturnType<typeof vi.fn>
+  readonly refreshProjections: ReturnType<typeof vi.fn<(sessionId: string) => Promise<void>>>
   /** Live source subscriptions this bench's wrappers have handed out. */
   readonly counts: { list: number; status: number }
 }
@@ -58,8 +59,12 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Bench> {
     },
   })
   const openSession = vi.fn()
+  const refreshProjections = vi.fn<(sessionId: string) => Promise<void>>(() => Promise.resolve())
   const ctx = new Context()
-  ctx.provide('sessions', { list: counted(surface.list, 'list') } as unknown as ISessions)
+  ctx.provide('sessions', {
+    list: counted(surface.list, 'list'),
+    refreshProjections,
+  } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: counted(surface.status, 'status') } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
   ctx.provide('locale', new LocaleDouble() as never)
@@ -68,7 +73,29 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Bench> {
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   fibers.push(fiber)
-  return { ctx, fiber, slots, surface, openSession, counts }
+  return { ctx, fiber, slots, surface, openSession, refreshProjections, counts }
+}
+
+/** Rejection handlers and the retry they start both run as microtasks. */
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+  await Promise.resolve()
+}
+
+function callsFor(b: Bench, id: string): number {
+  return b.refreshProjections.mock.calls.filter(call => call[0] === id).length
+}
+
+/** Session ids passed to `refreshProjections`, in call order. */
+function refreshedIds(b: Bench): string[] {
+  return b.refreshProjections.mock.calls.map(call => call[0])
+}
+
+/** Projection `values` currently published for one listed id. */
+function metadataOf(b: Bench, id: string): object {
+  return b.surface.list.getSnapshot().projectionsBySession[id as never]?.values ?? {}
 }
 
 /**
@@ -137,7 +164,9 @@ describe('session-attention browser half', () => {
 
   it('follows both sources and releases them with the fiber', async () => {
     const b = await bench([sessionRow('a', { running: true })])
-    expect(b.counts).toEqual({ list: 1, status: 1 })
+    // The store follows the list, and the duration column follows it again so
+    // a Session that arrives without a prompt-time projection still gets a read.
+    expect(b.counts).toEqual({ list: 2, status: 1 })
     // The store is live: a status push recomputes without throwing.
     b.surface.update((draft) => {
       draft.byId['a' as never] = sessionRow('a', { completed: true })
@@ -168,6 +197,174 @@ describe('session-attention browser half', () => {
       expect(en[key]).toBeTypeOf('string')
       expect(en[key].length).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('durable prompt-time reads', () => {
+  it('reads each eligible row once and skips subagent, blank, and missing rows', async () => {
+    const b = await bench([
+      sessionRow('a'),
+      sessionRow('b', { lastPromptAt: 50 }),
+      sessionRow('sub', { origin: 'subagent' }),
+      sessionRow('blank', { blank: true }),
+    ])
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(refreshedIds(b)).toEqual(['a', 'b'])
+    expect(callsFor(b, 'sub')).toBe(0)
+    expect(callsFor(b, 'blank')).toBe(0)
+
+    b.surface.publish((draft) => {
+      draft.ids.push('missing' as never)
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(callsFor(b, 'missing')).toBe(0)
+  })
+
+  it('does not reread when the same version is republished without metadata', async () => {
+    const b = await bench([sessionRow('a', { updatedAt: 5 })])
+    await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(1)
+    expect(metadataOf(b, 'a')).not.toHaveProperty('sessionListMetadata')
+
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+    expect(metadataOf(b, 'a')).not.toHaveProperty('sessionListMetadata')
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 5 })
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+    expect(b.refreshProjections).toHaveBeenCalledWith('a')
+    expect(metadataOf(b, 'a')).not.toHaveProperty('sessionListMetadata')
+  })
+
+  it('reads only a newly listed eligible session', async () => {
+    const b = await bench([sessionRow('a')])
+    expect(callsFor(b, 'a')).toBe(1)
+
+    b.surface.update((draft) => {
+      draft.ids.push('b' as never)
+      draft.byId['b' as never] = sessionRow('b')
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(callsFor(b, 'a')).toBe(1)
+    expect(callsFor(b, 'b')).toBe(1)
+  })
+
+  it('rereads a session only when updatedAt increases', async () => {
+    const b = await bench([sessionRow('a', { updatedAt: 10, displayTitle: 'a' })])
+    expect(callsFor(b, 'a')).toBe(1)
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 10, displayTitle: 'renamed' })
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 9, displayTitle: 'renamed' })
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 11, displayTitle: 'renamed' })
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+    expect(b.refreshProjections.mock.calls.map(call => call[0])).toEqual(['a', 'a'])
+  })
+
+  it('retries a rejected refresh once, immediately, then keeps that version', async () => {
+    const b = await bench()
+    b.refreshProjections.mockRejectedValueOnce(new Error('unread'))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 3 })
+    })
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+    await expect(b.refreshProjections.mock.results[0]?.value).rejects.toThrow('unread')
+    await flushMicrotasks()
+    // The rejection itself starts the one retry. No later publication is required.
+    expect(refreshedIds(b)).toEqual(['a', 'a'])
+
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+  })
+
+  it('stops after a second rejection of the same version', async () => {
+    const b = await bench()
+    b.refreshProjections.mockRejectedValue(new Error('down'))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 1 })
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['a', 'a'])
+
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(b.refreshProjections).toHaveBeenCalledTimes(2)
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 2 })
+    })
+    await flushMicrotasks()
+    // A newer version is its own read plus one retry, then it stops too.
+    expect(refreshedIds(b)).toEqual(['a', 'a', 'a', 'a'])
+  })
+
+  it('does not start a second read while that version is still in flight', async () => {
+    const b = await bench()
+    let resolveRead!: () => void
+    b.refreshProjections.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveRead = resolve
+    }))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 4 })
+    })
+    b.surface.publish(() => {})
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+    expect(b.refreshProjections).toHaveBeenCalledWith('a')
+
+    resolveRead()
+    await flushMicrotasks()
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['a'])
+  })
+
+  it('does not read again when a call settles after dispose', async () => {
+    const b = await bench()
+    let rejectRead!: (error: Error) => void
+    b.refreshProjections.mockImplementation(() => new Promise<void>((_resolve, reject) => {
+      rejectRead = reject
+    }))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 1 })
+    })
+    expect(b.refreshProjections).toHaveBeenCalledTimes(1)
+    expect(b.refreshProjections).toHaveBeenCalledWith('a')
+
+    const pending = b.refreshProjections.mock.results[0]?.value as Promise<void> | undefined
+    await retire(b)
+    rejectRead(new Error('late'))
+    await expect(pending).rejects.toThrow('late')
+    await flushMicrotasks()
+    b.surface.publish(() => {})
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { updatedAt: 2 })
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['a'])
   })
 })
 

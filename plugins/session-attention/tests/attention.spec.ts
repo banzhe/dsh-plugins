@@ -8,13 +8,41 @@
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it, vi } from 'vitest'
-import { createAttentionStore, deriveAttention } from '../src/client/attention.ts'
-import { sessionListOf, sessionRow, sessionSources, sessionStatusOf } from './session-list-double.ts'
+import {
+  createAttentionStore, deriveAttention, formatDuration, runElapsed,
+} from '../src/client/attention.ts'
+import {
+  sessionListOf, sessionRow, sessionSources, sessionStatusOf,
+} from './session-list-double.ts'
 
 /** One status entry with only the fields this plugin reads. */
 function status(running: boolean | undefined, completed: boolean): SessionStatus {
   return { running, pendingInteraction: undefined, completionUnread: completed }
 }
+
+describe('formatDuration', () => {
+  it('formats m:ss below an hour and h:mm:ss from there', () => {
+    expect(formatDuration(0)).toBe('0:00')
+    expect(formatDuration(999)).toBe('0:00')
+    expect(formatDuration(65_000)).toBe('1:05')
+    expect(formatDuration(3_600_000)).toBe('1:00:00')
+    expect(formatDuration(3_975_000)).toBe('1:06:15')
+  })
+})
+
+describe('runElapsed', () => {
+  it('measures from the latest human prompt, and is undefined before it is read', () => {
+    const running = { id: 'r' as SessionId, title: 'r', lastPromptAt: 10_000 }
+    const pending = { id: 'p' as SessionId, title: 'p' }
+    expect(runElapsed(running, 12_500)).toBe(2500)
+    expect(runElapsed(pending, 12_500)).toBeUndefined()
+  })
+
+  it('never goes negative when the clock moved backwards', () => {
+    const row = { id: 'r' as SessionId, title: 'r', lastPromptAt: 10_000 }
+    expect(runElapsed(row, 5_000)).toBe(0)
+  })
+})
 
 describe('deriveAttention', () => {
   it('splits running from finished-unread and drops everything else', () => {
@@ -121,6 +149,63 @@ describe('deriveAttention', () => {
     const model = deriveAttention(sessionListOf([child, idle]), sessionStatusOf([child, idle]))
     expect(model.waiting).toEqual([])
     expect(model.total).toBe(0)
+  })
+
+  it('stamps running rows with the durable prompt time and leaves unread rows without one', () => {
+    const rows = [
+      sessionRow('run', { running: true, updatedAt: 1, lastPromptAt: 100 }),
+      sessionRow('run-unread', { running: true, updatedAt: 2, lastPromptAt: null }),
+      sessionRow('done', { completed: true, updatedAt: 3, lastPromptAt: 100 }),
+    ]
+    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([
+      { id: 'run-unread', title: 'run-unread' },
+      { id: 'run', title: 'run', lastPromptAt: 100 },
+    ])
+    expect(model.unread).toEqual([{ id: 'done', title: 'done' }])
+  })
+
+  it('follows the projection forward: absent time, real time, and a new prompt restarting the count', () => {
+    const sources = sessionSources([sessionRow('run', { running: true, updatedAt: 1 })])
+    const store = createAttentionStore(sources.list, sources.status)
+    // Before the projection is read the row is listed with no duration fact.
+    expect(store.getSnapshot().running).toEqual([{ id: 'run', title: 'run' }])
+
+    // The projection read lands with the current prompt time.
+    const base = 1_720_000_000_000
+    sources.update((draft) => {
+      draft.byId['run' as SessionId] = sessionRow('run', {
+        running: true, updatedAt: 2, lastPromptAt: base,
+      })
+    })
+    expect(store.getSnapshot().running).toEqual([{ id: 'run', title: 'run', lastPromptAt: base }])
+
+    // Activity pushes move `updatedAt` but never the prompt time: the count
+    // must not restart with the work.
+    sources.update((draft) => {
+      draft.byId['run' as SessionId] = sessionRow('run', {
+        running: true, updatedAt: 99, lastPromptAt: base,
+      })
+    })
+    expect(store.getSnapshot().running[0]?.lastPromptAt).toBe(base)
+
+    // A new prompt is a new run: the count restarts from the new time.
+    sources.update((draft) => {
+      draft.byId['run' as SessionId] = sessionRow('run', {
+        running: true, updatedAt: 100, lastPromptAt: base + 5000,
+      })
+    })
+    expect(store.getSnapshot().running[0]?.lastPromptAt).toBe(base + 5000)
+  })
+
+  it('does not let one list snapshot start leak into another fold', () => {
+    const rows = [sessionRow('run', { running: true, updatedAt: 1, lastPromptAt: 42 })]
+    // Two folds over two list snapshot objects read the same durable fact:
+    // both rows carry the prompt time, and neither holds stale client state.
+    const first = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const second = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    expect(first.running[0]?.lastPromptAt).toBe(42)
+    expect(second.running[0]?.lastPromptAt).toBe(42)
   })
 })
 

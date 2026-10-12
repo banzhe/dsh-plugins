@@ -199,6 +199,17 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The run-duration cell on a running row. `flex: none` keeps the shrinking
+   title from pressing it narrower; the tertiary label tone keeps the number
+   present without competing with the title, and the tabular figures keep the
+   counting display from breathing as its digits roll. */
+.sa-row-duration {
+  flex: none;
+  margin-left: auto;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--dsw-alias-label-tertiary);
+}
 .sa-empty {
   margin: 0;
   padding: 16px 12px;

@@ -17,6 +17,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: Context.sessions (ISessions) — the list source and its row type.
 import type {} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: the ctx.uiSession status source merge the store subscribes to.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: the ctx.uiWorkspace service a row jumps through.
@@ -49,6 +50,58 @@ export function apply(ctx: ClientContext): void {
 
   const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus)
   ctx.effect(() => () => { store.dispose() }, 'session-attention: attention store lifetime')
+
+  // The run-duration column counts from `lastPromptAt`, which the list
+  // carries only after a projection read. One read per listed Session version
+  // (`updatedAt`, which advances when the user prompts again). The read itself
+  // republishes this list before the metadata key exists — `refreshProjections`
+  // marks the list dirty on the way out — so "key absent" cannot mean "not yet
+  // read", or the effect would refresh every publication forever.
+  ctx.effect(() => {
+    // `updatedAt` already read, or claimed by a call still in flight. A failed
+    // read leaves no entry, so the one retry below is not mistaken for a duplicate.
+    const readAt = new Map<SessionId, number>()
+    let disposed = false
+    const read = (id: SessionId, updatedAt: number, retry: boolean): void => {
+      if ((readAt.get(id) ?? -1) >= updatedAt) return
+      readAt.set(id, updatedAt)
+      void ctx.sessions.refreshProjections(id).then(() => {
+        if (disposed) return
+        const current = ctx.sessions.list.getSnapshot().byId[id]
+        // A prompt that landed while this read was in flight is a newer
+        // version than the value just fetched. The claim above keeps a
+        // duplicate publication from stacking calls.
+        if (current !== undefined && current.updatedAt > updatedAt) read(id, current.updatedAt, true)
+      }, () => {
+        if (disposed) return
+        if (readAt.get(id) !== updatedAt) return
+        const current = ctx.sessions.list.getSnapshot().byId[id]
+        const same = current !== undefined && current.updatedAt === updatedAt
+        // One retry for this version. The failed read already republished
+        // the list, so waiting for a later publication would never run; a
+        // second failure keeps the claim, or a dead host would refresh on
+        // every later publication of the same version. A newer `updatedAt`
+        // still reads, because the claim compares by version.
+        if (!retry || !same) return
+        readAt.delete(id)
+        read(id, updatedAt, false)
+      })
+    }
+    const pull = (): void => {
+      const { ids, byId } = ctx.sessions.list.getSnapshot()
+      ids.forEach((id) => {
+        const row = byId[id]
+        if (row === undefined || row.origin === 'subagent' || row.blank) return
+        read(id, row.updatedAt, true)
+      })
+    }
+    pull()
+    const unsubscribe = ctx.sessions.list.subscribe(pull)
+    return () => {
+      disposed = true
+      unsubscribe()
+    }
+  }, 'session-attention: lastPromptAt projection reads')
 
   /**
    * The store's members read as unbound methods to the linter, so the pair is
