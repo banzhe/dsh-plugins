@@ -551,6 +551,114 @@ describe('CompletionPresenter', () => {
     FakeNotification.instances[0]?.onclick?.()
     expect(open).toHaveBeenCalledWith('s2')
   })
+
+  describe('with the desktop notifications channel', () => {
+    /** A bridge double recording show requests; activations dispatch by id. */
+    function stubDesktopBridge(): {
+      show: ReturnType<typeof vi.fn<(request: { id: string; title: string; body: string }) => Promise<boolean>>>
+      activations: Array<(activation: { id?: string }) => void>
+      emit: (id: string) => void
+    } {
+      const activations: Array<(activation: { id?: string }) => void> = []
+      const show = vi.fn(async () => true)
+      vi.stubGlobal('dshDesktop', {
+        protocolVersion: 1,
+        window: { reveal: vi.fn(async () => {}) },
+        notifications: {
+          show,
+          close: vi.fn(async () => {}),
+          onActivate: (listener: (activation: { id?: string }) => void) => {
+            activations.push(listener)
+            return () => { activations.splice(activations.indexOf(listener), 1) }
+          },
+        },
+      })
+      return { show, activations, emit: (id: string) => { for (const listen of activations) listen({ id }) } }
+    }
+
+    it('prefers the desktop channel over the HTML5 constructor', () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      expect(bridge.show).toHaveBeenCalledOnce()
+      expect(bridge.show.mock.calls[0]?.[0]).toMatchObject({ title: 'Session finished', body: '"Title a" finished.' })
+      expect(FakeNotification.instances).toEqual([])
+      // Activation through the shell lands the same click target.
+      const raised = bridge.show.mock.calls[0]?.[0]
+      if (raised !== undefined) bridge.emit(raised.id)
+      expect(open).toHaveBeenCalledWith('a')
+      detach()
+      presenter.detach()
+    })
+
+    it('activation for a consumed or unknown id runs the target at most once', () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      const id = bridge.show.mock.calls[0]?.[0]?.id as string
+      bridge.emit(id)
+      bridge.emit(id)
+      bridge.emit('unknown-id')
+      expect(open).toHaveBeenCalledOnce()
+      presenter.detach()
+      // After dispose the subscription is gone; further activations do nothing.
+      bridge.emit(id)
+      expect(open).toHaveBeenCalledOnce()
+      detach()
+    })
+
+    it('releases a pending click target when the shell refuses the request', async () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      bridge.show.mockResolvedValue(false)
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      await vi.waitFor(() => { expect(bridge.show).toHaveBeenCalledOnce() })
+      const id = bridge.show.mock.calls[0]?.[0]?.id as string
+      bridge.emit(id)
+      await Promise.resolve()
+      expect(open).not.toHaveBeenCalled()
+      presenter.detach()
+      detach()
+    })
+
+    it('logs a rejected request and still reports the raise accepted', async () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      bridge.show.mockRejectedValue(new Error('dsh desktop: rejected IPC'))
+      const sessions = sessionSources([summary('a', { running: true })])
+      const presenter = new CompletionPresenter(options())
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      await vi.waitFor(() => { expect(logger.warn).toHaveBeenCalledWith('app-badge: the shell refused the notification', expect.anything()) })
+      presenter.detach()
+      detach()
+    })
+
+    it('still uses HTML5 when the channel predates notifications', () => {
+      stubCapabilities()
+      vi.stubGlobal('dshDesktop', { protocolVersion: 1, window: { reveal: vi.fn(async () => {}) } })
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      expect(FakeNotification.instances).toHaveLength(1)
+      presenter.detach()
+      detach()
+    })
+  })
 })
 
 describe('pickWorkspaceDemoTarget', () => {

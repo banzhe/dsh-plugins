@@ -52,7 +52,26 @@ interface DesktopWindowBridge {
     readonly window?: {
       readonly reveal?: () => Promise<void>
     }
+    readonly notifications?: {
+      readonly show?: (request: { readonly id: string; readonly title: string; readonly body: string }) => Promise<boolean>
+      readonly close?: (id: string) => Promise<void>
+      readonly onActivate?: (listener: (activation: { readonly id?: string }) => void) => (() => void)
+    }
   }
+}
+
+/**
+ * Read the shell's notification bridge, or undefined where the page cannot use
+ * it: a browser, or a shell whose whitelist predates the channel. The bridge is
+ * preferred over the HTML5 constructor because its activations reach the
+ * renderer from the Windows notification center, which Chromium's own
+ * notifications cannot.
+ */
+function desktopNotifications(): NonNullable<DesktopWindowBridge['dshDesktop']>['notifications'] | undefined {
+  const bridge = (globalThis as DesktopWindowBridge).dshDesktop?.notifications
+  return bridge !== undefined && typeof bridge.show === 'function' && typeof bridge.onActivate === 'function'
+    ? bridge
+    : undefined
 }
 
 /**
@@ -243,11 +262,29 @@ export class CompletionPresenter {
   private readonly observer = new CompletionObserver()
   private readonly capabilities = probeCapabilities()
   private readonly badge: AppBadgePresenter | undefined
+  /** Live desktop notifications channel, probed once; a browser has none. */
+  private readonly desktop: NonNullable<DesktopWindowBridge['dshDesktop']>['notifications'] | undefined
+  /** Monotonic id source for desktop notifications; one per raised notification. */
+  private desktopSequence = 0
+  /** Click targets by desktop-notification id, keyed for the activation callback. */
+  private readonly pendingClicks = new Map<string, () => void>()
+  private readonly disposeActivation: (() => void) | undefined
 
   constructor(private readonly options: CompletionPresenterOptions) {
     // Only badging is probed once: the API's presence cannot change during a
     // page's life. Notification permission CAN, so it is read per use.
     this.badge = this.capabilities.badge ? new AppBadgePresenter(options.logger) : undefined
+    this.desktop = desktopNotifications()
+    const onActivate = this.desktop?.onActivate
+    this.disposeActivation = onActivate === undefined
+      ? undefined
+      : onActivate(({ id }) => {
+        if (id === undefined) return
+        const onClick = this.pendingClicks.get(id)
+        if (onClick === undefined) return
+        this.pendingClicks.delete(id)
+        onClick()
+      })
   }
 
   /**
@@ -329,11 +366,15 @@ export class CompletionPresenter {
 
   /**
    * Build one notification, reporting whether the platform accepted the
-   * construction. Both refusal shapes are reported rather than thrown: a
-   * construction that fails synchronously warns here, and a display the platform
-   * rejects afterwards arrives on the notification's `error` event.
+   * request. The shell's desktop channel is preferred when present: its
+   * activations reach the renderer from the Windows notification center, which
+   * the HTML5 constructor cannot. Both refusal shapes are reported rather than
+   * thrown: a construction that fails synchronously warns here, and a display
+   * the platform rejects afterwards arrives on the notification's `error` event
+   * (HTML5) or a false answer (desktop).
    */
   private notify(copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
+    if (this.desktop !== undefined) return this.notifyDesktop(copy, tag, onClick)
     // Read live: an ungranted or revoked permission makes construction throw,
     // and this is the only guard that stays correct after a grant.
     if (notificationPermission() !== 'granted') return false
@@ -373,5 +414,40 @@ export class CompletionPresenter {
       this.options.logger.warn('app-badge: the platform refused the notification', error)
       return false
     }
+  }
+
+  /**
+   * Raise one notification through the shell's desktop channel. The tag stays
+   * renderer-local (the shell owns replacement closing per id), so the id is
+   * derived from it and a sequence; the click target is keyed by id and
+   * dispatched from the activation subscription. A refused request resolves the
+   * target away, keeping the pending-click map from ever growing.
+   */
+  private notifyDesktop(copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
+    const desktop = this.desktop
+    const show = desktop?.show
+    if (desktop === undefined || show === undefined) return false
+    const id = `${tag}-${++this.desktopSequence}`
+    const settle = (raised: boolean): void => {
+      if (raised || onClick === undefined) return
+      this.pendingClicks.delete(id)
+    }
+    const shown = show.call(desktop, { id, title: copy.title, body: copy.detail })
+    if (shown instanceof Promise) {
+      void shown.then(settle).catch((error: unknown) => {
+        this.options.logger.warn('app-badge: the shell refused the notification', error)
+        this.pendingClicks.delete(id)
+      })
+    } else {
+      settle(shown)
+    }
+    if (onClick !== undefined) this.pendingClicks.set(id, onClick)
+    return true
+  }
+
+  /** Release the activation subscription the constructor installed. */
+  detach(): void {
+    this.disposeActivation?.()
+    this.pendingClicks.clear()
   }
 }

@@ -97,7 +97,12 @@ export function apply(ctx: ClientContext): void {
     if (subscribed || !presenter.viable) return
     subscribed = true
     ctx.effect(
-      () => presenter.attach(ctx.uiSession.sessionStatus, ctx.sessions.list),
+      () => {
+        const detach = presenter.attach(ctx.uiSession.sessionStatus, ctx.sessions.list)
+        // The presenter's activation subscription dies with this fiber too, so a
+        // re-applied plugin never leaks the previous instance's click targets.
+        return () => { detach(); presenter.detach() }
+      },
       'app-badge: finished-unread projection',
     )
   }
