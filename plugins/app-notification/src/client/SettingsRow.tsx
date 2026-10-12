@@ -28,6 +28,8 @@ export interface CompletionSettingsInjected {
   request: () => Promise<NotificationPermissionState>
   /** Raise the test notification; reports whether the platform accepted it. */
   test: () => boolean
+  /** Raise the demo notification (click jumps to a random Workspace Session); false when no Session to land on. */
+  demo: () => boolean
 }
 
 export type CompletionSettingsRowProps =
@@ -58,7 +60,7 @@ function Fact({ label, value }: { readonly label: string; readonly value: string
 }
 
 export function CompletionSettingsRow({
-  t, permission, badgeSupported, request, test,
+  t, permission, badgeSupported, request, test, demo,
 }: CompletionSettingsRowProps): ReactNode {
   // Seeded from the live platform read, then refreshed after every action:
   // React state here is an action echo, never the source of truth.
@@ -89,6 +91,15 @@ export function CompletionSettingsRow({
     setState(permission())
   }, [test, permission])
 
+  const onDemo = useCallback((): void => {
+    const accepted = demo()
+    setNote({
+      key: accepted ? 'settings.demo.sent' : 'settings.demo.failed',
+      ok: accepted,
+    })
+    setState(permission())
+  }, [demo, permission])
+
   const badge = badgeSupported()
   const canTest = state === 'granted'
   return (
@@ -114,6 +125,9 @@ export function CompletionSettingsRow({
         </Button>
         <Button variant="outline" disabled={!canTest} onClick={onTest}>
           {t('settings.test')}
+        </Button>
+        <Button variant="outline" disabled={!canTest} onClick={onDemo}>
+          {t('settings.demo')}
         </Button>
         {note === undefined
           ? null

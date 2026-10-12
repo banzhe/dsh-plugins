@@ -12,6 +12,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { CompletionObserver } from './completion.ts'
@@ -81,12 +82,28 @@ export interface CompletionPresenterOptions {
   readonly notifyCopy: (session: SessionSummary) => NotificationCopy
   /** Resolve the settings row's test-notification copy in the active locale. */
   readonly testCopy: () => NotificationCopy
+  /** Resolve the demo-notification copy in the active locale. */
+  readonly demoCopy: () => NotificationCopy
   /** Open the Session a notification was clicked for. */
   readonly open: (id: SessionId) => void
+  /**
+   * Read the Workspace Controller snapshot for the demo pick; undefined
+   * phase means the list is not settled yet and the demo refuses.
+   */
+  readonly workspaces: () => WorkspaceSnapshot
+  /**
+   * Read one Session's list row for the demo pick, or undefined when the
+   * Session Controller has not projected the id yet. Blank rows (a Session
+   * with no accepted prompt) are refused as demo landing targets: clicking
+   * the notification would only open an empty conversation.
+   */
+  readonly sessionSummary: (id: SessionId) => SessionSummary | undefined
   /** Notification tag; one tag replaces the previous notification, and each replacement re-alerts. */
   readonly tag: string
   /** Test-notification tag; distinct from {@link tag} so a probe never displaces a real announcement. */
   readonly testTag: string
+  /** Demo-notification tag; distinct so a demo never displaces a real announcement either. */
+  readonly demoTag: string
 }
 
 /**
@@ -136,14 +153,51 @@ export function notificationPermission(): NotificationPermissionState {
   return typeof Notification === 'function' ? Notification.permission : 'unsupported'
 }
 
-/**
- * Ask the browser for notification permission. Must run inside a user gesture:
+/** Ask the browser for notification permission. Must run inside a user gesture:
  * every browser discards the request otherwise, which is why the settings row's
  * button — and never plugin activation — is the only caller.
  */
 export async function requestNotificationPermission(): Promise<NotificationPermissionState> {
   if (typeof Notification !== 'function') return 'unsupported'
   return await Notification.requestPermission()
+}
+
+/**
+ * Pick the demo notification's landing Session: a uniformly random Workspace,
+ * then its first or second non-blank Session. A Workspace whose Sessions are
+ * all blank (no accepted prompt yet) is skipped, as is one with no Sessions;
+ * a Workspace reduced to a single candidate always lands on it.
+ * @param snapshot - the Workspace Controller snapshot.
+ * @param summary - one Session's list row; undefined or `blank` rows are
+ *   refused as landing targets, so a click never opens an empty conversation.
+ * @param random - the randomness source, injectable for tests.
+ * @returns the picked Session id, or undefined when no Workspace holds any.
+ */
+export function pickWorkspaceDemoTarget(
+  snapshot: WorkspaceSnapshot,
+  summary: (id: SessionId) => SessionSummary | undefined,
+  random: () => number = Math.random,
+): SessionId | undefined {
+  if (snapshot.phase !== 'ready') return undefined
+  const sessionsOf = (workspace: WorkspaceSnapshot['items'][number]): readonly SessionId[] =>
+    workspace.sessionIds
+      .filter(id => {
+        const row = summary(id)
+        return row !== undefined && !row.blank
+      })
+  const candidates = snapshot.items
+    .map(workspace => ({ workspace, sessions: sessionsOf(workspace) }))
+    .filter((entry): entry is { workspace: WorkspaceSnapshot['items'][number]; sessions: readonly SessionId[] } =>
+      entry.sessions.length > 0)
+  if (candidates.length === 0) return undefined
+  const picked = candidates.at(Math.floor(random() * candidates.length))
+  // The filter just proved a surviving entry, so only a broken `random()`
+  // (beyond [0, 1)) can miss; degrade to the first candidate rather than
+  // raising an empty notification.
+  if (picked === undefined) return candidates[0]?.sessions[0]
+  const first = random() < 0.5
+  const index = first || picked.sessions.length === 1 ? 0 : 1
+  return picked.sessions[index]
 }
 
 /** Project the finished-unread count onto the installed-PWA icon badge. */
@@ -244,6 +298,22 @@ export class CompletionPresenter {
    */
   showTest(): boolean {
     return this.notify(this.options.testCopy(), this.options.testTag)
+  }
+
+  /**
+   * Show the demo notification: clicking it jumps to one random Workspace's
+   * first or second non-blank Session. Refused, without raising, when no
+   * Workspace holds one — the click target must exist beforehand, because a
+   * notification click has no retry.
+   */
+  showDemo(random: () => number = Math.random): boolean {
+    const target = pickWorkspaceDemoTarget(
+      this.options.workspaces(), this.options.sessionSummary, random,
+    )
+    if (target === undefined) return false
+    return this.notify(this.options.demoCopy(), this.options.demoTag, () => {
+      this.options.open(target)
+    })
   }
 
   /** Fold one observation onto the badge and the notification stream. */

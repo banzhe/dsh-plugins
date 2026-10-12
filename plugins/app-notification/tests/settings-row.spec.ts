@@ -58,6 +58,7 @@ async function mount(options: {
   badge?: boolean
   requestResult?: NotificationPermissionState
   testResult?: boolean
+  demoResult?: boolean
   rejectRequest?: boolean
 }): Promise<Harness> {
   let current = options.permission
@@ -70,6 +71,7 @@ async function mount(options: {
       return current
     }),
     test: vi.fn(() => options.testResult ?? current === 'granted'),
+    demo: vi.fn(() => options.demoResult ?? false),
   }
   const host = document.createElement('div')
   document.body.append(host)
@@ -181,6 +183,7 @@ describe('CompletionSettingsRow', () => {
         badgeSupported: () => true,
         request: () => pending,
         test: () => false,
+        demo: () => false,
       }))
     })
     const button = (): HTMLButtonElement => {
@@ -208,6 +211,20 @@ describe('CompletionSettingsRow', () => {
     expect(row.text()).toContain(zh['settings.test.failed'])
   })
 
+  it('enables the demo button only with a granted permission, and reports both outcomes', async () => {
+    const ungranted = await mount({ permission: 'default', demoResult: true })
+    expect(ungranted.button(zh['settings.demo']).disabled).toBe(true)
+
+    const granted = await mount({ permission: 'granted', demoResult: true })
+    await granted.click(zh['settings.demo'])
+    expect(granted.injected.demo).toHaveBeenCalledTimes(1)
+    expect(granted.text()).toContain(zh['settings.demo.sent'])
+
+    const refused = await mount({ permission: 'granted', demoResult: false })
+    await refused.click(zh['settings.demo'])
+    expect(refused.text()).toContain(zh['settings.demo.failed'])
+  })
+
   it('renders English copy through the same keys', async () => {
     const host = document.createElement('div')
     document.body.append(host)
@@ -222,6 +239,7 @@ describe('CompletionSettingsRow', () => {
         badgeSupported: () => true,
         request: async (): Promise<NotificationPermissionState> => 'granted',
         test: () => true,
+        demo: () => true,
       }))
     })
     expect(host.textContent).toContain(en['settings.title'])

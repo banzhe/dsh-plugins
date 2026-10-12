@@ -81,6 +81,7 @@ function provideSessions(ctx: Context): void {
   ctx.provide('sessions', { list: createSnapshotStore(sessionListOf([])) } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: createSnapshotStore(sessionStatusOf([])) } as never)
   ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
+  ctx.provide('workspaces', { list: { getSnapshot: () => ({ items: [], phase: 'pending' }) } } as never)
 }
 
 /**

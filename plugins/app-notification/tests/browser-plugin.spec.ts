@@ -39,21 +39,29 @@ class FakeNotification {
  */
 function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): SessionSources & {
   openSession: ReturnType<typeof vi.fn>
+  workspaces: { items: readonly WorkspaceRow[]; phase: 'ready' | 'pending' }
 } {
   vi.stubGlobal('navigator', options.badge === false
     ? {}
     : { setAppBadge: vi.fn(async () => {}), clearAppBadge: vi.fn(async () => {}) })
   FakeNotification.permission = options.permission ?? 'granted'
   vi.stubGlobal('Notification', FakeNotification)
-  return { ...sessionSources(), openSession: vi.fn() }
+  return { ...sessionSources(), openSession: vi.fn(), workspaces: { items: [], phase: 'pending' } }
 }
 
-/** Boot the browser half over a context providing the four injected services. */
-async function bench(surface: SessionSources & { openSession: ReturnType<typeof vi.fn> }) {
+/** One durable Workspace row as the Workspace Controller projects it. */
+type WorkspaceRow = {
+  workspaceId: string; path: string; title: string
+  sessionIds: readonly SessionId[]; createdAt: string; updatedAt: string
+}
+
+/** Boot the browser half over a context providing the five injected services. */
+async function bench(surface: SessionSources & { openSession: ReturnType<typeof vi.fn>; workspaces?: { items: readonly WorkspaceRow[]; phase: 'ready' | 'pending' } }) {
   const ctx = new Context()
   ctx.provide('sessions', { list: surface.list } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: surface.openSession } as never)
+  ctx.provide('workspaces', { list: { getSnapshot: () => surface.workspaces ?? { items: [], phase: 'pending' } } } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
@@ -154,6 +162,51 @@ describe('app-badge browser half', () => {
     expect(injected.test()).toBe(true)
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.options).toMatchObject({ tag: 'dsh-session-completed-test' })
+    expect(injected.demo).toBeTypeOf('function')
+  })
+
+  it('the demo button raises a notification whose click opens a Workspace Session', async () => {
+    const surface = stubCapabilities()
+    // One Workspace holding two Sessions; the click target is picked before the notification is raised.
+    surface.workspaces = {
+      items: [{ workspaceId: 'w1', path: '/w1', title: 'W1',
+        sessionIds: ['a' as SessionId, 'b' as SessionId], createdAt: '', updatedAt: '' }],
+      phase: 'ready',
+    }
+    const { slots } = await bench(surface)
+    // The pick reads the Session list for blankness, so the rows must exist.
+    surface.update((state) => {
+      state.ids = ['a' as SessionId, 'b' as SessionId]
+      state.byId['a' as SessionId] = sessionRow('a')
+      state.byId['b' as SessionId] = sessionRow('b')
+    })
+    const injected = slots.injection('app-badge')
+    expect(injected.demo()).toBe(true)
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(FakeNotification.instances[0]?.options).toMatchObject({ tag: 'dsh-session-completed-demo' })
+    FakeNotification.instances[0]?.onclick?.()
+    expect(surface.openSession).toHaveBeenCalledWith(expect.any(String))
+  })
+
+  it('the demo button refuses when every listed Session is blank', async () => {
+    const surface = stubCapabilities()
+    // One Workspace whose rows are all blank (real new Sessions): the pick
+    // refuses, so no notification is raised and nothing is opened.
+    surface.workspaces = {
+      items: [{ workspaceId: 'w1', path: '/w1', title: 'W1',
+        sessionIds: ['a' as SessionId, 'b' as SessionId], createdAt: '', updatedAt: '' }],
+      phase: 'ready',
+    }
+    const { slots } = await bench(surface)
+    surface.update((state) => {
+      state.ids = ['a' as SessionId, 'b' as SessionId]
+      state.byId['a' as SessionId] = sessionRow('a', { blank: true })
+      state.byId['b' as SessionId] = sessionRow('b', { blank: true })
+    })
+    const injected = slots.injection('app-badge')
+    expect(injected.demo()).toBe(false)
+    expect(FakeNotification.instances).toEqual([])
+    expect(surface.openSession).not.toHaveBeenCalled()
   })
 
   it('announces the next completion after a grant, without a reload', async () => {

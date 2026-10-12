@@ -7,9 +7,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
-  AppBadgePresenter, CompletionPresenter, notificationPermission, probeCapabilities,
-  requestNotificationPermission,
+  AppBadgePresenter, CompletionPresenter, notificationPermission, pickWorkspaceDemoTarget,
+  probeCapabilities, requestNotificationPermission,
   type CompletionPresenterOptions,
 } from '../src/client/presenter.ts'
 import { sessionRow, sessionSources, type SessionRow } from './session-list-double.ts'
@@ -56,16 +58,46 @@ const logger = { warn: vi.fn() } as unknown as Context['logger']
 const summary = (id: string, over: Partial<SessionRow> = {}): SessionRow =>
   sessionRow(id, { displayTitle: `Title ${id}`, ...over })
 
-function options(open = vi.fn()): CompletionPresenterOptions {
+/**
+ * Default Session-row reader for the demo pick: every known id resolves to a
+ * non-blank row; unknown ids are the host-projected case (undefined). The
+ * optional map overrides blankness per id for the pickWorkspaceDemoTarget cases.
+ */
+function options(
+  open = vi.fn(),
+  workspaceItems: WorkspaceSnapshot['items'] = [],
+  blankIds: ReadonlySet<string> = new Set(),
+): CompletionPresenterOptions {
   return {
     logger,
     notifyCopy: session => ({ title: 'Session finished', detail: `"${session.displayTitle}" finished.` }),
     testCopy: () => ({ title: 'Test notification', detail: 'If you can read this, it works.' }),
+    demoCopy: () => ({ title: 'Jump demo', detail: 'Click to a random Workspace Session.' }),
     open,
+    workspaces: () => workspaceSnapshot(workspaceItems),
+    sessionSummary: (id) => {
+      const row = summary(id)
+      return blankIds.has(id) ? { ...row, blank: true } : row
+    },
     tag: 'dsh-session-completed',
     testTag: 'dsh-session-completed-test',
+    demoTag: 'dsh-session-completed-demo',
   }
 }
+
+/** A minimal ready Workspace snapshot; `items` overridable per test. */
+const workspaceSnapshot = (items: WorkspaceSnapshot['items'] = []): WorkspaceSnapshot => ({
+  items,
+  archivedSessionIds: [],
+  pinnedSessionIds: [],
+  state: 'idle',
+  phase: 'ready',
+  error: null,
+})
+
+const workspace = (workspaceId: string, sessionIds: string[]): WorkspaceSnapshot['items'][number] =>
+  ({ workspaceId: workspaceId as WorkspaceId, path: `/p/${workspaceId}`, title: workspaceId,
+    sessionIds: sessionIds as SessionId[], createdAt: '', updatedAt: '' })
 
 afterEach(() => {
   FakeNotification.instances = []
@@ -463,5 +495,123 @@ describe('CompletionPresenter', () => {
     })
     expect(new CompletionPresenter(options()).showTest()).toBe(false)
     expect(logger.warn).toHaveBeenCalledWith('app-badge: the platform refused the notification', expect.anything())
+  })
+
+  it('showDemo raises a tagged notification whose click lands on the picked Session', () => {
+    stubCapabilities()
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(options(open, [workspace('w1', ['s1', 's2'])]))
+    // The deterministic seed picks the second Session.
+    expect(presenter.showDemo(() => 0.75)).toBe(true)
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(FakeNotification.instances[0]?.title).toBe('Jump demo')
+    expect(FakeNotification.instances[0]?.options).toMatchObject({ tag: 'dsh-session-completed-demo' })
+    FakeNotification.instances[0]?.onclick?.()
+    expect(open).toHaveBeenCalledWith('s2')
+  })
+
+  it('showDemo refuses instead of raising when every Sessions is blank', () => {
+    stubCapabilities()
+    // The options() reader marks 's1' blank; no landing target survives and the
+    // refusal happens before construction, so no notification (or retry) exists.
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(
+      options(open, [workspace('w1', ['s1'])], new Set(['s1'])),
+    )
+    expect(presenter.showDemo(() => 0.75)).toBe(false)
+    expect(FakeNotification.instances).toEqual([])
+    expect(open).not.toHaveBeenCalled()
+  })
+
+  it('showDemo refuses instead of raising when no Workspace holds a Session', () => {
+    stubCapabilities()
+    expect(new CompletionPresenter(options()).showDemo(() => 0)).toBe(false)
+    expect(FakeNotification.instances).toEqual([])
+  })
+
+  it('showDemo reports the construction refusal the platform raises', () => {
+    stubCapabilities()
+    vi.stubGlobal('Notification', class {
+      static permission: NotificationPermission = 'granted'
+      constructor() { throw new Error('refused') }
+    })
+    expect(new CompletionPresenter(options(vi.fn(), [workspace('w1', ['s1'])])).showDemo()).toBe(false)
+    expect(logger.warn).toHaveBeenCalledWith('app-badge: the platform refused the notification', expect.anything())
+  })
+
+  it('showDemo skips a blank Session and lands on the next non-blank row', () => {
+    stubCapabilities()
+    const open = vi.fn()
+    // 's1' is blank and refused; 's2' remains the sole candidate, so either
+    // first/second branch lands on the same row.
+    const presenter = new CompletionPresenter(
+      options(open, [workspace('w1', ['s1', 's2'])], new Set(['s1'])),
+    )
+    expect(presenter.showDemo(() => 0.75)).toBe(true)
+    FakeNotification.instances[0]?.onclick?.()
+    expect(open).toHaveBeenCalledWith('s2')
+  })
+})
+
+describe('pickWorkspaceDemoTarget', () => {
+  const snapshot = (items: WorkspaceSnapshot['items'], phase: WorkspaceSnapshot['phase'] = 'ready'): WorkspaceSnapshot =>
+    ({ items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase, error: null })
+
+  /** A reader that refuses blank ids (and unknown ids) as landing targets. */
+  const nonBlank = (...blank: readonly string[]) =>
+    (id: string): SessionSummary => blank.includes(id)
+      ? { ...summary(id), blank: true }
+      : summary(id)
+
+  it('takes the first Session of the Workspace the random source selects', () => {
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('w1', ['s1', 's2']), workspace('w2', ['s3'])]), nonBlank(), () => 0.75,
+    )
+    expect(target).toBe('s3')
+  })
+
+  it('lands on the second Session when the random source picks the branch', () => {
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('w1', ['s1', 's2', 's3'])]), nonBlank(), () => 0.6,
+    )
+    expect(target).toBe('s2')
+  })
+
+  it('lands on a single-candidate Workspace either way', () => {
+    for (const random of [() => 0, () => 0.999]) {
+      expect(pickWorkspaceDemoTarget(snapshot([workspace('w1', ['s1'])]), nonBlank(), random)).toBe('s1')
+    }
+  })
+
+  it('skips Workspaces with no non-blank Sessions', () => {
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('empty', []), workspace('mixed', ['blank1', 's1']), workspace('filled', ['s2'])]),
+      nonBlank('blank1'),
+      () => 0.4,
+    )
+    // After 'mixed' is filtered to ['s1'], the candidates are ['s1'] (from
+    // 'mixed') and ['s2'] (from 'filled'); random() = 0.4 lands on the first
+    // candidate, and the half-split pick takes its 's1'.
+    expect(target).toBe('s1')
+  })
+
+  it('refuses a Workspace whose Sessions are all blank or unknown', () => {
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('w1', ['blank1']), workspace('w2', [])]), nonBlank('blank1'), () => 0,
+    )
+    expect(target).toBeUndefined()
+  })
+
+  it('refuses an id unknown to the Session list; every-blank workspaces leave undefined', () => {
+    // The reader is never wired to unknown ids, so an all-unknown workspace is skipped.
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('w1', ['ghost'])]), () => undefined, () => 0.9,
+    )
+    expect(target).toBeUndefined()
+  })
+
+  it('returns undefined with no candidates or an unsettled list', () => {
+    expect(pickWorkspaceDemoTarget(snapshot([]), nonBlank())).toBeUndefined()
+    expect(pickWorkspaceDemoTarget(snapshot([], 'pending'), nonBlank())).toBeUndefined()
   })
 })

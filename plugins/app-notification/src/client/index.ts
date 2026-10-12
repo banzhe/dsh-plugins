@@ -35,7 +35,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
+export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'workspaces', 'locale', 'slots']
 
 /** Plugin id, stamped onto the injected stylesheet for HMR bookkeeping. */
 const PLUGIN_ID = '@banzhe/dsh-app-notification'
@@ -49,6 +49,9 @@ const TAG = 'dsh-session-completed'
 
 /** Test-notification tag; distinct from {@link TAG} so a probe never displaces a real announcement. */
 const TEST_TAG = 'dsh-session-completed-test'
+
+/** Demo-notification tag; distinct so a demo never displaces a real announcement either. */
+const DEMO_TAG = 'dsh-session-completed-demo'
 
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'app-badge: dictionaries')
@@ -78,9 +81,13 @@ export function apply(ctx: ClientContext): void {
     logger: ctx.logger,
     notifyCopy,
     testCopy: () => ({ title: t('test.title'), detail: t('test.body') }),
+    demoCopy: () => ({ title: t('demo.title'), detail: t('demo.body') }),
     open: (id) => { ctx.uiWorkspace.openSession(id) },
+    workspaces: () => ctx.workspaces.list.getSnapshot(),
+    sessionSummary: id => ctx.sessions.list.getSnapshot().byId[id],
     tag: TAG,
     testTag: TEST_TAG,
+    demoTag: DEMO_TAG,
   })
 
   // One subscription for the plugin's lifetime; installed lazily and only for a
@@ -109,6 +116,7 @@ export function apply(ctx: ClientContext): void {
       return result
     },
     test: () => presenter.showTest(),
+    demo: () => presenter.showDemo(),
   })
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({
     name: 'settings.general.item',

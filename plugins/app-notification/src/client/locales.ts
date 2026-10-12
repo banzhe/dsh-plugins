@@ -8,6 +8,8 @@ export const zh = {
   'notify.body': '「{title}」已完成，点击查看',
   'test.title': '测试通知',
   'test.body': '如果你看到这条通知，说明完成提醒工作正常。',
+  'demo.title': '跳转演示',
+  'demo.body': '点击本通知，跳转到一个随机工作区的会话。',
   'settings.title': '完成提醒',
   'settings.description': '把已完成未读的会话数显示在已安装应用的图标角标上，并在会话完成时弹出系统通知。',
   'settings.permissionLabel': '通知权限',
@@ -23,6 +25,9 @@ export const zh = {
   'settings.test': '发送测试通知',
   'settings.test.sent': '已发送：请查看系统通知。',
   'settings.test.failed': '没能发送，请先申请通知权限。',
+  'settings.demo': '发送跳转演示通知',
+  'settings.demo.sent': '已发送：点击该通知将跳转到随机工作区的会话。',
+  'settings.demo.failed': '没能发送：请先申请通知权限，且至少一个工作区要有会话。',
 } as const
 
 /** English dictionary, key-identical to the Chinese source of truth. */
@@ -31,6 +36,8 @@ export const en: Record<AppBadgeKey, string> = {
   'notify.body': '“{title}” finished. Open to review.',
   'test.title': 'Test notification',
   'test.body': 'If you can read this, completion attention is working.',
+  'demo.title': 'Jump demo',
+  'demo.body': 'Click this notification to jump to a random Workspace Session.',
   'settings.title': 'Completion attention',
   'settings.description': 'Show the finished-unread Session count on the installed app’s icon badge and raise a system notification when a Session finishes.',
   'settings.permissionLabel': 'Notification permission',
@@ -46,6 +53,9 @@ export const en: Record<AppBadgeKey, string> = {
   'settings.test': 'Send test notification',
   'settings.test.sent': 'Sent — check your system notifications.',
   'settings.test.failed': 'Not sent — grant notification permission first.',
+  'settings.demo': 'Send jump demo notification',
+  'settings.demo.sent': 'Sent — clicking it jumps to a random Workspace Session.',
+  'settings.demo.failed': 'Not sent — grant permission first, and at least one Workspace must have Sessions.',
 }
 
 /** Key domain of the `app-badge` namespace (zh is the source of truth). */
