@@ -135,6 +135,30 @@ function isRunning(row: SessionSummary, status: SessionStatusSnapshot): boolean 
 }
 
 /**
+ * One fold's row lookups: `byId`, plus the same rows grouped under their
+ * parent in `byId` enumeration order. Grouping once per fold is what keeps a
+ * fold linear: a parent's children used to be found by scanning every row,
+ * once per listed row, which turned a fold into a quadratic walk.
+ */
+interface ChildIndex {
+  readonly byId: SessionListState['byId']
+  readonly byParent: ReadonlyMap<SessionId, readonly SessionSummary[]>
+}
+
+/** Group every known row under its parent, in `byId` enumeration order. */
+function childIndexOf(byId: SessionListState['byId']): ChildIndex {
+  const byParent = new Map<SessionId, SessionSummary[]>()
+  for (const id of idsOf(byId)) {
+    const row = byId[id]
+    if (row?.parentId === undefined) continue
+    const siblings = byParent.get(row.parentId)
+    if (siblings === undefined) byParent.set(row.parentId, [row])
+    else siblings.push(row)
+  }
+  return { byId, byParent }
+}
+
+/**
  * The running subagent children of one parent row, labeled from the child
  * row's `displayTitle` (the controller already derives it from the title
  * projection, then the catalog label, then the id). Catalog order comes
@@ -143,7 +167,7 @@ function isRunning(row: SessionSummary, status: SessionStatusSnapshot): boolean 
  */
 function runningChildrenOf(
   parent: SessionId,
-  byId: SessionListState['byId'],
+  index: ChildIndex,
   catalog: readonly SessionId[] | undefined,
   status: SessionStatusSnapshot,
   timingOf: ReadonlyMap<SessionId, number>,
@@ -151,15 +175,14 @@ function runningChildrenOf(
   const seen = new Set<SessionId>()
   const ordered: SessionSummary[] = []
   for (const id of catalog ?? []) {
-    const row = byId[id]
+    const row = index.byId[id]
     if (row === undefined || row.parentId !== parent || seen.has(id)) continue
     seen.add(id)
     ordered.push(row)
   }
-  for (const id of idsOf(byId)) {
-    const row = byId[id]
-    if (row === undefined || seen.has(id) || row.parentId !== parent) continue
-    seen.add(id)
+  for (const row of index.byParent.get(parent) ?? []) {
+    if (seen.has(row.id)) continue
+    seen.add(row.id)
     ordered.push(row)
   }
   const children = ordered
@@ -219,6 +242,7 @@ export function deriveAttention(
     if (catalog === undefined) return
     catalogOrder.set(id, catalog.map(entry => entry.id))
   })
+  const childIndex = childIndexOf(list.byId)
   list.ids.forEach((id) => {
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
@@ -238,7 +262,7 @@ export function deriveAttention(
     // fact the list projection already carries: counting from it needs no
     // client-side timer of the plugin's own.
     const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
-    const children = runningChildrenOf(id, list.byId, catalogOrder.get(id), status, timingOf)
+    const children = runningChildrenOf(id, childIndex, catalogOrder.get(id), status, timingOf)
     if (isRunning || children !== undefined) {
       const candidate: Candidate = {
         updatedAt: row.updatedAt,

@@ -5,6 +5,7 @@
  * Pure data work — no DOM and no React — so these specs drive the snapshots
  * directly through the same doubles the browser-half spec uses.
  */
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it, vi } from 'vitest'
@@ -14,12 +15,47 @@ import {
 import type { SessionRow } from './session-list-double.ts'
 import {
   parentWithChildren, sessionListOf, sessionRow, sessionSources,
-  sessionStatusOf, subagentRow,
+  sessionStatusOf, subagentCatalogEntry, subagentRow,
 } from './session-list-double.ts'
 
 /** One status entry with only the fields this plugin reads. */
 function status(running: boolean | undefined, completed: boolean): SessionStatus {
   return { running, pendingInteraction: undefined, completionUnread: completed }
+}
+
+/** The size of the full list the order-contract specs fold over. */
+const LIST_SIZE = 2000
+
+/**
+ * Idle filler rows. They never reach the panel; they exist so a fold runs over
+ * a full-size list, where finding one parent's children by rescanning every row
+ * would be quadratic in the row count.
+ */
+function padRows(count: number): SessionRow[] {
+  return Array.from({ length: count }, (_, index) => sessionRow(`pad-${index}`, { updatedAt: index }))
+}
+
+/** The given rows, padded with idle filler to {@link LIST_SIZE}. */
+function scaledList(rows: readonly SessionRow[]): SessionRow[] {
+  return [...rows, ...padRows(LIST_SIZE - rows.length)]
+}
+
+/**
+ * The same list with a `byId` that counts how often the whole row set is
+ * enumerated. `Object.keys(byId)` is the only place a fold learns every known
+ * row at once, so that count is what separates a linear fold from one that
+ * rescans the rows per listed row. Counting `ownKeys` rather than the keys it
+ * yields keeps the count independent of list size.
+ */
+function countingById(list: SessionListState): { list: SessionListState, enumerations: () => number } {
+  let enumerations = 0
+  const byId = new Proxy(list.byId, {
+    ownKeys: (target) => {
+      enumerations += 1
+      return Reflect.ownKeys(target)
+    },
+  })
+  return { list: { ...list, byId }, enumerations: () => enumerations }
 }
 
 describe('formatDuration', () => {
@@ -370,6 +406,125 @@ describe('deriveAttention', () => {
       title: 'parent',
       children: [{ id: 'child-1', title: 'child-1' }],
     }])
+  })
+})
+
+describe('deriveAttention child order at scale', () => {
+  it('keeps catalog-first order, the byId-order fallback, dedupe, and absent facts over a full-size list', () => {
+    const parentId = 'parent' as SessionId
+    const parent = sessionRow('parent', {
+      running: true,
+      updatedAt: 1000,
+      catalog: [
+        subagentCatalogEntry('cat-2'),
+        subagentCatalogEntry('cat-1'),
+        // The same child published twice, and a catalog id whose row never
+        // arrived: catalog facts, neither of which adds a second child row.
+        subagentCatalogEntry('cat-2'),
+        subagentCatalogEntry('ghost'),
+      ],
+    })
+    // `byId` enumeration order deliberately disagrees with the catalog, and the
+    // catalog names only two of the four child rows.
+    const rows: SessionRow[] = [
+      parent,
+      subagentRow('retained-1', { parentId, running: true }),
+      subagentRow('cat-1', { parentId, running: true }),
+      subagentRow('retained-2', { parentId }),
+      subagentRow('cat-2', { parentId, running: true }),
+      // A catalog naming another parent's child must not leak that child across.
+      sessionRow('other', { running: true, updatedAt: 900, catalog: [subagentCatalogEntry('cat-1')] }),
+      // Running with no children: the fold carries no `children` key at all,
+      // which is what tells an empty child list apart from no child list.
+      sessionRow('no-children', { running: true, updatedAt: 999 }),
+      // Idle, one running child: a container row, children still ordered.
+      sessionRow('idle-parent', { updatedAt: 998, catalog: [subagentCatalogEntry('idle-child')] }),
+      subagentRow('idle-child', { parentId: 'idle-parent' as SessionId, running: true }),
+      // A child whose parent has no row: no listed row may claim it.
+      subagentRow('orphan', { parentId: 'missing-parent' as SessionId, running: true }),
+    ]
+    const model = deriveAttention(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
+
+    expect(model.running).toEqual([
+      {
+        id: 'parent',
+        title: 'parent',
+        children: [
+          { id: 'cat-2', title: 'cat-2' },
+          { id: 'cat-1', title: 'cat-1' },
+          { id: 'retained-1', title: 'retained-1' },
+        ],
+      },
+      { id: 'no-children', title: 'no-children' },
+      {
+        id: 'idle-parent',
+        title: 'idle-parent',
+        container: true,
+        children: [{ id: 'idle-child', title: 'idle-child' }],
+      },
+      { id: 'other', title: 'other' },
+    ])
+    // The orphan, the settled child, and the filler rows are all absent, and
+    // the childless row contributes no `children` key.
+    expect(model.total).toBe(4)
+    expect(model.running.flatMap(row => row.children?.map(child => child.id) ?? []))
+      .not.toContain('orphan')
+    expect(model.running[1]).not.toHaveProperty('children')
+  })
+
+  it('groups each parent with its own children, catalog order first, across the full list', () => {
+    const parentCount = 250
+    const childCount = 4
+    const rows: SessionRow[] = []
+    const expected: string[] = []
+    for (let p = 0; p < parentCount; p += 1) {
+      const id = `p-${p}`
+      const siblings = Array.from({ length: childCount }, (_, c) => `c-${p}-${c}`)
+      // The catalog publishes the children in the reverse of the order their
+      // rows are written, so a fold reading `byId` order instead would show the
+      // wrong order for every parent at once.
+      const published = [...siblings].reverse()
+      const retained = `c-${p}-retained`
+      rows.push(sessionRow(id, {
+        running: true,
+        catalog: published.map(subagentCatalogEntry),
+      }))
+      // The retained row is written first and the catalog does not know it, so
+      // it may only append, never displace or duplicate a catalog child.
+      rows.push(subagentRow(retained, { parentId: id as SessionId, running: true }))
+      siblings.forEach((childId) => {
+        rows.push(subagentRow(childId, { parentId: id as SessionId, running: true }))
+      })
+      expected.push(`${id}:${[...published, retained].join(',')}`)
+    }
+    const model = deriveAttention(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
+    // Every parent carries exactly its own children: cross-parent leakage,
+    // a missed catalog child, or a stale sibling from another parent would all
+    // break this line.
+    expect(model.running.map(row => `${row.id}:${(row.children ?? []).map(child => child.id).join(',')}`))
+      .toEqual(expected)
+    expect(model.running).toHaveLength(parentCount)
+    expect(model.total).toBe(parentCount)
+  })
+
+  it('enumerates the rows a constant number of times, not once per listed row', () => {
+    const parentId = 'parent' as SessionId
+    const children = Array.from({ length: 8 }, (_, index) => `child-${index}`)
+    const rows: SessionRow[] = [
+      sessionRow('parent', { running: true, catalog: children.map(subagentCatalogEntry) }),
+      ...children.map(childId => subagentRow(childId, { parentId, running: true })),
+    ]
+    const { list, enumerations } = countingById(sessionListOf(scaledList(rows)))
+    const model = deriveAttention(list, sessionStatusOf(rows))
+    // The fold still reports the same rows and the same children: this spec
+    // guards work done, not the order contract the specs above already pin.
+    expect(model.running).toHaveLength(1)
+    expect(model.running[0]?.children).toHaveLength(children.length)
+
+    // Finding one parent's children by rescanning every row costs one
+    // enumeration per listed row — `LIST_SIZE` of them. A fold that groups the
+    // rows once pays a small constant, whatever the list size.
+    expect(enumerations()).toBeLessThan(10)
   })
 })
 
