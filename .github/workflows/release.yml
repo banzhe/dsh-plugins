@@ -16,8 +16,6 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    outputs:
-      has_unpublished: ${{ steps.detect.outputs.has_unpublished }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -29,31 +27,47 @@ jobs:
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test
-      - name: Detect unpublished versions
-        id: detect
+
+  # Changesets opens (or updates) a "Version Packages" PR when unreleased changesets
+  # exist on master. Merging that PR bumps versions and CHANGELOGs; the publish job
+  # below runs only when there is nothing left to version.
+  version:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Decide before changesets/action runs: it consumes the changeset files while
+      # versioning, so checking afterwards would wrongly report "nothing pending".
+      - name: Detect pending changesets
+        id: pending
         run: |
           set -euo pipefail
-          pending=0
-          for pkg in plugins/*/; do
-            pkg=${pkg%/}
-            name=$(node -p "require('./$pkg/package.json').name")
-            version=$(node -p "require('./$pkg/package.json').version")
-            if [ "$(pnpm view "$name@$version" version 2>/dev/null)" = "$version" ]; then
-              echo "already published: $name@$version"
-              continue
-            fi
-            echo "unpublished: $name@$version"
-            pending=1
-          done
-          if [ "$pending" = 1 ]; then
-            echo "has_unpublished=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_unpublished=false" >> "$GITHUB_OUTPUT"
-          fi
+          count=$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l)
+          echo "has_changesets=$([ "$count" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+      - uses: changesets/action@v1
+        if: steps.pending.outputs.has_changesets == 'true'
+        with:
+          version: pnpm changeset version
+          commit: 'chore: version packages'
+          title: 'chore: version packages'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    outputs:
+      has_changesets: ${{ steps.pending.outputs.has_changesets }}
 
   publish:
-    needs: verify
-    if: needs.verify.outputs.has_unpublished == 'true'
+    needs: version
+    if: needs.version.outputs.has_changesets == 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: npm-publish
@@ -83,11 +97,14 @@ jobs:
               test -e "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
             done <<< "$shipped"
           done
-      # pnpm skips versions already on the registry, so this publishes exactly the
-      # bumped plugins whether a commit bumped one or several.
-      # No --tag: every version here is a prerelease that must stay reachable as
-      # `dsh plugin add @banzhe/dsh-<name>`, which resolves the `latest` tag.
-      - name: Publish unreleased versions
+      # Publish only versions missing from the registry. pnpm (not changeset publish)
+      # is used so `catalog:` is rewritten and --provenance is applied.
+      # No --tag: every version must stay reachable as `dsh plugin add @banzhe/dsh-<name>`,
+      # which resolves the `latest` tag.
+      # Auth: npm trusted publishing (OIDC, via id-token: write) when the npm package has
+      # this workflow configured as a trusted publisher. NPM_TOKEN is a fallback only;
+      # remove it once OIDC publishing is verified.
+      - name: Publish unpublished versions
         run: pnpm -r --filter "./plugins/*" publish --access public --provenance --no-git-checks --report-summary
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

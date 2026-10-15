@@ -8,15 +8,10 @@ packages:
 catalogMode: strict
 
 # 统一管理依赖版本：devDependencies 用 "catalog:" 引用，升级只改这里。
-# 所有 @deepseek-ai/dsh-* 固定为同一个 DSH 版本，不使用 caret，避免各插件解析到不同版本。
 #
-# peerDependencies 不能写 "catalog:"：DSH 在 Profile 组装阶段用 semver.satisfies
-# 校验 peerDependencies 里的 @deepseek-ai/dsh-* 范围，"catalog:" 不是合法范围，
-# 会让整个 Bundle 被静默 skip。所以 peerDependencies 写显式版本（见各 plugins/*/package.json）。
-#
-# 注意：peerDependencies 写固定版本意味着 DSH 每发一个版本都要同步重发所有插件，
-# 否则它们在新版本上会被整个 skip。升级 DSH 时必须同时改三处：本文件的 catalog、
-# 各 package.json 的 peerDependencies、以及各 package.json 的自身 version。
+# peerDependencies 不写 "catalog:"，而是 caret 范围（见 AGENTS.md「Versioning and releases」）。
+# DSH 用 semver.satisfies 校验 peerDependencies，"catalog:" 不是合法范围。
+# 只有 DSH 版本不兼容且插件已适配时，才修改对应 package.json 的 peerDependencies。
 catalog:
   '@deepseek-ai/cordis': 4.0.5-alpha.1
   '@deepseek-ai/dsh-agent': 0.2.1-alpha.2
@@ -66,6 +61,7 @@ catalog:
   vitest: ^4.1.8
   zod: 4.4.3
   zustand: ~4.4.7
+  '@changesets/cli': ^2.31.1
 
 minimumReleaseAgeExclude:
   # 插件必须能立刻安装刚发布的 DSH 版本，等待 release age 会让固定版本装不上。

@@ -16,6 +16,7 @@
     "typecheck": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" typecheck"
   },
   "devDependencies": {
+    "@changesets/cli": "catalog:",
     "@types/node": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",

@@ -68,7 +68,7 @@ Done when `$DSH_HOME/profiles/web` lists `@banzhe/dsh-<name>` in `dsh.profile.bu
     "bundle": { "patch": "./cordis.patch.yml" }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "catalog:"
+    "@deepseek-ai/cordis": "^4.0.5-alpha.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "catalog:",
@@ -78,9 +78,9 @@ Done when `$DSH_HOME/profiles/web` lists `@banzhe/dsh-<name>` in `dsh.profile.bu
 }
 ```
 
-Add further `@deepseek-ai/dsh-*` packages as **peer + dev**, never as `dependencies`. Runtime modules come from the DSH install tree.
+Add further `@deepseek-ai/dsh-*` packages as **peer + dev**, never as `dependencies`. Runtime modules come from the DSH install tree. Peer ranges are caret ranges matching the DSH version the plugin was built against, not `catalog:` (pnpm publish does not expand `catalog:` in peers).
 
-Always write `"catalog:"` instead of a version range: versions live in the root `pnpm-workspace.yaml` `catalog:` block. If the package is missing from that catalog, add one line there first. `pnpm publish`/`pnpm pack` replace `catalog:` with the real range, so published manifests are unaffected.
+`devDependencies` use `"catalog:"`: versions live in the root `pnpm-workspace.yaml` `catalog:` block. If the package is missing from that catalog, add one line there first.
 
 ### `tsconfig.json`
 
