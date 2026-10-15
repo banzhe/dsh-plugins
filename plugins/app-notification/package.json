@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-app-notification",
-  "version": "0.2.1-alpha.2.2",
+  "version": "0.2.1",
   "description": "Project finished-unread Sessions onto the installed-PWA icon badge and raise one system notification per completion",
   "repository": {
     "type": "git",

@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-agent-preset-fallback",
-  "version": "0.2.1-alpha.2.1",
+  "version": "0.2.1",
   "description": "Fall back to the deployment default agent preset when a stored or requested preset no longer resolves, so stranded sessions compose instead of failing creation",
   "repository": {
     "type": "git",
