@@ -16,7 +16,6 @@
  * type-only, so the shipped browser bundle has no runtime imports beyond React.
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { CopySessionIdInjected } from '../src/client/CopySessionIdMenuItem.tsx'
 
 /** Registration options as this plugin passes them. */
 export interface SlotRegisterOptions {
@@ -74,15 +73,10 @@ export class SlotsDouble extends Service {
     return this.entries.get(id)
   }
 
-  /**
-   * The injected business face of one row id. Throws when absent, so a spec
-   * cannot silently assert against an unregistered row. Typed as the plugin's
-   * own injected face rather than `Record<string, …>`, which would make every
-   * member `| undefined` under `noUncheckedIndexedAccess`.
-   */
-  injection(id: string): CopySessionIdInjected {
+  /** The injected business face of one row id. Throws when absent. */
+  injection(id: string): Record<string, (...args: never[]) => unknown> {
     const found = this.entries.get(id)
     if (found === undefined) throw new Error(`no live slot registration "${id}"`)
-    return found.injected as unknown as CopySessionIdInjected
+    return found.injected
   }
 }

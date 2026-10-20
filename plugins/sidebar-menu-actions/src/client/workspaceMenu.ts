@@ -40,9 +40,9 @@ const VSCODE_APP_ID = 'vscode'
  */
 const CODE_GLYPH = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5"/></svg>'
 
-/** What the injected row needs from its owner: copy, label, path, and failure surface. */
+/** What the injected row needs from its owner: label, path, and failure surface. */
 export interface WorkspaceMenuOptions {
-  /** Translate a dictionary key of the plugin namespace (toast copy included). */
+  /** Translate a dictionary key of the plugin namespace. */
   t: (key: MenuActionsKey, params?: Record<string, unknown>) => string
   /** Canonical directory of a Workspace, or undefined when the row's id is gone. */
   pathOf: (workspaceId: string) => string | undefined

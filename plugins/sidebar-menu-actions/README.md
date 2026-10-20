@@ -1,14 +1,7 @@
 # @banzhe/dsh-sidebar-menu-actions
 
-Web Client plugin: two sidebar row-menu contributions.
+Web Client plugin: a Workspace row-menu contribution.
 
-- **Session "..." menu** — a `sidebar.workspaces.session.menu.item` slot entry
-  (id `sidebar-menu-actions.copy-session-id`, order 500, after the shipped
-  pin/rename/fork/archive) that copies the row's Session ID to the clipboard
-  and closes the menu. Success and failure each raise one notice through the
-  shipped `Toast` banner (top-center, `role="alert"`), mounted by this plugin's
-  `shell.overlay` entry `sidebar-menu-actions.notice`. Registered
-  unconditionally.
 - **Workspace "..." menu** — this menu ships with **no slot** (ui-workspace
   hard-codes rename/delete), so the plugin grafts one row into the open portal
   menu by DOM: **Open in VS Code** (`在 VS Code 中打开`), inserted between
@@ -77,10 +70,6 @@ menu (Session rows key `data-row-key="session:..."`, which never matches).
 - Launch failures (non-2xx or rejected fetch) show
   `toast.vscodeFailed` with the HTTP status or error message, after the menu
   has closed.
-- The clipboard write goes through ui-primitives' `writeClipboard` (async
-  Clipboard API, `execCommand('copy')` fallback); it never throws, so a refused
-  write is the only failure and shows `toast.copyFailed` plus the log line
-  `sidebar-menu-actions: copy session id failed: the clipboard refused the write`.
 - Notices are the shipped `Toast` primitive rendered by the plugin's
   `shell.overlay` entry: one at a time, each replacing the last, and a repeat
   of the same text restarts the banner rather than extending it. The plugin

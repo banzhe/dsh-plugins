@@ -1,10 +1,7 @@
 /**
- * Sidebar-menu browser half: two row-menu contributions over one locale
+ * Sidebar-menu browser half: a Workspace row-menu contribution over one locale
  * namespace and one notice surface.
  *
- * - **Copy session ID** — an ordinary `sidebar.workspaces.session.menu.item`
- *   slot entry (order 500: after the shipped pin/rename/fork/archive at
- *   100–400). Registered unconditionally: it needs nothing from the Host.
  * - **Open a Workspace in VS Code** — DOM graft into the Workspace "..." menu,
  *   which ships with **no slot**. Arms only after `GET open-in-app/apps`
  *   resolves `vscode`; otherwise the whole half stays inert. See
@@ -18,19 +15,12 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { useSyncExternalStore } from 'react'
-// Runtime platform external (see tsdown.config.ts): the shell seeds this module.
-import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the ctx.locale service merge (register/bind).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the ctx.slots SlotRegistry service merge.
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: Context.workspaces (IWorkspaces) service merge — `pathOf` reads its snapshot.
 import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
-// Type-only: the session.menu.item SlotMap entry + `GlobalStandardProps` seat
-// the composed row props resolve against.
-import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import { CopySessionIdMenuItem, type CopySessionIdInjected } from './CopySessionIdMenuItem.tsx'
 import { NoticeToast, type NoticeToastInjected } from './NoticeToast.tsx'
 import { createNoticeStore, type Notice } from './noticeStore.ts'
 import { en, NS, zh, type MenuActionsKey } from './locales.ts'
@@ -78,31 +68,6 @@ export function apply(ctx: Context): void {
   const pathOf = (workspaceId: string): string | undefined =>
     ctx.workspaces.list.getSnapshot().items
       .find(item => String(item.workspaceId) === workspaceId)?.path
-
-  /** Clipboard write answering itself: success and failure each raise one notice. */
-  const copy = async (sessionId: string): Promise<void> => {
-    if (await writeClipboard(sessionId)) {
-      showToast(t('toast.copied'))
-      return
-    }
-    // The helper never throws, so a refused write is the only failure there is.
-    console.warn('sidebar-menu-actions: copy session id failed: the clipboard refused the write')
-    showToast(t('toast.copyFailed'))
-  }
-  // The injected face declares `copy` as void, but handing over the async
-  // function itself is what lets a spec await the notice update inside `act()`
-  // (tests/browser-plugin.spec.ts reads the returned promise).
-  // oxlint-disable-next-line typescript/no-misused-promises
-  const copyInjected = (): CopySessionIdInjected => ({ copy })
-
-  // Slot registration waits for ui-workspace's declaration; the entry leaves with it.
-  ctx.slots.inject('sidebar.workspaces.session.menu.item', () => ctx.slots.register({
-    name: 'sidebar.workspaces.session.menu.item',
-    id: 'sidebar-menu-actions.copy-session-id',
-    order: 500,
-    locale: NS,
-    inject: copyInjected,
-  }, CopySessionIdMenuItem))
 
   // Workspace-menu half: probe first, install only on a positive answer, and
   // tear the listeners down with the fiber — whichever side settles first.

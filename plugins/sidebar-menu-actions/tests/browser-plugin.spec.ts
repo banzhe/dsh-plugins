@@ -11,44 +11,23 @@
  * snapshot carries (the POST fires) and one it does not (no request at all).
  */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
-import { act, createElement, type ComponentType } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
+import { act } from 'react'
+import type { Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
-import type { NoticeToastInjected, NoticeToastProps } from '../src/client/NoticeToast.tsx'
 import { name as nodeName } from '../src/index.ts'
 import {
   appendWorkspaceRow, armPointer, buildMenu, flush, injectedButton, recordKeys, viewportRows,
 } from './fixtures.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
-import { translateEn as t } from './translate.ts'
 import { workspacesDouble } from './workspaces-double.ts'
 
-const COPY_ROW = 'sidebar-menu-actions.copy-session-id'
 const NOTICE = 'sidebar-menu-actions.notice'
-const SESSION_ID = 'sess-42'
-
-/** The shipped console line a refused clipboard write logs, reason included. */
-const REFUSED = 'sidebar-menu-actions: copy session id failed: the clipboard refused the write'
 
 const WORKSPACES = [{ workspaceId: 'ws-1', path: '/ws/alpha' }]
-
-/**
- * The notice entry ignores these, but the composed props type requires them:
- * ui-session and ui-workspace merge `GlobalStandardProps` onto every slot key,
- * so a fixture cast must supply all four selectors or the entry's own props type
- * rejects the cast.
- */
-const STANDARD_PROPS = {
-  useSessions: (() => {}) as never,
-  useSessionStatus: (() => {}) as never,
-  useSessionRetainInfo: (() => {}) as never,
-  useWorkspaces: (() => {}) as never,
-}
 
 let fibers: Fiber[] = []
 let roots: Root[] = []
@@ -78,38 +57,6 @@ function stubApps(apps: readonly string[] = ['vscode']): ReturnType<typeof vi.fn
   const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ apps }) }))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
-}
-
-async function mountNotice(slots: SlotsDouble): Promise<HTMLElement> {
-  const entry = slots.entry(NOTICE)
-  if (entry === undefined) throw new Error('the notice entry was not registered')
-  const host = document.createElement('div')
-  document.body.append(host)
-  const root = createRoot(host)
-  roots.push(root)
-  await act(async () => {
-    // The registration boundary is where these casts belong: the recorded
-    // component IS the notice entry and the recorded face IS its inject face.
-    const component = entry.component as ComponentType<NoticeToastProps>
-    const face = entry.injected as unknown as NoticeToastInjected
-    root.render(createElement(component, { t, ...STANDARD_PROPS, ...face }))
-  })
-  return host
-}
-
-/** The banner currently on screen, or a failure when the notice never rendered. */
-function banner(host: HTMLElement): HTMLElement {
-  const found = host.querySelector<HTMLElement>('[data-toast]')
-  if (found === null) throw new Error('no notice is mounted')
-  return found
-}
-
-async function copy(slots: SlotsDouble): Promise<void> {
-  // The injected face declares `copy` as void; its implementation is async, so
-  // awaiting the same promise inside act() settles the notice update there.
-  // oxlint-disable-next-line typescript/no-confusing-void-expression
-  const pending = slots.injection(COPY_ROW).copy(SESSION_ID)
-  await act(async () => { await Promise.resolve(pending) })
 }
 
 async function graftedRow(workspaceId: string): Promise<HTMLButtonElement> {
@@ -148,20 +95,6 @@ afterEach(async () => {
 })
 
 describe('sidebar-menu-actions browser half', () => {
-  it('registers the copy row with the slot contract the renderer reads', async () => {
-    stubApps()
-    vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
-    const { slots } = await bench()
-    await flush()
-    const entry = slots.entry(COPY_ROW)
-    expect(entry).toBeDefined()
-    expect(entry?.options.name).toBe('sidebar.workspaces.session.menu.item')
-    expect(entry?.options.order).toBe(500)
-    expect(entry?.options.locale).toBe(NS)
-    expect(entry?.component).toBeTypeOf('function')
-    expect(slots.injection(COPY_ROW).copy).toBeTypeOf('function')
-  })
-
   it('registers the notice entry on the shell overlay seat', async () => {
     stubApps()
     const { slots } = await bench()
@@ -175,47 +108,25 @@ describe('sidebar-menu-actions browser half', () => {
     expect(entry?.injected.dismiss).toBeTypeOf('function')
   })
 
-  it('writes the session id to the clipboard and raises the copied notice', async () => {
-    stubApps()
-    const write = vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
-    const { slots } = await bench()
-    const host = await mountNotice(slots)
-    await copy(slots)
-    expect(write).toHaveBeenCalledWith(SESSION_ID)
-    expect(banner(host).textContent).toBe(en['toast.copied'])
-  })
-
-  it('reports a refused clipboard write through the console and the failure notice', async () => {
-    stubApps()
-    vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(false)
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { slots } = await bench()
-    const host = await mountNotice(slots)
-    await copy(slots)
-    expect(warn).toHaveBeenCalledWith(REFUSED)
-    expect(banner(host).textContent).toBe(en['toast.copyFailed'])
-  })
-
   it('registers both dictionaries and releases them with the fiber', async () => {
     stubApps()
     const { ctx, fiber } = await bench()
     await flush()
     const translate = ctx.locale.bind(NS)
     ctx.locale.setLocale('zh')
-    expect(translate('menu.copySessionId')).toBe(zh['menu.copySessionId'])
+    expect(translate('menu.openInVscode')).toBe(zh['menu.openInVscode'])
     ctx.locale.setLocale('en')
-    expect(translate('menu.copySessionId')).toBe(en['menu.copySessionId'])
+    expect(translate('menu.openInVscode')).toBe(en['menu.openInVscode'])
     await fiber.dispose()
-    expect(translate('menu.copySessionId')).toBe('menu.copySessionId')
+    expect(translate('menu.openInVscode')).toBe('menu.openInVscode')
   })
 
-  it('stays inert on a Host without VS Code, but keeps both entries', async () => {
+  it('stays inert on a Host without VS Code, but keeps the notice entry', async () => {
     stubApps([])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { slots } = await bench()
     await flush()
     expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: VS Code is not available on this host; the workspace menu item stays disabled')
-    expect(slots.entry(COPY_ROW)).toBeDefined()
     expect(slots.entry(NOTICE)).toBeDefined()
     // Nothing listens: the same arm and menu an installed half would answer.
     const row = appendWorkspaceRow('ws-1')
@@ -241,7 +152,7 @@ describe('sidebar-menu-actions browser half', () => {
       body: JSON.stringify({ app: 'vscode', path: '/ws/alpha' }),
     })
     expect(keys).toEqual(['Escape'])
-    expect(slots.entry(COPY_ROW)).toBeDefined()
+    expect(slots.entry(NOTICE)).toBeDefined()
   })
 
   it('dismisses the menu without a request when the row’s workspace is gone', async () => {
@@ -287,9 +198,8 @@ describe('sidebar-menu-actions browser half', () => {
     await flush()
     expect(viewportRows(liveMenu)).toBe(3)
     await fiber.dispose()
-    expect(slots.entry(COPY_ROW)).toBeUndefined()
     expect(slots.entry(NOTICE)).toBeUndefined()
-    expect(ctx.locale.bind(NS)('toast.copied')).toBe('toast.copied')
+    expect(ctx.locale.bind(NS)('toast.vscodeFailed', { detail: 'x' })).toBe('toast.vscodeFailed')
     // Both listeners and the observer left with the fiber: a fresh arm grafts nothing.
     const row = appendWorkspaceRow('ws-2')
     armPointer(row.trigger)
