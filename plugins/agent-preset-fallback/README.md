@@ -1,43 +1,42 @@
-# Agent preset fallback
+# @banzhe/dsh-agent-preset-fallback
 
-Fall back to the deployment default agent preset when a stored or requested
-preset no longer exists, instead of failing session creation.
+Falls back to the deployment default agent preset when a stored or requested preset no longer exists, instead of failing session creation.
 
-## What it fixes
+[中文版](./README.zh-CN.md)
 
-A blank session that a workspace reuses remembers the agent preset it was
-composed with (`agentPreset` in the session header/projection). When that
-preset's declaration is later removed — a Bundle upgrade dropping it, an edited
-profile patch rename, a plugin uninstall — reusing the stranded blank session
-runs `composeAgent(storedPreset)`, whose `resolve` rejects with
-`agent-preset/not-found`; the whole `session/create` then fails and the Web UI
-only shows a generic "create failed" notice. Restarting the host has the same
-effect on any session recorded with a preset that is now gone.
+A Host-side [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for every profile that creates sessions.
 
-## Mechanism
+## Features
 
-`agentPresets` admits exactly one provider, so the registry singleton cannot be
-re-provided; and `mount` reaches `retain` through `this.retain`, so only an own
-property on the singleton intercepts both external readers (the session
-controller's `resolve`) and the registry's internal dispatch. The plugin writes
-instance-level `resolve`/`retain` wrappers that, for `agent-preset/not-found`
-and `agent-preset/invalid` on a non-default id, retry against the current
-default. A guarded uninstall deletes the own properties and restores the
-prototype methods.
+- A blank session that remembers an agent preset which was later removed still composes, on the deployment default.
+- Covers both paths that resolve a preset: the session controller's `resolve` and the registry's internal `retain` dispatch.
+- Rescues only `agent-preset/not-found` and `agent-preset/invalid` on a non-default id. `agent-preset/locked`, foreign errors, and the default id itself propagate untouched.
+- Uninstalling restores the registry's own methods.
 
-Codes outside the rescue set (`agent-preset/locked`, foreign errors) and the
-default id itself (whose absence would otherwise recurse) propagate untouched.
+## Install
 
-## Profile
-
-Host-side. Meant for every profile that creates sessions; installed with:
+### From npm
 
 ```sh
+dsh plugin --profile web add @banzhe/dsh-agent-preset-fallback
+```
+
+### From a local checkout
+
+```sh
+pnpm install
+pnpm --filter @banzhe/dsh-agent-preset-fallback build
 dsh plugin --profile web add ./plugins/agent-preset-fallback
 ```
 
-## Test
+Restart `dsh web` after installing or rebuilding — this Bundle has no client half, and its host half is loaded once at activation. Do not assume HMR.
+
+Remove with:
 
 ```sh
-pnpm --filter @banzhe/dsh-agent-preset-fallback test
+dsh plugin --profile web remove @banzhe/dsh-agent-preset-fallback
 ```
+
+## Docs
+
+Implementation notes: [`docs/plugins/agent-preset-fallback.md`](https://github.com/banzhe/dsh-plugins/blob/master/docs/plugins/agent-preset-fallback.md).

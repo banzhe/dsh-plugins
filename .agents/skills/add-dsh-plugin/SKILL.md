@@ -134,7 +134,31 @@ Add `inject` when the Plugin waits on a service. Add a Schemastery `Config` expo
 
 ### `README.md`
 
-English. What the Bundle contributes, which Profile it is meant for, and the install command.
+English. Two sections only: what the Bundle contributes, and how to install it.
+Which Profile it is meant for belongs in the contribution section.
+
+Install covers both routes: `dsh plugin --profile <name> add @banzhe/dsh-<name>`
+(npm) and a local checkout (`pnpm install`, `pnpm --filter … build`, then
+`dsh plugin --profile <name> add ./plugins/<name>`), each with its removal
+command.
+
+Implementation notes, design rationale, and known limitations go to
+`docs/plugins/<name>.md`, not here.
+
+Two sections stay in the README whatever else moves out, because `docs/` is not
+published to npm and no package here carries a `license` field or a `LICENSE`
+file:
+
+- **Credits** — when the Bundle derives from someone else's work. Name the source,
+  its license, and its copyright holder.
+- **License** — the Bundle's own (`MIT`).
+
+### `README.zh-CN.md`
+
+The Chinese counterpart of `README.md`: the same sections, translated, with a
+`[English](./README.md)` link at the top. `README.md` carries the matching
+`[中文版](./README.zh-CN.md)` link. Translate the Credits and License headings too
+(`致谢` / `许可`) and keep the license name itself as `MIT`.
 
 ## Guardrails
 

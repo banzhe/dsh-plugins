@@ -1,8 +1,9 @@
 /**
  * Shared DOM fixtures and driving gestures for the workspace-menu specs.
  *
- * Everything here is built strictly from the README's DOM contract table, so a
- * DSH upgrade that moves the DOM must fail these tests.
+ * Everything here is built strictly from the DOM contract table in
+ * `docs/plugins/sidebar-menu-actions.md`, so a DSH upgrade that moves the DOM
+ * must fail these tests.
  */
 
 /** Await one macrotask so MutationObserver callbacks (and probe chains) run. */

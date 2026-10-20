@@ -6,8 +6,9 @@
  * and graft one button into the list, cloned off the shipped rename row so it
  * joins the Menu primitive's styling, keyboard walk, and focus return untouched.
  *
- * The DOM contract this code reads is the README's "DOM contract" table; the
- * tests build fixtures from the same description.
+ * The DOM contract this code reads is the "DOM contract" table in
+ * `docs/plugins/sidebar-menu-actions.md`; the tests build fixtures from the same
+ * description.
  *
  * Closing goes through the primitive's own Escape listener, so the menu settles
  * exactly like the keyboard.

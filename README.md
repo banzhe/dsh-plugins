@@ -2,15 +2,31 @@
 
 Personal DeepSeek Harness plugins. Each directory under `plugins/` is one installable [Bundle](./CONTEXT.md).
 
+[中文版](./README.zh-CN.md)
+
 ## Layout
 
 ```
 plugins/<name>/                         # one Bundle: @banzhe/dsh-<name>
 .agents/skills/add-dsh-plugin/          # how to add a plugin
+docs/plugins/<name>.md                  # per-plugin implementation notes
 CONTEXT.md                              # glossary
 ```
 
-`plugins/` is empty until the first plugin lands.
+## Plugins
+
+| Plugin | What it contributes |
+| --- | --- |
+| `agent-preset-fallback` | Falls back to the deployment default agent preset when a stored or requested preset is gone, instead of failing session creation |
+| `agent-preset-per-workspace` | Remembers the agent preset picked by hand in each workspace and composes that workspace's next session with it |
+| `app-notification` | Projects the finished-unread Session count onto the installed PWA's icon badge and raises one system notification per completion |
+| `file-link-open` | Right-click a file link in a session message to open it in an editor/IDE, open its containing folder, or copy its path |
+| `git` | Right-sidebar Git panel: the session workspace's changed files, committed with the message you type |
+| `plan-toggle` | Toggles plan mode from the Composer with `Shift+Tab` |
+| `session-attention` | `shell.overlay` panel listing running and finished-unread Sessions, with click-to-jump |
+| `session-title-rules` | Rules-based Session title provider (`emoji 主题`) replacing the built-in first-prompt provider |
+| `sidebar-menu-actions` | Workspace row-menu extension: inserts **Open in VS Code** into the Workspace "..." menu |
+| `web-icons` | Serves the Web launcher icon set (favicon, PWA manifest icons, apple-touch-icon) from a Bundle-owned snapshot |
 
 ## Add a plugin
 

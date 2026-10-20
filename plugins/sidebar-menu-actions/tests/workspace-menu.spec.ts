@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 /**
  * `workspaceMenu.ts`'s observable contract, driven through the shared DOM
- * fixtures (README "DOM contract"). Most of the coverage here is the negative
+ * fixtures (`docs/plugins/sidebar-menu-actions.md`, "DOM contract"). Most of the
+ * coverage here is the negative
  * side, because that is where the regressions live: which gestures and targets
  * must NOT arm, when the graft must NOT happen, and the guards that keep the
  * arm from leaking into another row's menu.
