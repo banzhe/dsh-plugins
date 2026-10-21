@@ -17,7 +17,6 @@ CONTEXT.md                              # glossary
 
 | Plugin | What it contributes |
 | --- | --- |
-| `agent-preset-fallback` | Falls back to the deployment default agent preset when a stored or requested preset is gone, instead of failing session creation |
 | `agent-preset-per-workspace` | Remembers the agent preset picked by hand in each workspace and composes that workspace's next session with it |
 | `app-notification` | Projects the finished-unread Session count onto the installed PWA's icon badge and raises one system notification per completion |
 | `file-link-open` | Right-click a file link in a session message to open it in an editor/IDE, open its containing folder, or copy its path |

@@ -17,7 +17,6 @@ CONTEXT.md                              # 术语表
 
 | 插件 | 功能 |
 | --- | --- |
-| `agent-preset-fallback` | 存储或请求的 agent preset 已不存在时，回退到部署默认 preset，而不是让会话创建失败 |
 | `agent-preset-per-workspace` | 记住每个工作区里手动选过的 agent preset，该工作区的下一个会话沿用 |
 | `app-notification` | 把「已完成未读」会话数投影到已安装 PWA 的图标角标，并在会话完成时发一条系统通知 |
 | `file-link-open` | 右键会话消息里的文件链接：用编辑器/IDE 打开、打开所在目录、复制相对/绝对路径 |

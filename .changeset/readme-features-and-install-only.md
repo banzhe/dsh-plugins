@@ -1,5 +1,4 @@
 ---
-'@banzhe/dsh-agent-preset-fallback': patch
 '@banzhe/dsh-agent-preset-per-workspace': patch
 '@banzhe/dsh-app-notification': patch
 '@banzhe/dsh-file-link-open': patch

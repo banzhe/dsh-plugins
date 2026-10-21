@@ -1,3 +1,0 @@
-- insert:
-    - id: agent-preset-fallback
-      name: '@banzhe/dsh-agent-preset-fallback'
