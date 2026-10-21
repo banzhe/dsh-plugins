@@ -15,6 +15,7 @@ import { en, NS, zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { parentWithChildren, sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
+import { workspaceSource, type WorkspaceSource } from './workspace-source-double.ts'
 
 const ENTRY = 'session-attention.panel'
 const PLUGIN_ID = '@banzhe/dsh-session-attention'
@@ -34,21 +35,23 @@ interface Bench {
   readonly fiber: Fiber
   readonly slots: SlotsDouble
   readonly surface: SessionSources
+  readonly workspaces: WorkspaceSource
   readonly openSession: ReturnType<typeof vi.fn>
   readonly refreshProjections: ReturnType<typeof vi.fn<(sessionId: string) => Promise<void>>>
   /** Live source subscriptions this bench's wrappers have handed out. */
-  readonly counts: { list: number; status: number }
+  readonly counts: { list: number; status: number; workspaces: number }
 }
 
 /**
- * Boot the browser half over a context providing the five injected services.
- * Both Session sources are wrapped so the spec can prove the store lets them go
- * when the fiber unloads; everything else is the real plugin code.
+ * Boot the browser half over a context providing the six injected services.
+ * Every source is wrapped so the spec can prove the store lets them go when the
+ * fiber unloads; everything else is the real plugin code.
  */
 async function bench(rows: readonly SessionRow[] = []): Promise<Bench> {
   const surface = sessionSources(rows)
-  const counts = { list: 0, status: 0 }
-  const counted = <T>(source: { getSnapshot: () => T; subscribe: (fn: () => void) => () => void }, key: 'list' | 'status') => ({
+  const workspaces = workspaceSource()
+  const counts = { list: 0, status: 0, workspaces: 0 }
+  const counted = <T>(source: { getSnapshot: () => T; subscribe: (fn: () => void) => () => void }, key: keyof typeof counts) => ({
     getSnapshot: () => source.getSnapshot(),
     subscribe: (fn: () => void) => {
       counts[key] += 1
@@ -68,13 +71,14 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Bench> {
   } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: counted(surface.status, 'status') } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
+  ctx.provide('workspaces', { list: counted(workspaces.source, 'workspaces') } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
   fibers.push(fiber)
-  return { ctx, fiber, slots, surface, openSession, refreshProjections, counts }
+  return { ctx, fiber, slots, surface, workspaces, openSession, refreshProjections, counts }
 }
 
 /** Rejection handlers and the retry they start both run as microtasks. */
@@ -163,23 +167,25 @@ describe('session-attention browser half', () => {
     expect(css).toMatch(/--dsw-elevation-stroke-color:\s*transparent/)
   })
 
-  it('follows both sources and releases them with the fiber', async () => {
+  it('follows all three sources and releases them with the fiber', async () => {
     const b = await bench([sessionRow('a', { running: true })])
-    // The store follows the list, and the duration column follows it again so
-    // a Session that arrives without a prompt-time projection still gets a read.
-    expect(b.counts).toEqual({ list: 2, status: 1 })
+    // The store follows the list, the duration column follows it again so a
+    // Session that arrives without a prompt-time projection still gets a read,
+    // and the archive set gets its own subscription beside them.
+    expect(b.counts).toEqual({ list: 2, status: 1, workspaces: 1 })
     // The store is live: a status push recomputes without throwing.
     b.surface.update((draft) => {
       draft.byId['a' as never] = sessionRow('a', { completed: true })
     })
     await retire(b)
-    expect(b.counts).toEqual({ list: 0, status: 0 })
+    expect(b.counts).toEqual({ list: 0, status: 0, workspaces: 0 })
     // A later source update reaches nothing: the entry is gone and the store
-    // has let go of both subscriptions.
+    // has let go of every subscription.
     b.surface.update((draft) => {
       draft.ids.push('b' as never)
       draft.byId['b' as never] = sessionRow('b', { running: true })
     })
+    b.workspaces.setArchived('a')
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

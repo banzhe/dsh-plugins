@@ -23,6 +23,7 @@ Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle，适�
 - **Escape** 与面板的关闭按钮都能关闭它；打开状态只存在内存中（刷新后回到关闭态）。
 - 所有状态颜色都取自 `ui-theme` token，没有一个手写。在 `prefers-reduced-motion` 下光晕停止动画但保留圆环。
 - 子代理不作为独立面板行，也不计入角标；空白的新建会话占位同样被排除。
+- 已归档的会话不显示，即使宿主仍把它报告为进行中或已完成未读；它们也不计入角标。
 - 文案跟随应用语言（`session-attention` 命名空间，zh/en）。
 
 ## 安装

@@ -20,6 +20,7 @@ import {
   type SessionRow, type SessionSources,
 } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
+import { workspaceSource } from './workspace-source-double.ts'
 
 const ENTRY = 'session-attention.panel'
 
@@ -67,7 +68,7 @@ interface Harness {
   update(recipe: Parameters<SessionSources['update']>[0]): Promise<void>
 }
 
-/** Boot the browser half over a context providing the five injected services, then mount its entry. */
+/** Boot the browser half over a context providing the six injected services, then mount its entry. */
 async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
   const surface = sessionSources(rows)
   const open = vi.fn()
@@ -78,6 +79,7 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
   } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: open } as never)
+  ctx.provide('workspaces', { list: workspaceSource().source } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)

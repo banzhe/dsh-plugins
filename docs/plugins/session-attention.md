@@ -127,9 +127,18 @@ actionable fact.
 - The durations are formatted from client wall-clock time, never localized
   through the namespace: `m:ss` / `h:mm:ss` are read the same everywhere, and
   the `row.open` key already carries the row's only locale text.
-- Archived Sessions are not filtered out: an archived Session the host still
-  reports as running or unread stays listed, and opening it works. Filtering
-  would mean reading ui-workspace's internal archive set.
+- Archived Sessions never list, whatever the host still reports about them. The
+  archive set is registry-global (`ctx.workspaces.list` →
+  `archivedSessionIds`): a Session the user filed away is not work waiting for a
+  look, so an archived Session the host still reports as running or
+  finished-unread is skipped by both sections, by `waiting`, and by the badge.
+  Archiving does not clear `completionUnread`, so the status map cannot answer
+  this on its own — the set is a third store input with its own subscription,
+  because an archive mutation moves neither the Session list nor the status.
+  The gate applies to the listed row's own id, so a running child under an
+  archived parent does not re-mount it as a container row either. The set is
+  rebuilt only when the controller hands over a new array, which it does on a
+  mutation and not on unrelated snapshot churn.
 - A parent Session whose only activity is a running subagent is listed as a
   container row in the running section (see above); a running parent is
   normally running itself while it delegates.

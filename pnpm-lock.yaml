@@ -450,6 +450,9 @@ importers:
       '@deepseek-ai/dsh-api-session-controller':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(0498296ebec4f2768f3084b7beccaab9)
+      '@deepseek-ai/dsh-api-workspace-controller':
+        specifier: 'catalog:'
+        version: 0.2.1-alpha.2(892f8c87d07ebba393dd51ccb9d339eb)
       '@deepseek-ai/dsh-client-locale':
         specifier: 'catalog:'
         version: 0.2.1-alpha.2(@deepseek-ai/cordis@4.0.5-alpha.1)

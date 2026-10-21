@@ -20,6 +20,8 @@ import type {} from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Type-only: the ctx.uiSession status source merge the store subscribes to.
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+// Type-only: the ctx.workspaces archive source merge the store subscribes to.
+import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: the ctx.uiWorkspace service a row jumps through.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
@@ -29,7 +31,7 @@ import { en, NS, zh } from './locales.ts'
 // sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
 import overlayCss from './overlay.css?inline'
 
-export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'locale', 'slots']
+export const inject = ['sessions', 'uiSession', 'uiWorkspace', 'workspaces', 'locale', 'slots']
 
 /** Plugin id, stamped onto the injected stylesheet for HMR bookkeeping. */
 const PLUGIN_ID = '@banzhe/dsh-session-attention'
@@ -48,7 +50,7 @@ export function apply(ctx: ClientContext): void {
     return () => { tag.remove() }
   }, 'session-attention: overlay stylesheet')
 
-  const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus)
+  const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus, ctx.workspaces.list)
   ctx.effect(() => () => { store.dispose() }, 'session-attention: attention store lifetime')
 
   // The run-duration column counts from `lastPromptAt` for main rows and from
@@ -111,7 +113,8 @@ export function apply(ctx: ClientContext): void {
       // ceremony; if it returns, its claim still holds for that version, so no
       // duplicate read is stacked.
       const snapshot = ctx.sessions.list.getSnapshot()
-      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot())
+      const archived = new Set<SessionId>(ctx.workspaces.list.getSnapshot().archivedSessionIds)
+      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot(), archived)
       // The model rows carry no version (the fold sorts on the inner value);
       // the read version comes from the row the id still has on the list.
       const claimed = (claims: Map<SessionId, number>, id: SessionId): void => {

@@ -35,12 +35,21 @@
  * parent's running row (and an idle parent with a running child is a container
  * row in the running section), carrying no prompt time — a child's work
  * started with the delegation, not with a human prompt the child owns.
+ *
+ * Archived Sessions never list, whatever their status says. The archive set is
+ * registry-global and the sidebar files those rows away: a Session the user put
+ * away is not work waiting for a look, even while the host still reports it
+ * running or finished-unread. Archiving does not clear `completionUnread`, so
+ * the status map cannot answer this on its own — the archive set is a third
+ * input, and it also gates the children: a running child under an archived
+ * parent would otherwise re-mount the row the user just filed away.
  */
 import type {
   SessionListState, SessionProjectionSnapshot, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
@@ -212,14 +221,18 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
 }
 
 /**
- * Fold one list snapshot and one status snapshot into the panel's content:
- * the running and finished-unread sections, each newest first, plus the listed
- * subset of them whose work is blocked on the user. Running subagent children
- * mount under their parent's running row.
+ * Fold one list snapshot, one status snapshot, and the archive set into the
+ * panel's content: the running and finished-unread sections, each newest first,
+ * plus the listed subset of them whose work is blocked on the user. Running
+ * subagent children mount under their parent's running row.
+ *
+ * `archived` is the registry-global archive set: its members never list, and a
+ * running child whose parent is archived never re-mounts that parent.
  */
 export function deriveAttention(
   list: SessionListState,
   status: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId>,
 ): AttentionModel {
   const running: Candidate[] = []
   const unread: Candidate[] = []
@@ -248,8 +261,10 @@ export function deriveAttention(
     // An id may be listed before the Host projects its row (nothing to label).
     if (row === undefined) return
     // Subagent children never appear as panel rows of their own; the
-    // New-Session placeholder is not task work.
-    if (row.origin === 'subagent' || row.blank) return
+    // New-Session placeholder is not task work. An archived Session is filed
+    // away, so it lists nothing either — whatever its running or unread status
+    // still says.
+    if (row.origin === 'subagent' || row.blank || archived.has(id)) return
     const entry = status.get(id)
     // A pending interaction is a live Host request holding the turn open, so a
     // blocked Session is running and has already joined the running section; a
@@ -333,25 +348,43 @@ function sameModel(left: AttentionModel, right: AttentionModel): boolean {
 
 /** Read-only view of the current panel content, plus the plugin's disposer. */
 export interface AttentionStore extends ObservableSnapshot<AttentionModel> {
-  /** Release both source subscriptions and drop every listener. */
+  /** Release every source subscription and drop every listener. */
   dispose(): void
 }
 
+/** Workspace snapshot source (`ctx.workspaces.list`); only its archive set is read. */
+export type AttentionWorkspaceSource = ObservableSnapshot<WorkspaceSnapshot>
+
 /**
- * Keep the attention model in step with both sources.
+ * Keep the attention model in step with all three sources.
  *
  * Subscribes eagerly: the entry is registered unconditionally, so there is no
  * lazy window to preserve. The caller owns the lifetime through {@link
  * AttentionStore.dispose}.
+ *
+ * The archive set gets its own subscription rather than being read incidentally:
+ * archiving moves neither the Session list nor the status, so without it a row
+ * the user just filed away would stay listed until something unrelated changed.
  */
 export function createAttentionStore(
   list: AttentionListSource,
   status: AttentionStatusSource,
+  workspaces: AttentionWorkspaceSource,
 ): AttentionStore {
   const listeners = new Set<() => void>()
-  let model = deriveAttention(list.getSnapshot(), status.getSnapshot())
+  // Rebuilt only when the controller hands over a new archive array, which it
+  // does on an archive mutation and not on unrelated snapshot churn.
+  let archivedCache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
+  const archivedSet = (): ReadonlySet<SessionId> => {
+    const ids = workspaces.getSnapshot().archivedSessionIds
+    if (archivedCache?.ids === ids) return archivedCache.set
+    const set: ReadonlySet<SessionId> = new Set(ids)
+    archivedCache = { ids, set }
+    return set
+  }
+  let model = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet())
   const recompute = (): void => {
-    const next = deriveAttention(list.getSnapshot(), status.getSnapshot())
+    const next = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet())
     if (sameModel(next, model)) return
     model = next
     // A listener may unsubscribe itself mid-loop, so iterate over a snapshot:
@@ -361,6 +394,7 @@ export function createAttentionStore(
   }
   const unsubscribeList = list.subscribe(recompute)
   const unsubscribeStatus = status.subscribe(recompute)
+  const unsubscribeWorkspaces = workspaces.subscribe(recompute)
   return {
     getSnapshot: () => model,
     subscribe: (listener) => {
@@ -370,6 +404,7 @@ export function createAttentionStore(
     dispose: () => {
       unsubscribeList()
       unsubscribeStatus()
+      unsubscribeWorkspaces()
       listeners.clear()
     },
   }

@@ -17,6 +17,19 @@ import {
   parentWithChildren, sessionListOf, sessionRow, sessionSources,
   sessionStatusOf, subagentCatalogEntry, subagentRow,
 } from './session-list-double.ts'
+import { workspaceSource } from './workspace-source-double.ts'
+
+/** No archive set — the default for every spec that is not about archiving. */
+const NONE: ReadonlySet<SessionId> = new Set()
+
+/** Fold a list and a status over an archive set, empty by default. */
+function fold(
+  list: SessionListState,
+  status: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId> = NONE,
+) {
+  return deriveAttention(list, status, archived)
+}
 
 /** One status entry with only the fields this plugin reads. */
 function status(running: boolean | undefined, completed: boolean): SessionStatus {
@@ -90,7 +103,7 @@ describe('deriveAttention', () => {
       sessionRow('finished', { completed: true, updatedAt: 3 }),
       sessionRow('idle', { updatedAt: 9 }),
     ]
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     // Newest first inside each section.
     expect(model.running).toEqual([
       { id: 'newer-run', title: 'newer-run' },
@@ -105,7 +118,7 @@ describe('deriveAttention', () => {
       sessionRow('first', { running: true, updatedAt: 7 }),
       sessionRow('second', { running: true, updatedAt: 7 }),
     ]
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running.map(row => row.id)).toEqual(['first', 'second'])
   })
 
@@ -120,7 +133,7 @@ describe('deriveAttention', () => {
     // Host-list member and must stay out for the same reason.
     list.byId['retained' as SessionId] = sessionRow('retained', { completed: true })
 
-    const model = deriveAttention(list, sessionStatusOf([subagent, blank, projected]))
+    const model = fold(list, sessionStatusOf([subagent, blank, projected]))
     expect(model.running).toEqual([{ id: 'real', title: 'real' }])
     expect(model.unread).toEqual([])
     expect(model.total).toBe(1)
@@ -143,7 +156,7 @@ describe('deriveAttention', () => {
       ['quiet' as SessionId, status(undefined, false)],
       ['both' as SessionId, status(true, true)],
     ])
-    const model = deriveAttention(sessionListOf(rows), statuses)
+    const model = fold(sessionListOf(rows), statuses)
     expect(model.running).toEqual([{ id: 'both', title: 'both' }, { id: 'no-baseline', title: 'no-baseline' }])
     expect(model.unread).toEqual([{ id: 'list-says-running', title: 'list-says-running' }])
     expect(model.total).toBe(3)
@@ -151,7 +164,7 @@ describe('deriveAttention', () => {
 
   it('falls back to the row when the status source knows nothing at all', () => {
     const rows = [sessionRow('running', { running: true })]
-    const model = deriveAttention(sessionListOf(rows), new Map())
+    const model = fold(sessionListOf(rows), new Map())
     expect(model.running).toEqual([{ id: 'running', title: 'running' }])
   })
 
@@ -161,7 +174,7 @@ describe('deriveAttention', () => {
       sessionRow('plain-run', { running: true, updatedAt: 1 }),
       sessionRow('blocked-unread', { completed: true, blocked: true, updatedAt: 3 }),
     ]
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     // `waiting` is read off the listed rows, never a third section: both of its
     // members keep the row the panel renders, and `total` counts each once.
     expect(model.running).toEqual([
@@ -184,7 +197,7 @@ describe('deriveAttention', () => {
     // Host request holding the turn open — so this is the fold's backstop.
     const child = sessionRow('child', { origin: 'subagent', blocked: true })
     const idle = sessionRow('idle', { blocked: true })
-    const model = deriveAttention(sessionListOf([child, idle]), sessionStatusOf([child, idle]))
+    const model = fold(sessionListOf([child, idle]), sessionStatusOf([child, idle]))
     expect(model.waiting).toEqual([])
     expect(model.total).toBe(0)
   })
@@ -197,7 +210,7 @@ describe('deriveAttention', () => {
       ['child-2', {}],
       ['child-3', { completed: true }],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([{
       id: 'parent',
       title: 'parent',
@@ -213,7 +226,7 @@ describe('deriveAttention', () => {
       ['child-1', { running: true }],
       ['child-2', {}],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([{
       id: 'parent', title: 'parent', container: true,
       children: [{ id: 'child-1', title: 'child-1' }],
@@ -226,7 +239,7 @@ describe('deriveAttention', () => {
       ['child-1', { completed: true }],
       ['child-2', {}],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([])
     expect(model.unread).toEqual([])
     expect(model.total).toBe(0)
@@ -235,7 +248,7 @@ describe('deriveAttention', () => {
   it('falls a running child back to the row flag when the status knows nothing', () => {
     // The parent is idle: its only listing fact is the child's own row flag.
     const rows = parentWithChildren(sessionRow('parent'), [['child-1', { running: true }]])
-    const model = deriveAttention(sessionListOf(rows), new Map())
+    const model = fold(sessionListOf(rows), new Map())
     expect(model.running).toEqual([{
       id: 'parent', title: 'parent', container: true,
       children: [{ id: 'child-1', title: 'child-1' }],
@@ -253,7 +266,7 @@ describe('deriveAttention', () => {
     list.ids.push(retained.id)
     list.byId[retained.id] = retained
 
-    const model = deriveAttention(list, sessionStatusOf([...rows, retained]))
+    const model = fold(list, sessionStatusOf([...rows, retained]))
     expect(model.running[0]?.children).toEqual([
       { id: 'cat-1', title: 'cat-1' },
       { id: 'cat-2', title: 'cat-2' },
@@ -266,7 +279,7 @@ describe('deriveAttention', () => {
       ['titled', { running: true, title: 'Projected' }],
       ['labelled', { running: true }],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running[0]?.children).toEqual([
       { id: 'titled', title: 'Projected' },
       { id: 'labelled', title: 'labelled' },
@@ -279,7 +292,7 @@ describe('deriveAttention', () => {
     const rows = parentWithChildren(sessionRow('parent', { lastPromptAt: 42 }), [
       ['child-1', { running: true }],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([{
       id: 'parent',
       title: 'parent',
@@ -293,7 +306,7 @@ describe('deriveAttention', () => {
     const rows = parentWithChildren(sessionRow('parent', { running: true }), [
       ['child-1', { running: true, activeSince: 500 }],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([{
       id: 'parent',
       title: 'parent',
@@ -304,7 +317,7 @@ describe('deriveAttention', () => {
     const unreadTiming = parentWithChildren(sessionRow('parent', { running: true }), [
       ['child-1', { running: true }],
     ])
-    expect(deriveAttention(sessionListOf(unreadTiming), sessionStatusOf(unreadTiming)).running)
+    expect(fold(sessionListOf(unreadTiming), sessionStatusOf(unreadTiming)).running)
       .toEqual([{ id: 'parent', title: 'parent', children: [{ id: 'child-1', title: 'child-1' }] }])
   })
 
@@ -320,13 +333,13 @@ describe('deriveAttention', () => {
     const rows = parentWithChildren(sessionRow('parent', { running: true }), [
       ['child-1', { running: true, activeSince: 500 }],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running[0]?.children).toEqual([{ id: 'child-1', title: 'child-1', turnedAt: 500 }])
 
     const rows2 = parentWithChildren(sessionRow('parent', { running: true }), [
       ['child-1', { running: true, activeSince: 9000 }],
     ])
-    const model2 = deriveAttention(sessionListOf(rows2), sessionStatusOf(rows2))
+    const model2 = fold(sessionListOf(rows2), sessionStatusOf(rows2))
     expect(model2.running[0]?.children).toEqual([{ id: 'child-1', title: 'child-1', turnedAt: 9000 }])
   })
 
@@ -336,7 +349,7 @@ describe('deriveAttention', () => {
       sessionRow('run-unread', { running: true, updatedAt: 2, lastPromptAt: null }),
       sessionRow('done', { completed: true, updatedAt: 3, lastPromptAt: 100 }),
     ]
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([
       { id: 'run-unread', title: 'run-unread' },
       { id: 'run', title: 'run', lastPromptAt: 100 },
@@ -346,7 +359,7 @@ describe('deriveAttention', () => {
 
   it('follows the projection forward: absent time, real time, and a new prompt restarting the count', () => {
     const sources = sessionSources([sessionRow('run', { running: true, updatedAt: 1 })])
-    const store = createAttentionStore(sources.list, sources.status)
+    const store = createAttentionStore(sources.list, sources.status, workspaceSource().source)
     // Before the projection is read the row is listed with no duration fact.
     expect(store.getSnapshot().running).toEqual([{ id: 'run', title: 'run' }])
 
@@ -381,8 +394,8 @@ describe('deriveAttention', () => {
     const rows = [sessionRow('run', { running: true, updatedAt: 1, lastPromptAt: 42 })]
     // Two folds over two list snapshot objects read the same durable fact:
     // both rows carry the prompt time, and neither holds stale client state.
-    const first = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
-    const second = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const first = fold(sessionListOf(rows), sessionStatusOf(rows))
+    const second = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(first.running[0]?.lastPromptAt).toBe(42)
     expect(second.running[0]?.lastPromptAt).toBe(42)
   })
@@ -391,7 +404,7 @@ describe('deriveAttention', () => {
     const rows = parentWithChildren(sessionRow('parent', { running: true, updatedAt: 1 }), [
       ['child-1', {}],
     ])
-    const model = deriveAttention(sessionListOf(rows), sessionStatusOf(rows))
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
     expect(model.running).toEqual([{ id: 'parent', title: 'parent' }])
 
     // The child starts: same parent row fields, new children block.
@@ -400,12 +413,64 @@ describe('deriveAttention', () => {
       : row.id === ('child-1' as SessionId)
         ? subagentRow('child-1', { running: true })
         : row)
-    const startedModel = deriveAttention(sessionListOf(started), sessionStatusOf(started))
+    const startedModel = fold(sessionListOf(started), sessionStatusOf(started))
     expect(startedModel.running).toEqual([{
       id: 'parent',
       title: 'parent',
       children: [{ id: 'child-1', title: 'child-1' }],
     }])
+  })
+})
+
+describe('deriveAttention archive gating', () => {
+  it('never lists an archived Session, even while it runs or finishes unread', () => {
+    const rows = [
+      sessionRow('archived-run', { running: true, updatedAt: 2 }),
+      sessionRow('archived-done', { completed: true, updatedAt: 3 }),
+      sessionRow('live-run', { running: true, updatedAt: 1 }),
+    ]
+    const archived = new Set(['archived-run', 'archived-done'] as SessionId[])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), archived)
+    expect(model.running).toEqual([{ id: 'live-run', title: 'live-run' }])
+    expect(model.unread).toEqual([])
+    expect(model.total).toBe(1)
+  })
+
+  it('drops an archived Session from waiting too', () => {
+    // The outline must never report a state with no row behind it: an archived
+    // Session blocked on the user lists nowhere, so it waits nowhere.
+    const rows = [sessionRow('blocked', { running: true, blocked: true, updatedAt: 1 })]
+    const archived = new Set(['blocked'] as SessionId[])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), archived)
+    expect(model.running).toEqual([])
+    expect(model.waiting).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
+  it('does not re-mount an archived parent through its running children', () => {
+    // Archiving a parent whose subagent is still running must not resurrect the
+    // row: the container branch is gated by the same archive check.
+    const rows = parentWithChildren(sessionRow('parent'), [['child-1', { running: true }]])
+    const archived = new Set(['parent'] as SessionId[])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), archived)
+    expect(model.running).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
+  it('still lists an unarchived row that carries a running child of an archived sibling', () => {
+    // Archiving gates by the listed row's own id, never by its children: a
+    // separate unarchived parent keeps its own running child.
+    const rows = [
+      ...parentWithChildren(sessionRow('gone'), [['gone-child', { running: true }]]),
+      ...parentWithChildren(sessionRow('kept'), [['kept-child', { running: true }]]),
+    ]
+    const archived = new Set(['gone'] as SessionId[])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), archived)
+    expect(model.running).toEqual([{
+      id: 'kept', title: 'kept', container: true,
+      children: [{ id: 'kept-child', title: 'kept-child' }],
+    }])
+    expect(model.total).toBe(1)
   })
 })
 
@@ -443,7 +508,7 @@ describe('deriveAttention child order at scale', () => {
       // A child whose parent has no row: no listed row may claim it.
       subagentRow('orphan', { parentId: 'missing-parent' as SessionId, running: true }),
     ]
-    const model = deriveAttention(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
+    const model = fold(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
 
     expect(model.running).toEqual([
       {
@@ -497,7 +562,7 @@ describe('deriveAttention child order at scale', () => {
       })
       expected.push(`${id}:${[...published, retained].join(',')}`)
     }
-    const model = deriveAttention(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
+    const model = fold(sessionListOf(scaledList(rows)), sessionStatusOf(rows))
     // Every parent carries exactly its own children: cross-parent leakage,
     // a missed catalog child, or a stale sibling from another parent would all
     // break this line.
@@ -515,7 +580,7 @@ describe('deriveAttention child order at scale', () => {
       ...children.map(childId => subagentRow(childId, { parentId, running: true })),
     ]
     const { list, enumerations } = countingById(sessionListOf(scaledList(rows)))
-    const model = deriveAttention(list, sessionStatusOf(rows))
+    const model = fold(list, sessionStatusOf(rows))
     // The fold still reports the same rows and the same children: this spec
     // guards work done, not the order contract the specs above already pin.
     expect(model.running).toHaveLength(1)
@@ -531,7 +596,7 @@ describe('deriveAttention child order at scale', () => {
 describe('createAttentionStore', () => {
   it('keeps the snapshot object while the content stands still, and republishes when it moves', () => {
     const sources = sessionSources([sessionRow('a', { running: true })])
-    const store = createAttentionStore(sources.list, sources.status)
+    const store = createAttentionStore(sources.list, sources.status, workspaceSource().source)
     const first = store.getSnapshot()
     expect(first.total).toBe(1)
     const listener = vi.fn()
@@ -576,13 +641,58 @@ describe('createAttentionStore', () => {
 
   it('stops following both sources once disposed', () => {
     const sources = sessionSources([sessionRow('a', { running: true })])
-    const store = createAttentionStore(sources.list, sources.status)
+    const store = createAttentionStore(sources.list, sources.status, workspaceSource().source)
     const published = store.getSnapshot()
     store.dispose()
     sources.update((draft) => {
       draft.ids.push('b' as SessionId)
       draft.byId['b' as SessionId] = sessionRow('b', { completed: true, updatedAt: 2 })
     })
+    expect(store.getSnapshot()).toBe(published)
+  })
+
+  it('drops a listed row the moment it is archived, without a list or status change', () => {
+    const sources = sessionSources([sessionRow('a', { completed: true, updatedAt: 1 })])
+    const workspaces = workspaceSource()
+    const store = createAttentionStore(sources.list, sources.status, workspaces.source)
+    expect(store.getSnapshot().unread).toEqual([{ id: 'a', title: 'a' }])
+    const listener = vi.fn()
+    const unsubscribe = store.subscribe(listener)
+
+    // Archiving moves neither source the store already follows: the archive
+    // subscription is the only thing that can retract the row.
+    workspaces.setArchived('a')
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().unread).toEqual([])
+    expect(store.getSnapshot().total).toBe(0)
+
+    // Restoring brings it back.
+    workspaces.setArchived()
+    expect(store.getSnapshot().unread).toEqual([{ id: 'a', title: 'a' }])
+    unsubscribe()
+  })
+
+  it('repaints nothing when the archive set is republished unchanged', () => {
+    const sources = sessionSources([sessionRow('a', { running: true })])
+    const workspaces = workspaceSource()
+    const store = createAttentionStore(sources.list, sources.status, workspaces.source)
+    const first = store.getSnapshot()
+    const listener = vi.fn()
+    const unsubscribe = store.subscribe(listener)
+
+    workspaces.setArchived()
+    expect(listener).not.toHaveBeenCalled()
+    expect(store.getSnapshot()).toBe(first)
+    unsubscribe()
+  })
+
+  it('releases the archive subscription with both others on dispose', () => {
+    const sources = sessionSources([sessionRow('a', { completed: true })])
+    const workspaces = workspaceSource()
+    const store = createAttentionStore(sources.list, sources.status, workspaces.source)
+    const published = store.getSnapshot()
+    store.dispose()
+    workspaces.setArchived('a')
     expect(store.getSnapshot()).toBe(published)
   })
 })

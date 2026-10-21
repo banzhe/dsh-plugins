@@ -23,6 +23,7 @@ A Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
 - **Escape** and the panel's close button close it; the open state is in-memory (a reload starts closed).
 - Every state color is read from `ui-theme` tokens; none is hand-picked. Under `prefers-reduced-motion` the sweep drops its animation and the ring stays.
 - Subagent children are not panel rows of their own and are not counted in the badge; blank New-Session placeholders are excluded.
+- Archived Sessions never list, even while the host still reports them running or finished-unread, and they are not counted in the badge.
 - Labels follow the app locale (`session-attention` namespace, zh/en).
 
 ## Install
