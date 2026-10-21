@@ -14,6 +14,7 @@ import { en, NS, zh } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
 import { sessionRow, sessionSources, type SessionSources } from './session-list-double.ts'
+import { workspaceSource, workspaceView } from './workspace-source-double.ts'
 
 class FakeNotification {
   static permission: NotificationPermission = 'granted'
@@ -34,40 +35,38 @@ class FakeNotification {
 }
 
 /**
- * Stub the platform capabilities, and hand back the two Session sources plus
- * the navigation spy the plugin drives.
+ * Stub the platform capabilities, and hand back the two Session sources, the
+ * Workspace source, and the navigation spy the plugin drives.
  */
 function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): SessionSources & {
   openSession: ReturnType<typeof vi.fn>
-  workspaces: { items: readonly WorkspaceRow[]; phase: 'ready' | 'pending' }
+  workspaces: ReturnType<typeof workspaceSource>
 } {
   vi.stubGlobal('navigator', options.badge === false
     ? {}
     : { setAppBadge: vi.fn(async () => {}), clearAppBadge: vi.fn(async () => {}) })
   FakeNotification.permission = options.permission ?? 'granted'
   vi.stubGlobal('Notification', FakeNotification)
-  return { ...sessionSources(), openSession: vi.fn(), workspaces: { items: [], phase: 'pending' } }
-}
-
-/** One durable Workspace row as the Workspace Controller projects it. */
-type WorkspaceRow = {
-  workspaceId: string; path: string; title: string
-  sessionIds: readonly SessionId[]; createdAt: string; updatedAt: string
+  return { ...sessionSources(), openSession: vi.fn(), workspaces: workspaceSource() }
 }
 
 /** Boot the browser half over a context providing the five injected services. */
-async function bench(surface: SessionSources & { openSession: ReturnType<typeof vi.fn>; workspaces?: { items: readonly WorkspaceRow[]; phase: 'ready' | 'pending' } }) {
+async function bench(surface: SessionSources & {
+  openSession: ReturnType<typeof vi.fn>
+  workspaces?: ReturnType<typeof workspaceSource>
+}) {
   const ctx = new Context()
+  const workspaces = surface.workspaces ?? workspaceSource()
   ctx.provide('sessions', { list: surface.list } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: surface.openSession } as never)
-  ctx.provide('workspaces', { list: { getSnapshot: () => surface.workspaces ?? { items: [], phase: 'pending' } } } as never)
+  ctx.provide('workspaces', { list: workspaces.source } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, slots }
+  return { ctx, fiber, slots, workspaces }
 }
 
 afterEach(() => {
@@ -119,6 +118,38 @@ describe('app-badge browser half', () => {
     expect(surface.openSession).toHaveBeenCalledWith('a')
   })
 
+  it('drops an archived Session from the badge and restores it without re-announcing', async () => {
+    const surface = stubCapabilities()
+    const { workspaces } = await bench(surface)
+    surface.update((state) => {
+      state.ids = ['a' as SessionId]
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', running: true })
+    })
+    surface.update((state) => {
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
+    })
+    expect(FakeNotification.instances).toHaveLength(1)
+
+    workspaces.archive('a' as SessionId)
+    workspaces.unarchive()
+    // Restored, the row is announced again only if it finishes again.
+    expect(FakeNotification.instances).toHaveLength(1)
+  })
+
+  it('never announces a Session that finishes while archived', async () => {
+    const surface = stubCapabilities()
+    const { workspaces } = await bench(surface)
+    surface.update((state) => {
+      state.ids = ['a' as SessionId]
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', running: true })
+    })
+    workspaces.archive('a' as SessionId)
+    surface.update((state) => {
+      state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
+    })
+    expect(FakeNotification.instances).toEqual([])
+  })
+
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     const surface = stubCapabilities()
     const { ctx, fiber } = await bench(surface)
@@ -168,11 +199,7 @@ describe('app-badge browser half', () => {
   it('the demo button raises a notification whose click opens a Workspace Session', async () => {
     const surface = stubCapabilities()
     // One Workspace holding two Sessions; the click target is picked before the notification is raised.
-    surface.workspaces = {
-      items: [{ workspaceId: 'w1', path: '/w1', title: 'W1',
-        sessionIds: ['a' as SessionId, 'b' as SessionId], createdAt: '', updatedAt: '' }],
-      phase: 'ready',
-    }
+    surface.workspaces.setItems([workspaceView('w1', ['a', 'b'])])
     const { slots } = await bench(surface)
     // The pick reads the Session list for blankness, so the rows must exist.
     surface.update((state) => {
@@ -192,11 +219,7 @@ describe('app-badge browser half', () => {
     const surface = stubCapabilities()
     // One Workspace whose rows are all blank (real new Sessions): the pick
     // refuses, so no notification is raised and nothing is opened.
-    surface.workspaces = {
-      items: [{ workspaceId: 'w1', path: '/w1', title: 'W1',
-        sessionIds: ['a' as SessionId, 'b' as SessionId], createdAt: '', updatedAt: '' }],
-      phase: 'ready',
-    }
+    surface.workspaces.setItems([workspaceView('w1', ['a', 'b'])])
     const { slots } = await bench(surface)
     surface.update((state) => {
       state.ids = ['a' as SessionId, 'b' as SessionId]

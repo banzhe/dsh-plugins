@@ -106,10 +106,16 @@ export interface CompletionPresenterOptions {
   /** Open the Session a notification was clicked for. */
   readonly open: (id: SessionId) => void
   /**
-   * Read the Workspace Controller snapshot for the demo pick; undefined
-   * phase means the list is not settled yet and the demo refuses.
+   * The live Workspace Controller source. Its registry-global archive set is
+   * what gates a finished Session out of both surfaces — a Session the user
+   * filed away is not work waiting for a look — and its rows are what the demo
+   * pick chooses from (`phase: 'pending'` means the demo refuses).
+   *
+   * It is a source, not a reader: archiving a finished Session changes neither
+   * the status nor the list, so a subscription to this one is the only wake-up
+   * that lets the badge stop counting it.
    */
-  readonly workspaces: () => WorkspaceSnapshot
+  readonly workspaces: ObservableSnapshot<WorkspaceSnapshot>
   /**
    * Read one Session's list row for the demo pick, or undefined when the
    * Session Controller has not projected the id yet. Blank rows (a Session
@@ -269,6 +275,8 @@ export class CompletionPresenter {
   /** Click targets by desktop-notification id, keyed for the activation callback. */
   private readonly pendingClicks = new Map<string, () => void>()
   private readonly disposeActivation: (() => void) | undefined
+  /** The last archive set handed to the observer, keyed by the array it came from. */
+  private archivedCache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
 
   constructor(private readonly options: CompletionPresenterOptions) {
     // Only badging is probed once: the API's presence cannot change during a
@@ -312,19 +320,27 @@ export class CompletionPresenter {
   }
 
   /**
-   * Install the status subscription and publish the current state once. Call
-   * exactly once per presenter — the caller owns the lifetime decision. The
-   * disposer unsubscribes and retracts the badge.
+   * Install the status, list, and archive subscriptions and publish the current
+   * state once. Call exactly once per presenter — the caller owns the lifetime
+   * decision. The disposer unsubscribes and retracts the badge.
    * @param status - per-Session status source (`ctx.uiSession.sessionStatus`).
+   * @param list - Session catalog source (`ctx.sessions.list`).
    */
   attach(status: ObservableSnapshot<SessionStatusSnapshot>, list: ObservableSnapshot<SessionListState>): () => void {
-    const sync = (): void => { this.apply(status.getSnapshot(), list.getSnapshot()) }
+    const sync = (): void => {
+      this.apply(status.getSnapshot(), list.getSnapshot(), this.options.workspaces.getSnapshot())
+    }
     const unsubscribeStatus = status.subscribe(sync)
     const unsubscribeList = list.subscribe(sync)
+    // Archiving a finished Session moves neither the status nor the list, so
+    // without this subscription the badge would keep counting a row the user
+    // just filed away.
+    const unsubscribeWorkspaces = this.options.workspaces.subscribe(sync)
     sync()
     return () => {
       unsubscribeStatus()
       unsubscribeList()
+      unsubscribeWorkspaces()
       this.badge?.clear()
     }
   }
@@ -345,7 +361,7 @@ export class CompletionPresenter {
    */
   showDemo(random: () => number = Math.random): boolean {
     const target = pickWorkspaceDemoTarget(
-      this.options.workspaces(), this.options.sessionSummary, random,
+      this.options.workspaces.getSnapshot(), this.options.sessionSummary, random,
     )
     if (target === undefined) return false
     return this.notify(this.options.demoCopy(), this.options.demoTag, () => {
@@ -354,14 +370,35 @@ export class CompletionPresenter {
   }
 
   /** Fold one observation onto the badge and the notification stream. */
-  private apply(status: SessionStatusSnapshot, list: SessionListState): void {
-    const observation = this.observer.observe(status, list)
+  private apply(
+    status: SessionStatusSnapshot,
+    list: SessionListState,
+    workspaces: WorkspaceSnapshot,
+  ): void {
+    const observation = this.observer.observe(
+      status, list, this.archivedSet(workspaces.archivedSessionIds),
+    )
     this.badge?.project(observation.completed.length)
     for (const session of observation.newlyCompleted) {
       this.notify(this.options.notifyCopy(session), this.options.tag, () => {
         this.options.open(session.id)
       })
     }
+  }
+
+  /**
+   * The archive set as a lookup, rebuilt only when the array it came from moves.
+   *
+   * `apply` runs on every status and list change, but the archive set rarely
+   * changes: the controller hands the same array out until an archive mutation
+   * replaces it, so an identity check turns a per-sync rebuild of a set that can
+   * hold every archived Session in the account into a reference comparison.
+   */
+  private archivedSet(ids: readonly SessionId[]): ReadonlySet<SessionId> {
+    if (this.archivedCache?.ids === ids) return this.archivedCache.set
+    const set: ReadonlySet<SessionId> = new Set(ids)
+    this.archivedCache = { ids, set }
+    return set
   }
 
   /**

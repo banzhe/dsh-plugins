@@ -29,6 +29,7 @@ import { apply, inject } from '../src/client/index.ts'
 import { en, NS } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { sessionListOf, sessionStatusOf } from './session-list-double.ts'
+import { workspaceSource } from './workspace-source-double.ts'
 
 /** The module-table words the renderer bundle requests. */
 const SEED: Record<string, unknown> = {
@@ -81,7 +82,7 @@ function provideSessions(ctx: Context): void {
   ctx.provide('sessions', { list: createSnapshotStore(sessionListOf([])) } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: createSnapshotStore(sessionStatusOf([])) } as never)
   ctx.provide('uiWorkspace', { openSession: vi.fn() } as never)
-  ctx.provide('workspaces', { list: { getSnapshot: () => ({ items: [], phase: 'pending' }) } } as never)
+  ctx.provide('workspaces', { list: workspaceSource().source } as never)
 }
 
 /**

@@ -11,13 +11,20 @@
  * label that answer is reported under. Subagent children never count — the
  * sidebar hides `origin: 'subagent'` rows, and counting them would let one
  * delegation fan-out inflate the icon past anything the sidebar shows.
+ *
+ * Archived Sessions never count either: the archive set is registry-global and
+ * the sidebar files those rows away, so a Session the user put away is not work
+ * waiting for a look. They are still folded into the previous-observation set,
+ * because archiving does not clear `completionUnread` — restoring a Session must
+ * not re-announce a completion the user was already told about.
  */
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /** One observation: the current finished-unread set and what joined it. */
 export interface CompletionObservation {
-  /** Ordinary Sessions currently finished and not yet opened; subagent children never count. */
+  /** Ordinary unarchived Sessions currently finished and not yet opened; subagent children never count. */
   readonly completed: readonly SessionSummary[]
   /** Sessions that became finished since the previous observation; empty on the first. */
   readonly newlyCompleted: readonly SessionSummary[]
@@ -26,22 +33,31 @@ export interface CompletionObservation {
 /** Stateful fold over successive Session status snapshots. */
 export class CompletionObserver {
   /** Finished-unread ids from the previous observation; undefined before the first. */
-  private seen: ReadonlySet<string> | undefined
+  private seen: ReadonlySet<SessionId> | undefined
 
   /**
-   * Fold one status snapshot against the current list rows. The snapshot
-   * supplies the finished-unread facts; the list supplies the rows they name.
+   * Fold one status snapshot against the current list rows and archive set. The
+   * snapshot supplies the finished-unread facts, the list supplies the rows they
+   * name, and the archive set decides which of those rows are filed away.
    */
-  observe(status: SessionStatusSnapshot, list: SessionListState): CompletionObservation {
-    const completed: SessionSummary[] = []
+  observe(
+    status: SessionStatusSnapshot,
+    list: SessionListState,
+    archived: ReadonlySet<SessionId>,
+  ): CompletionObservation {
+    const finished: SessionSummary[] = []
     for (const [id, entry] of status) {
       if (!entry.completionUnread) continue
       const row = list.byId[id]
       if (row === undefined || row.origin === 'subagent') continue
-      completed.push(row)
+      finished.push(row)
     }
     const previous = this.seen
-    this.seen = new Set(completed.map(row => row.id))
+    this.seen = new Set(finished.map(row => row.id))
+    // Filtered after `seen` is recorded: an archived Session is still told
+    // apart from a newly finished one, so unarchiving re-mounts its row without
+    // announcing it a second time.
+    const completed = finished.filter(row => !archived.has(row.id))
     return {
       completed,
       newlyCompleted: previous === undefined

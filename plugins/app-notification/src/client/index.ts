@@ -83,7 +83,7 @@ export function apply(ctx: ClientContext): void {
     testCopy: () => ({ title: t('test.title'), detail: t('test.body') }),
     demoCopy: () => ({ title: t('demo.title'), detail: t('demo.body') }),
     open: (id) => { ctx.uiWorkspace.openSession(id) },
-    workspaces: () => ctx.workspaces.list.getSnapshot(),
+    workspaces: ctx.workspaces.list,
     sessionSummary: id => ctx.sessions.list.getSnapshot().byId[id],
     tag: TAG,
     testTag: TEST_TAG,

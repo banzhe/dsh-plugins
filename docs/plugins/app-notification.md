@@ -11,6 +11,12 @@ Moved out of the plugin's README, which now covers only features and installatio
   Click focuses this window, then opens that Session through
   `ctx.uiWorkspace.openSession`. Chromium on Windows does not raise the page
   on its own.
+- Archived Sessions are skipped by both surfaces: the archive set is
+  registry-global (`ctx.workspaces.list` → `archivedSessionIds`), and a Session
+  the user filed away is not work waiting for a look. A row that finishes while
+  archived is never announced, and archiving a finished row retracts it from the
+  badge. Restoring one re-counts it without a second announcement, because
+  archiving does not clear the host's completion reminder.
 - First observation is state-only: a reload shows the current count and does
   not re-announce Sessions that finished while no page was watching.
 - A page with neither badging nor a `Notification` constructor still registers
@@ -18,6 +24,16 @@ Moved out of the plugin's README, which now covers only features and installatio
 
 The plugin never requests permission on activation, never persists a toggle,
 and has no service worker or push — closed pages do not announce.
+
+## Archive gating
+
+The archive set is subscribed, not merely read. Archiving a finished Session
+moves neither the Session status snapshot nor the Session list, so without that
+third subscription the badge would keep counting a row the user just filed away.
+`CompletionObserver.observe` takes the archive set as its third input and
+filters *after* recording the previous-observation set: an archived Session is
+still distinguished from a newly finished one, which is what keeps a restore from
+re-announcing.
 
 ## Surfaces
 

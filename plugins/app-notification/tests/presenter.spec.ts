@@ -8,13 +8,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { WorkspaceId, WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
   AppBadgePresenter, CompletionPresenter, notificationPermission, pickWorkspaceDemoTarget,
   probeCapabilities, requestNotificationPermission,
   type CompletionPresenterOptions,
 } from '../src/client/presenter.ts'
 import { sessionRow, sessionSources, type SessionRow } from './session-list-double.ts'
+import { workspaceSource, workspaceView } from './workspace-source-double.ts'
+import { CompletionObserver } from '../src/client/completion.ts'
 
 /** A `Notification` stand-in recording every construction and click handler. */
 class FakeNotification {
@@ -67,6 +69,7 @@ function options(
   open = vi.fn(),
   workspaceItems: WorkspaceSnapshot['items'] = [],
   blankIds: ReadonlySet<string> = new Set(),
+  workspacesSource: CompletionPresenterOptions['workspaces'] = workspaceSource(workspaceItems).source,
 ): CompletionPresenterOptions {
   return {
     logger,
@@ -74,7 +77,7 @@ function options(
     testCopy: () => ({ title: 'Test notification', detail: 'If you can read this, it works.' }),
     demoCopy: () => ({ title: 'Jump demo', detail: 'Click to a random Workspace Session.' }),
     open,
-    workspaces: () => workspaceSnapshot(workspaceItems),
+    workspaces: workspacesSource,
     sessionSummary: (id) => {
       const row = summary(id)
       return blankIds.has(id) ? { ...row, blank: true } : row
@@ -85,19 +88,9 @@ function options(
   }
 }
 
-/** A minimal ready Workspace snapshot; `items` overridable per test. */
-const workspaceSnapshot = (items: WorkspaceSnapshot['items'] = []): WorkspaceSnapshot => ({
-  items,
-  archivedSessionIds: [],
-  pinnedSessionIds: [],
-  state: 'idle',
-  phase: 'ready',
-  error: null,
-})
-
+/** One durable Workspace row as the Workspace Controller projects it. */
 const workspace = (workspaceId: string, sessionIds: string[]): WorkspaceSnapshot['items'][number] =>
-  ({ workspaceId: workspaceId as WorkspaceId, path: `/p/${workspaceId}`, title: workspaceId,
-    sessionIds: sessionIds as SessionId[], createdAt: '', updatedAt: '' })
+  workspaceView(workspaceId, sessionIds)
 
 afterEach(() => {
   FakeNotification.instances = []
@@ -373,6 +366,82 @@ describe('CompletionPresenter', () => {
     expect(badge.clearAppBadge).toHaveBeenCalledTimes(1)
     sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true, updatedAt: 2 }) })
     expect(badge.setAppBadge).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps an archived Session off both surfaces and counts it back on restore', () => {
+    const badge = stubCapabilities()
+    const workspaces = workspaceSource()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const presenter = new CompletionPresenter(options(vi.fn(), [], new Set(), workspaces.source))
+    const detach = presenter.attach(sessions.status, sessions.list)
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(badge.setAppBadge).toHaveBeenCalledTimes(1)
+
+    // Archiving changes only the archive set: neither the status nor the list
+    // moves, so the workspace subscription is the only wake-up. A zero count is
+    // a retraction, not a `setAppBadge(0)`.
+    const retractions = badge.clearAppBadge.mock.calls.length
+    workspaces.archive('a' as SessionId)
+    expect(badge.clearAppBadge).toHaveBeenCalledTimes(retractions + 1)
+    // A restore brings the row back without a second announcement.
+    workspaces.unarchive()
+    expect(badge.setAppBadge).toHaveBeenCalledTimes(2)
+    expect(FakeNotification.instances).toHaveLength(1)
+    detach()
+  })
+
+  it('never announces a Session that finishes while it is archived', () => {
+    const badge = stubCapabilities()
+    const workspaces = workspaceSource()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const presenter = new CompletionPresenter(options(vi.fn(), [], new Set(), workspaces.source))
+    const detach = presenter.attach(sessions.status, sessions.list)
+    workspaces.archive('a' as SessionId)
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+    expect(FakeNotification.instances).toEqual([])
+    // The count never left zero, so the retraction is the only badge write.
+    expect(badge.setAppBadge).not.toHaveBeenCalled()
+    expect(badge.clearAppBadge).toHaveBeenCalledTimes(1)
+    detach()
+  })
+
+  it('subscribes to the archive set for the subscription lifetime only', () => {
+    const badge = stubCapabilities()
+    const workspaces = workspaceSource()
+    const sessions = sessionSources([summary('a', { completed: true })])
+    const presenter = new CompletionPresenter(options(vi.fn(), [], new Set(), workspaces.source))
+    const detach = presenter.attach(sessions.status, sessions.list)
+    expect(badge.setAppBadge).toHaveBeenCalledTimes(1)
+    detach()
+    // The archive set moved after detach, and nothing may react to it.
+    workspaces.archive('a' as SessionId)
+    expect(badge.clearAppBadge).toHaveBeenCalledTimes(1)
+  })
+
+  it('rebuilds the archive lookup only when the archive array itself moves', () => {
+    stubCapabilities()
+    const workspaces = workspaceSource()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const presenter = new CompletionPresenter(options(vi.fn(), [], new Set(), workspaces.source))
+    // Capture the lookup `apply` hands the fold, which is what the cache reuses.
+    const observe = vi.spyOn(CompletionObserver.prototype, 'observe')
+    const setsSeen = (): readonly ReadonlySet<SessionId>[] => observe.mock.calls.map(call => call[2])
+    const detach = presenter.attach(sessions.status, sessions.list)
+
+    // Two syncs with an unchanged archive array reuse one set.
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true, updatedAt: 2 }) })
+    sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true, updatedAt: 3 }) })
+    const [first, second] = setsSeen().slice(-2)
+    expect(first).toBe(second)
+
+    // An archive mutation is a new array, so the next sync rebuilds.
+    workspaces.archive('a' as SessionId)
+    const rebuilt = setsSeen().at(-1)
+    expect(rebuilt).not.toBe(first)
+    expect(rebuilt?.has('a' as SessionId)).toBe(true)
+    observe.mockRestore()
+    detach()
   })
 
   it('stays inert with neither surface available', () => {
