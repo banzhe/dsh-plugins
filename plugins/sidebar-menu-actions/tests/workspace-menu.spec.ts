@@ -15,8 +15,8 @@ import { en } from '../src/client/locales.ts'
 import { injectMenuItem, installWorkspaceMenu, type WorkspaceMenuOptions } from '../src/client/workspaceMenu.ts'
 import {
   appendButtonlessRow, appendUngroupedRow, appendWorkspaceRow, armKey, armPointer,
-  buildMenu, flush, injectedButton, recordKeys, viewportRows,
-  type MenuFixture, type WorkspaceRowFixture,
+  buildMenu, COPY_ROW, flush, injectedButton, injectedButtons, recordKeys, requireInjected,
+  viewportRows, VSCODE_ROW, type MenuFixture, type WorkspaceRowFixture,
 } from './fixtures.ts'
 import { translateEn as t } from './translate.ts'
 
@@ -26,20 +26,32 @@ const PATHS: Record<string, string> = { 'ws-1': '/ws/alpha' }
 interface OptionsFixture {
   readonly options: WorkspaceMenuOptions
   readonly showToast: ReturnType<typeof vi.fn>
+  readonly copyPath: ReturnType<typeof vi.fn>
 }
 
-function optionsFixture(paths: Record<string, string> = PATHS): OptionsFixture {
+function optionsFixture(
+  paths: Record<string, string> = PATHS,
+  openInVscode = true,
+): OptionsFixture {
   const showToast = vi.fn()
+  const copyPath = vi.fn()
   return {
     showToast,
-    options: { t, pathOf: (workspaceId: string) => paths[workspaceId], showToast },
+    copyPath,
+    options: {
+      t,
+      pathOf: (workspaceId: string) => paths[workspaceId],
+      showToast,
+      openInVscode: () => openInVscode,
+      copyPath,
+    },
   }
 }
 
 let disposers: Array<() => void> = []
 
-function install(paths?: Record<string, string>): OptionsFixture {
-  const fixture = optionsFixture(paths)
+function install(paths?: Record<string, string>, openInVscode = true): OptionsFixture {
+  const fixture = optionsFixture(paths, openInVscode)
   disposers.push(installWorkspaceMenu(fixture.options))
   return fixture
 }
@@ -52,13 +64,6 @@ afterEach(() => {
   document.head.innerHTML = ''
   document.body.innerHTML = ''
 })
-
-/** The injected VS Code row, or a failure when the graft did not happen. */
-function injected(scope: ParentNode): HTMLButtonElement {
-  const found = injectedButton(scope)
-  if (found === null) throw new Error('no VS Code row was injected')
-  return found
-}
 
 /** The nested content of one row's trigger — where a real pointer gesture lands. */
 function nested(trigger: HTMLElement): HTMLElement {
@@ -77,7 +82,7 @@ async function graft(workspaceId = 'ws-1'): Promise<{
   const menu = buildMenu()
   document.body.append(menu.menu)
   await flush()
-  return { row, menu, button: injected(menu.menu) }
+  return { row, menu, button: requireInjected(menu.menu, VSCODE_ROW) }
 }
 
 /** Click one row and collect every keydown it dispatches on document. */
@@ -96,7 +101,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(viewportRows(menu)).toBe(2)
-    expect(injectedButton(menu.menu)).toBeNull()
+    expect(injectedButtons(menu.menu)).toHaveLength(0)
   })
 
   it('arms from a pointerdown on content nested inside the trigger', async () => {
@@ -106,8 +111,8 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(3)
-    expect(injectedButton(menu.menu)).not.toBeNull()
+    expect(viewportRows(menu)).toBe(4)
+    expect(injectedButtons(menu.menu)).toHaveLength(2)
   })
 
   it('arms from the Enter key', async () => {
@@ -117,7 +122,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(3)
+    expect(viewportRows(menu)).toBe(4)
   })
 
   it('arms from the space key', async () => {
@@ -127,7 +132,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(3)
+    expect(viewportRows(menu)).toBe(4)
   })
 
   /**
@@ -172,7 +177,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(3)
+    expect(viewportRows(menu)).toBe(4)
   })
 
   it('takes an open while the trigger still holds focus', async () => {
@@ -184,7 +189,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(document.activeElement).toBe(row.trigger)
-    expect(injectedButton(menu.menu)).not.toBeNull()
+    expect(injectedButtons(menu.menu)).toHaveLength(2)
   })
 
   it('takes an open while the body holds focus', async () => {
@@ -195,7 +200,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(document.activeElement).toBe(document.body)
-    expect(injectedButton(menu.menu)).not.toBeNull()
+    expect(injectedButtons(menu.menu)).toHaveLength(2)
   })
 
   it('takes an open while focus sits inside the menu', async () => {
@@ -209,7 +214,7 @@ describe('installWorkspaceMenu', () => {
     inside.focus()
     await flush()
     expect(document.activeElement).toBe(inside)
-    expect(injectedButton(menu.menu)).not.toBeNull()
+    expect(injectedButtons(menu.menu)).toHaveLength(2)
   })
 
   it('refuses an open raised while focus is somewhere else entirely', async () => {
@@ -235,7 +240,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(viewportRows(menu)).toBe(2)
-    expect(injectedButton(menu.menu)).toBeNull()
+    expect(injectedButtons(menu.menu)).toHaveLength(0)
   })
 
   it('removes both listeners and the observer with the disposer', async () => {
@@ -258,34 +263,51 @@ describe('installWorkspaceMenu', () => {
 })
 
 describe('injectMenuItem', () => {
-  it('grafts a clone of the rename row between rename and delete', async () => {
+  it('grafts clones of the rename row between rename and delete', async () => {
     install()
     const { menu, button } = await graft()
-    expect(viewportRows(menu)).toBe(3)
+    expect(viewportRows(menu)).toBe(4)
     const wraps = [...menu.presentation.children]
     expect(wraps[0]).toBe(menu.rename)
-    expect(wraps[2]).toBe(menu.deleteRow)
+    expect(wraps[3]).toBe(menu.deleteRow)
     expect(wraps[1]).toBe(button.parentElement)
+    expect(wraps[2]).toBe(requireInjected(menu.menu, COPY_ROW).parentElement)
     expect(wraps[1]?.className).toBe('row-rename')
+    expect(wraps[2]?.className).toBe('row-rename')
     expect(button.getAttribute('role')).toBe('menuitem')
     expect(button.getAttribute('data-menu-actions')).toBe('vscode')
     expect(button.textContent).toBe(en['menu.openInVscode'])
-    // The rename row's edit icon is gone, replaced by the inline glyph.
+    expect(requireInjected(menu.menu, COPY_ROW).textContent).toBe(en['menu.copyWorkspacePath'])
+    // The rename row's edit icon is gone, replaced by the inline glyphs.
     expect(button.querySelector('span.icon')?.textContent).toBe('')
     expect(button.querySelector('svg path')?.getAttribute('d'))
       .toBe('M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5')
-    // The shipped rows the clone was taken from stay untouched.
+    expect(requireInjected(menu.menu, COPY_ROW).querySelector('svg rect')).not.toBeNull()
+    // The shipped rows the clones were taken from stay untouched.
     expect(menu.rename.querySelectorAll('span')[0]?.textContent).toBe('rename-glyph')
     expect(menu.rename.querySelectorAll('span')[1]?.textContent).toBe(menu.renameLabel)
     expect(menu.deleteRow.querySelectorAll('span')[1]?.textContent).toBe(menu.deleteLabel)
   })
 
-  it('does not double the row when the same menu is offered twice', async () => {
+  it('keeps the copy row and drops the VS Code row when the Host never resolved it', async () => {
+    install(PATHS, false)
+    const row = appendWorkspaceRow('ws-1')
+    armPointer(row.trigger)
+    const menu = buildMenu()
+    document.body.append(menu.menu)
+    await flush()
+    expect(viewportRows(menu)).toBe(3)
+    expect(injectedButton(menu.menu, VSCODE_ROW)).toBeNull()
+    expect(requireInjected(menu.menu, COPY_ROW)).not.toBeNull()
+  })
+
+  it('does not double either row when the same menu is offered twice', async () => {
     const fixture = install()
     const { menu } = await graft()
     injectMenuItem(menu.menu, 'ws-1', fixture.options)
-    expect(viewportRows(menu)).toBe(3)
+    expect(viewportRows(menu)).toBe(4)
     expect(menu.menu.querySelectorAll('button[data-menu-actions="vscode"]')).toHaveLength(1)
+    expect(menu.menu.querySelectorAll('button[data-menu-actions="copy-path"]')).toHaveLength(1)
   })
 
   it('bails on a menu with no menuitem rows', () => {
@@ -295,7 +317,7 @@ describe('injectMenuItem', () => {
     menu.append(document.createElement('div'))
     injectMenuItem(menu, 'ws-1', options)
     expect(menu.children).toHaveLength(1)
-    expect(injectedButton(menu)).toBeNull()
+    expect(injectedButton(menu, VSCODE_ROW)).toBeNull()
   })
 
   it('opens the resolved directory in VS Code, then dismisses the menu', async () => {
@@ -354,5 +376,25 @@ describe('injectMenuItem', () => {
     expect(fetchMock).not.toHaveBeenCalled()
     expect(keys).toEqual(['Escape'])
     expect(showToast).not.toHaveBeenCalled()
+  })
+
+  it('copies the resolved directory and dismisses the menu without any request', async () => {
+    const { copyPath } = install()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { menu } = await graft()
+    const keys = await click(requireInjected(menu.menu, COPY_ROW))
+    expect(copyPath).toHaveBeenCalledTimes(1)
+    expect(copyPath).toHaveBeenCalledWith('/ws/alpha')
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(keys).toEqual(['Escape'])
+  })
+
+  it('dismisses a copy whose workspace is gone without writing anything', async () => {
+    const { copyPath } = install()
+    const { menu } = await graft('ws-gone')
+    const keys = await click(requireInjected(menu.menu, COPY_ROW))
+    expect(copyPath).not.toHaveBeenCalled()
+    expect(keys).toEqual(['Escape'])
   })
 })

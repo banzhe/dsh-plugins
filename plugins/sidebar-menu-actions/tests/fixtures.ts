@@ -102,8 +102,24 @@ export function armKey(target: EventTarget, key: string): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key }))
 }
 
-export function injectedButton(scope: ParentNode = document): HTMLButtonElement | null {
-  return scope.querySelector('button[data-menu-actions="vscode"]')
+/** Marker values of the two graftable rows; restated here so the specs pin them independently. */
+export const VSCODE_ROW = 'vscode'
+export const COPY_ROW = 'copy-path'
+
+export function injectedButton(scope: ParentNode, marker: string): HTMLButtonElement | null {
+  return scope.querySelector(`button[data-menu-actions="${marker}"]`)
+}
+
+/** The injected row for one marker, or a failure when the graft did not happen. */
+export function requireInjected(scope: ParentNode, marker: string): HTMLButtonElement {
+  const found = injectedButton(scope, marker)
+  if (found === null) throw new Error(`no "${marker}" row was injected`)
+  return found
+}
+
+/** Every injected row of one menu, in document order. */
+export function injectedButtons(scope: ParentNode = document): HTMLButtonElement[] {
+  return [...scope.querySelectorAll<HTMLButtonElement>('button[data-menu-actions]')]
 }
 
 export function viewportRows(fixture: MenuFixture): number {

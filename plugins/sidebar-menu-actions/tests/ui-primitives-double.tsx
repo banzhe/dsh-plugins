@@ -8,45 +8,11 @@
  * half obtains the REAL module from the shell's module-table seed
  * (`@deepseek-ai/dsh-client-ui-primitives` is a baseline platform word).
  *
- * This reproduces only the control contract the plugin's call sites depend on;
+ * This reproduces only the two functions the plugin's call sites depend on;
  * styling, the portal, and the fade timing are the real components' business
  * and are deliberately not asserted anywhere in this suite.
  */
 import type { ReactNode } from 'react'
-
-export interface MenuItemButtonProps {
-  children?: ReactNode
-  icon?: ReactNode
-  disabled?: boolean
-  danger?: boolean
-  separatorBefore?: boolean
-  onSelect: () => void
-}
-
-export function MenuItemButton(props: MenuItemButtonProps): ReactNode {
-  const { children, icon, disabled, danger, separatorBefore, onSelect } = props
-  // Styling-only prop: accepted so the call site mirrors production, ignored by the double.
-  void danger
-  return (
-    <div>
-      {separatorBefore === true && <div role="separator" />}
-      <button type="button" role="menuitem" disabled={disabled} onClick={onSelect}>
-        {icon}
-        {children}
-      </button>
-    </div>
-  )
-}
-
-export interface IconCopyProps {
-  size?: number
-  className?: string
-}
-
-export function IconCopyOutlineRegular(props?: IconCopyProps): ReactNode {
-  void props
-  return <svg data-icon="copy" />
-}
 
 export interface ToastProps {
   text: string

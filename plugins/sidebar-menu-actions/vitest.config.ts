@@ -12,6 +12,11 @@ import { defineConfig } from 'vitest/config'
  * this standalone package does not install. The browser half resolves the REAL
  * module from the shell's module-table seed, so only Node specs need the
  * stand-in.
+ *
+ * Coverage is scoped to the browser half the specs reach. `src/index.ts` is the
+ * node half — an empty `apply()` that exists so the Loader lists the Bundle — and
+ * a package-wide threshold would demand coverage no unit test can honestly
+ * produce for it.
  */
 export default defineConfig({
   resolve: {
@@ -26,7 +31,7 @@ export default defineConfig({
     pool: 'forks',
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts', 'src/**/*.tsx'],
+      include: ['src/client/**/*.ts', 'src/client/**/*.tsx'],
       reporter: ['text'],
       thresholds: {
         perFile: true,

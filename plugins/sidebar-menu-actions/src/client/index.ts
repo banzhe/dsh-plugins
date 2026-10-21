@@ -2,10 +2,11 @@
  * Sidebar-menu browser half: a Workspace row-menu contribution over one locale
  * namespace and one notice surface.
  *
- * - **Open a Workspace in VS Code** — DOM graft into the Workspace "..." menu,
- *   which ships with **no slot**. Arms only after `GET open-in-app/apps`
- *   resolves `vscode`; otherwise the whole half stays inert. See
- *   `workspaceMenu.ts` for the DOM contract.
+ * - **Copy workspace path** — a DOM graft into the Workspace "..." menu, which
+ *   ships with **no slot**. Always grafted: a clipboard write is browser-local.
+ * - **Open a Workspace in VS Code** — the same graft, added only once
+ *   `GET open-in-app/apps` resolves `vscode`; otherwise that one row stays out.
+ *   See `workspaceMenu.ts` for the DOM contract.
  *
  * Both routes report through the plugin's notice surface: the shipped `Toast`
  * primitive, mounted by a `shell.overlay` entry. Nothing is self-owned — no
@@ -15,6 +16,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { useSyncExternalStore } from 'react'
+// Runtime platform external (see tsdown.config.ts): the shell seeds this module.
+import { writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the ctx.locale service merge (register/bind).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: the ctx.slots SlotRegistry service merge.
@@ -69,20 +72,34 @@ export function apply(ctx: Context): void {
     ctx.workspaces.list.getSnapshot().items
       .find(item => String(item.workspaceId) === workspaceId)?.path
 
-  // Workspace-menu half: probe first, install only on a positive answer, and
-  // tear the listeners down with the fiber — whichever side settles first.
-  let teardown: (() => void) | undefined
-  let disposed = false
+  /** Clipboard write answering itself: success and failure each raise one notice. */
+  const copyPath = (path: string): void => {
+    void writeClipboard(path).then((accepted) => {
+      if (accepted) {
+        showToast(t('toast.pathCopied'))
+        return
+      }
+      // The helper never throws, so a refused write is the only failure there is.
+      console.warn('sidebar-menu-actions: copy workspace path failed: the clipboard refused the write')
+      showToast(t('toast.copyFailed'))
+    })
+  }
+
+  // The copy row needs nothing from the Host, so the install is immediate; the
+  // VS Code row joins it only after the probe answers, read at graft time.
+  let vscodeReady = false
+  let tornDown = false
+  const teardown = installWorkspaceMenu({ t, pathOf, showToast, openInVscode: () => vscodeReady, copyPath })
   ctx.effect(() => () => {
-    disposed = true
-    teardown?.()
+    tornDown = true
+    teardown()
   }, 'menu-actions: workspace menu lifetime')
   void probeVscode().then((ready) => {
-    if (disposed) return
-    if (!ready) {
-      console.warn('sidebar-menu-actions: VS Code is not available on this host; the workspace menu item stays disabled')
-      return
-    }
-    teardown = installWorkspaceMenu({ t, pathOf, showToast })
+    // After teardown the warning below would be a lie: no menu survives to keep
+    // any row. The flag guards that log line, not the install, which is already done.
+    if (tornDown) return
+    vscodeReady = ready
+    if (ready) return
+    console.warn('sidebar-menu-actions: VS Code is not available on this host; the workspace menu keeps the copy-path row only')
   })
 }

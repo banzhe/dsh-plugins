@@ -3,8 +3,8 @@
  * `ProjectRowItem` renders `[{rename},{delete}]` as data rows with **no slot** to
  * register into — so this module performs DOM menu surgery instead: arm the row's
  * ellipsis trigger, watch `document.body` for the portal menu that click opens,
- * and graft one button into the list, cloned off the shipped rename row so it
- * joins the Menu primitive's styling, keyboard walk, and focus return untouched.
+ * and graft two buttons into the list, cloned off the shipped rename row so they
+ * join the Menu primitive's styling, keyboard walk, and focus return untouched.
  *
  * The DOM contract this code reads is the "DOM contract" table in
  * `docs/plugins/sidebar-menu-actions.md`; the tests build fixtures from the same
@@ -13,9 +13,11 @@
  * Closing goes through the primitive's own Escape listener, so the menu settles
  * exactly like the keyboard.
  *
- * The open-in-app Host (shipped by the `dsh-web-app` bundle) gates everything:
- * one `GET open-in-app/apps` decides whether the feature arms at all, and a
- * click answers `POST open-in-app/open {app:'vscode', path}`.
+ * The two rows have different gates. Copying a directory is a browser-local
+ * clipboard write, so that row is always grafted. The VS Code row launches a
+ * Host application: the open-in-app Host (shipped by the `dsh-web-app` bundle)
+ * gates it — one `GET open-in-app/apps` decides whether it is grafted at all,
+ * and a click answers `POST open-in-app/open {app:'vscode', path}`.
  */
 import {
   OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_OPEN_ROUTE,
@@ -26,22 +28,33 @@ import type { MenuActionsKey } from './locales.ts'
 /** Row attribute value prefix: `workspace:` + id. Ungrouped suffix is empty. */
 const ROW_PREFIX = 'workspace:'
 
-/** Marker attribute on the injected button: the idempotency guard and test hook. */
-const MARKER = 'data-menu-actions'
+/** Marker attribute on the injected buttons: the idempotency guard and test hook. */
+const MARKER_ATTR = 'data-menu-actions'
 
-const MARKER_VALUE = 'vscode'
+/** The closed set of marker values, one per graftable row. */
+type RowMarker = 'vscode' | 'copy-path'
 
-/** open-in-app catalog id this row launches (the probe and the POST body share it). */
+const MARKER_VSCODE: RowMarker = 'vscode'
+const MARKER_COPY: RowMarker = 'copy-path'
+
+/** open-in-app catalog id the VS Code row launches (the probe and the POST body share it). */
 const VSCODE_APP_ID = 'vscode'
 
 /**
- * Angle-bracket glyph for the injected row. The clone carries the rename row's
- * wrapper and button classes but must not keep its edit icon, so the icon span's
- * content is replaced with this inline path.
+ * Wrap one icon's children in the 16px grid and 1.5px stroke envelope both rows
+ * share. The clone carries the rename row's wrapper and button classes but must
+ * not keep its edit icon, so the icon span's content is replaced with this.
  */
-const CODE_GLYPH = '<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5"/></svg>'
+const glyph = (children: string): string =>
+  `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${children}</svg>`
 
-/** What the injected row needs from its owner: label, path, and failure surface. */
+/** Angle-bracket glyph for the VS Code row. */
+const CODE_GLYPH = glyph('<path d="M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5"/>')
+
+/** Two-sheet glyph for the copy row. */
+const COPY_GLYPH = glyph('<rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 4.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h.5"/>')
+
+/** What the injected rows need from their owner: labels, path, and the two outcomes. */
 export interface WorkspaceMenuOptions {
   /** Translate a dictionary key of the plugin namespace. */
   t: (key: MenuActionsKey, params?: Record<string, unknown>) => string
@@ -49,13 +62,20 @@ export interface WorkspaceMenuOptions {
   pathOf: (workspaceId: string) => string | undefined
   /** Surface one resolved failure notice after the menu has closed (the plugin's overlay toast). */
   showToast: (text: string) => void
+  /**
+   * Whether this Host resolved VS Code, read at graft time. A probe that settles
+   * after the first menu was opened still adds the row to the next one.
+   */
+  openInVscode: () => boolean
+  /** Write one resolved directory to the clipboard; reports its own outcome as a notice. */
+  copyPath: (path: string) => void
 }
 
 /**
- * Read the Host's resolved-application list once: the feature arms only when
- * this Host actually resolved VS Code (an uninstalled app, an SSH launch
+ * Read the Host's resolved-application list once: the VS Code row is grafted only
+ * when this Host actually resolved it (an uninstalled app, an SSH launch
  * environment, or an unreachable route all read as "no VS Code" — the menu then
- * stays exactly as shipped). Never rejects.
+ * keeps only the copy row). Never rejects.
  */
 export async function probeVscode(): Promise<boolean> {
   try {
@@ -86,61 +106,91 @@ function rowAndTrigger(target: EventTarget | null): { trigger: HTMLElement; work
   return { trigger, workspaceId }
 }
 
+/** Close the open menu through the primitive's own Escape listener. */
+function closeMenu(): void {
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+}
+
 /**
- * Graft one menu row into an open Workspace menu: clone the rename row's wrapper
- * (same classes, so the Menu primitive styles and walks it as its own), swap its
- * icon content and label text, mark it, wire its click, and insert it before the
- * danger delete row.
+ * Graft the rows into an open Workspace menu: clone the rename row's wrapper
+ * (same classes, so the Menu primitive styles and walks it as its own) once per
+ * row, swap its icon content and label text, mark it, wire its click, and insert
+ * it before the danger delete row. Each row keeps the shipped order — VS Code
+ * first, then the copy row, then delete.
+ *
+ * The VS Code row is skipped when the Host never resolved VS Code. Both rows are
+ * guarded individually, so a second observation (or a re-entrant call) doubles
+ * neither.
  *
  * Exported so the idempotency guard and the malformed-menu bail are directly
  * exercisable; the observer calls it once per armed open.
  */
 export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: WorkspaceMenuOptions): void {
-  // A second observation (or a re-entrant call) must not double the row.
-  if (menu.querySelector(`[${MARKER}]`) !== null) return
   const items = Array.from(menu.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]'))
   if (items.length === 0) return
   const source = items[0] as HTMLButtonElement
   const last = items[items.length - 1] as HTMLButtonElement
-  const wrap = (source.parentElement as HTMLElement).cloneNode(true) as HTMLElement
-  const button = wrap.querySelector<HTMLButtonElement>('button[role="menuitem"]') as HTMLButtonElement
-  const spans = wrap.querySelectorAll<HTMLSpanElement>('span')
-  ;(spans[0] as HTMLSpanElement).innerHTML = CODE_GLYPH
-  ;(spans[1] as HTMLSpanElement).textContent = options.t('menu.openInVscode')
-  button.setAttribute(MARKER, MARKER_VALUE)
   const lastWrap = last.parentElement as HTMLElement
-  ;(lastWrap.parentNode as HTMLElement).insertBefore(wrap, lastWrap)
+  const viewport = lastWrap.parentNode as HTMLElement
 
-  button.addEventListener('click', () => {
-    const path = options.pathOf(workspaceId)
-    /** Both failure shapes (non-2xx answer, rejected request) report identically. */
-    const failed = (detail: string): void => {
-      console.warn('sidebar-menu-actions: open in VS Code failed:', detail)
-      options.showToast(options.t('toast.vscodeFailed', { detail }))
-    }
-    // POST first, then settle the menu through the primitive's own Escape path,
-    // so close/focus-return behave exactly like a shipped row's selection.
-    const request = path === undefined
-      ? undefined
-      : fetch(OPEN_IN_APP_OPEN_ROUTE, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ app: VSCODE_APP_ID, path } satisfies OpenInAppOpenPayload),
-      })
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
-    if (request === undefined) return
-    void request.then(
-      (response) => { if (!response.ok) failed(`HTTP ${String(response.status)}`) },
-      (reason: unknown) => { failed(reason instanceof Error ? reason.message : String(reason)) },
-    )
-  })
+  /** Clone the rename row into one marked row, returning its button. */
+  const graft = (marker: RowMarker, label: string, icon: string): HTMLButtonElement => {
+    const wrap = (source.parentElement as HTMLElement).cloneNode(true) as HTMLElement
+    const button = wrap.querySelector<HTMLButtonElement>('button[role="menuitem"]') as HTMLButtonElement
+    const spans = wrap.querySelectorAll<HTMLSpanElement>('span')
+    ;(spans[0] as HTMLSpanElement).innerHTML = icon
+    ;(spans[1] as HTMLSpanElement).textContent = label
+    button.setAttribute(MARKER_ATTR, marker)
+    viewport.insertBefore(wrap, lastWrap)
+    return button
+  }
+  /** The idempotency guard both rows share. */
+  const notGrafted = (marker: RowMarker): boolean =>
+    menu.querySelector(`[${MARKER_ATTR}="${marker}"]`) === null
+
+  if (options.openInVscode() && notGrafted(MARKER_VSCODE)) {
+    graft(MARKER_VSCODE, options.t('menu.openInVscode'), CODE_GLYPH).addEventListener('click', () => {
+      const path = options.pathOf(workspaceId)
+      /** Both failure shapes (non-2xx answer, rejected request) report identically. */
+      const failed = (detail: string): void => {
+        console.warn('sidebar-menu-actions: open in VS Code failed:', detail)
+        options.showToast(options.t('toast.vscodeFailed', { detail }))
+      }
+      // POST first, then settle the menu through the primitive's own Escape path,
+      // so close/focus-return behave exactly like a shipped row's selection.
+      const request = path === undefined
+        ? undefined
+        : fetch(OPEN_IN_APP_OPEN_ROUTE, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ app: VSCODE_APP_ID, path } satisfies OpenInAppOpenPayload),
+        })
+      closeMenu()
+      if (request === undefined) return
+      void request.then(
+        (response) => { if (!response.ok) failed(`HTTP ${String(response.status)}`) },
+        (reason: unknown) => { failed(reason instanceof Error ? reason.message : String(reason)) },
+      )
+    })
+  }
+
+  if (notGrafted(MARKER_COPY)) {
+    graft(MARKER_COPY, options.t('menu.copyWorkspacePath'), COPY_GLYPH).addEventListener('click', () => {
+      // Resolve before closing, exactly as the VS Code row does: the menu must
+      // settle like a shipped row's selection even when the Workspace is gone.
+      const path = options.pathOf(workspaceId)
+      closeMenu()
+      if (path === undefined) return
+      options.copyPath(path)
+    })
+  }
 }
 
 /**
  * Install the Workspace-menu half: arm the row's ellipsis on pointer or keyboard
  * activation, and on each portal-menu appearance consume the arm and — when the
  * trigger still holds and the keyboard is where that gesture left it — graft the
- * row. The guards keep a stale arm from a cancelled press out of a Session row's
+ * rows. The guards keep a stale arm from a cancelled press out of a Session row's
  * menu. Returns the disposer removing both capture listeners and the observer.
  */
 export function installWorkspaceMenu(options: WorkspaceMenuOptions): () => void {

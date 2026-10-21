@@ -1,6 +1,6 @@
 # @banzhe/dsh-sidebar-menu-actions
 
-Sidebar row-menu extensions: open a Workspace in VS Code.
+Sidebar row-menu extensions: copy a Workspace path, open a Workspace in VS Code.
 
 [中文版](./README.zh-CN.md)
 
@@ -8,11 +8,12 @@ A Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
 
 ## Features
 
-- Grafts **Open in VS Code** (`在 VS Code 中打开`) into the Workspace "..." menu, inserted between rename and the danger delete row.
-- Clicking it POSTs the open-in-app Host route (`{app:'vscode', path:<workspace dir>}`) and closes the menu through the Menu primitive's Escape path.
-- Armed only after `GET open-in-app/apps` resolves `vscode` (provided by the `dsh-web-app` bundle); otherwise the menu renders exactly as shipped and one console line says why.
+- Grafts **Copy workspace path** (`复制工作区路径`) and **Open in VS Code** (`在 VS Code 中打开`) into the Workspace "..." menu, inserted between rename and the danger delete row.
+- **Copy workspace path** writes the Workspace's absolute directory to the clipboard and shows a toast.
+- **Open in VS Code** POSTs the open-in-app Host route (`{app:'vscode', path:<workspace dir>}`). It is added only after `GET open-in-app/apps` resolves `vscode` (provided by the `dsh-web-app` bundle); otherwise that one row stays out and one console line says why.
+- Both rows close the menu through the Menu primitive's Escape path, so focus return matches a shipped row.
 - A stale arm from a cancelled press never reaches a Session row's menu.
-- Launch failures show a toast with the HTTP status or error message, after the menu has closed.
+- Failures show a toast with the HTTP status or error message, after the menu has closed.
 - Labels and notices follow the app locale (`menu-actions` namespace, zh/en).
 
 ## Install

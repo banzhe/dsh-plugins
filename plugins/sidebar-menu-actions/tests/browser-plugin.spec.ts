@@ -2,32 +2,50 @@
 /**
  * The browser half's lifecycle over a real Cordis context, plus the node half's
  * exported name. Beyond the registrations themselves this spec pins the cases that fail
- * silently when a guard is dropped: a disposal that must win the race against a
- * probe still in flight (no install may land after teardown), and a full
- * teardown proven not by the returned disposer but by arming a row afterwards
- * and asserting the menu stays as shipped.
+ * silently when a guard is dropped: the copy row must be grafted even when the
+ * VS Code probe is still in flight or answered "no", and a full teardown proven
+ * not by the returned disposer but by arming a row afterwards and asserting the
+ * menu stays as shipped.
  *
  * `pathOf` is driven through both answers: a row whose id the workspace
  * snapshot carries (the POST fires) and one it does not (no request at all).
  */
 import { Context, type Fiber } from '@deepseek-ai/cordis'
-import { act } from 'react'
-import type { Root } from 'react-dom/client'
+import * as primitives from '@deepseek-ai/dsh-client-ui-primitives'
+import { act, createElement, type ComponentType } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { IWorkspaces } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
+import type { NoticeToastInjected, NoticeToastProps } from '../src/client/NoticeToast.tsx'
 import { name as nodeName } from '../src/index.ts'
 import {
-  appendWorkspaceRow, armPointer, buildMenu, flush, injectedButton, recordKeys, viewportRows,
+  appendWorkspaceRow, armPointer, buildMenu, COPY_ROW, flush, injectedButton, recordKeys,
+  requireInjected, viewportRows, VSCODE_ROW,
 } from './fixtures.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
+import { translateEn as t } from './translate.ts'
 import { workspacesDouble } from './workspaces-double.ts'
 
 const NOTICE = 'sidebar-menu-actions.notice'
 
 const WORKSPACES = [{ workspaceId: 'ws-1', path: '/ws/alpha' }]
+
+/**
+ * The notice entry ignores these, but the composed props type requires them:
+ * ui-session and ui-workspace merge `GlobalStandardProps` onto every slot key,
+ * so a fixture cast must supply all of them or the entry's own props type
+ * rejects the cast.
+ */
+const STANDARD_PROPS = {
+  useSessions: (() => {}) as never,
+  useSessionStatus: (() => {}) as never,
+  useSessionRetainInfo: (() => {}) as never,
+  useWorkspaces: (() => {}) as never,
+  useShortcuts: (() => {}) as never,
+}
 
 let fibers: Fiber[] = []
 let roots: Root[] = []
@@ -59,22 +77,62 @@ function stubApps(apps: readonly string[] = ['vscode']): ReturnType<typeof vi.fn
   return fetchMock
 }
 
-async function graftedRow(workspaceId: string): Promise<HTMLButtonElement> {
+/** Mount the plugin's own `shell.overlay` entry over the face it registered. */
+async function mountNotice(slots: SlotsDouble): Promise<HTMLElement> {
+  const entry = slots.entry(NOTICE)
+  if (entry === undefined) throw new Error('the overlay entry was not registered')
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  roots.push(root)
+  await act(async () => {
+    // The registration boundary is where these casts belong: the recorded
+    // component IS the notice entry and the recorded face IS its inject face.
+    const component = entry.component as ComponentType<NoticeToastProps>
+    const face = entry.injected as unknown as NoticeToastInjected
+    root.render(createElement(component, { t, ...STANDARD_PROPS, ...face }))
+  })
+  return host
+}
+
+/** The banner copy on display, or a failure when nothing is mounted. */
+function bannerText(host: HTMLElement): string {
+  const banner = host.querySelector<HTMLElement>('[data-toast]')
+  if (banner === null) throw new Error('no banner is mounted')
+  return banner.textContent ?? ''
+}
+
+/** Complete the mounted banner the way the primitive does once its fade ends. */
+async function finishBanner(host: HTMLElement): Promise<void> {
+  const done = host.querySelector<HTMLElement>('[data-toast-done]')
+  if (done === null) throw new Error('no banner to complete')
+  await act(async () => { done.click() })
+}
+
+/** Graft the menu of one workspace row and return both injected rows. */
+async function graftedRows(workspaceId: string): Promise<{
+  readonly vscode: HTMLButtonElement | null
+  readonly copy: HTMLButtonElement
+}> {
   const row = appendWorkspaceRow(workspaceId)
   armPointer(row.trigger)
   const menu = buildMenu()
   document.body.append(menu.menu)
   await flush()
-  const button = injectedButton(menu.menu)
-  if (button === null) throw new Error('the workspace menu stayed as shipped')
-  return button
+  return {
+    vscode: injectedButton(menu.menu, VSCODE_ROW),
+    copy: requireInjected(menu.menu, COPY_ROW),
+  }
 }
 
 /** Click one row and collect every keydown it dispatches on document. */
 async function click(button: HTMLElement): Promise<string[]> {
   const keys = recordKeys()
-  button.click()
-  await flush()
+  // Inside act(): a click that raises a notice is a React update.
+  await act(async () => {
+    button.click()
+    await flush()
+  })
   keys.stop()
   return keys.keys
 }
@@ -114,36 +172,37 @@ describe('sidebar-menu-actions browser half', () => {
     await flush()
     const translate = ctx.locale.bind(NS)
     ctx.locale.setLocale('zh')
-    expect(translate('menu.openInVscode')).toBe(zh['menu.openInVscode'])
+    expect(translate('menu.copyWorkspacePath')).toBe(zh['menu.copyWorkspacePath'])
     ctx.locale.setLocale('en')
-    expect(translate('menu.openInVscode')).toBe(en['menu.openInVscode'])
+    expect(translate('menu.copyWorkspacePath')).toBe(en['menu.copyWorkspacePath'])
     await fiber.dispose()
-    expect(translate('menu.openInVscode')).toBe('menu.openInVscode')
+    expect(translate('menu.copyWorkspacePath')).toBe('menu.copyWorkspacePath')
   })
 
-  it('stays inert on a Host without VS Code, but keeps the notice entry', async () => {
+  it('keeps the copy row on a Host without VS Code', async () => {
     stubApps([])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { slots } = await bench()
     await flush()
-    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: VS Code is not available on this host; the workspace menu item stays disabled')
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: VS Code is not available on this host; the workspace menu keeps the copy-path row only')
     expect(slots.entry(NOTICE)).toBeDefined()
-    // Nothing listens: the same arm and menu an installed half would answer.
     const row = appendWorkspaceRow('ws-1')
     armPointer(row.trigger)
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(2)
-    expect(injectedButton(document)).toBeNull()
+    expect(viewportRows(menu)).toBe(3)
+    expect(injectedButton(menu.menu, VSCODE_ROW)).toBeNull()
+    expect(injectedButton(menu.menu, COPY_ROW)).not.toBeNull()
   })
 
   it('installs the workspace menu on a probing Host and opens the resolved path', async () => {
     const fetchMock = stubApps()
     const { slots } = await bench()
     await flush()
-    const button = await graftedRow('ws-1')
-    const keys = await click(button)
+    const { vscode } = await graftedRows('ws-1')
+    if (vscode === null) throw new Error('the VS Code row was not grafted')
+    const keys = await click(vscode)
     expect(fetchMock).toHaveBeenNthCalledWith(1, 'open-in-app/apps', { headers: { accept: 'application/json' } })
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(fetchMock).toHaveBeenLastCalledWith('open-in-app/open', {
@@ -155,18 +214,83 @@ describe('sidebar-menu-actions browser half', () => {
     expect(slots.entry(NOTICE)).toBeDefined()
   })
 
+  it('writes the resolved directory to the clipboard and raises the copied notice', async () => {
+    stubApps()
+    const write = vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
+    const { slots } = await bench()
+    await flush()
+    const host = await mountNotice(slots)
+    expect(host.textContent).toBe('')
+    const { copy } = await graftedRows('ws-1')
+    const keys = await click(copy)
+    expect(keys).toEqual(['Escape'])
+    expect(write).toHaveBeenCalledWith('/ws/alpha')
+    expect(bannerText(host)).toBe(en['toast.pathCopied'])
+    // Completing the banner takes it down; nothing else is left mounted.
+    await finishBanner(host)
+    expect(host.textContent).toBe('')
+  })
+
+  it('restarts the banner for a second copy instead of extending the first', async () => {
+    stubApps()
+    vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
+    const { slots } = await bench()
+    await flush()
+    const host = await mountNotice(slots)
+    const { copy } = await graftedRows('ws-1')
+    await click(copy)
+    const first = host.querySelector<HTMLElement>('[data-toast]')
+    await click(copy)
+    const second = host.querySelector<HTMLElement>('[data-toast]')
+    // The same text is a new showing (a new `seq`), so the banner is a NEW element.
+    expect(first).not.toBeNull()
+    expect(second).not.toBe(first)
+    expect(bannerText(host)).toBe(en['toast.pathCopied'])
+  })
+
+  it('reports a refused clipboard write through the console and the failure notice', async () => {
+    stubApps()
+    vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(false)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { slots } = await bench()
+    await flush()
+    const host = await mountNotice(slots)
+    const { copy } = await graftedRows('ws-1')
+    await click(copy)
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: copy workspace path failed: the clipboard refused the write')
+    expect(bannerText(host)).toBe(en['toast.copyFailed'])
+  })
+
   it('dismisses the menu without a request when the row’s workspace is gone', async () => {
     const fetchMock = stubApps()
+    const write = vi.spyOn(primitives, 'writeClipboard').mockResolvedValue(true)
     await bench()
     await flush()
-    const button = await graftedRow('ws-gone')
-    const keys = await click(button)
-    // Only the probe's own GET: `pathOf` missed, so no open request is issued.
+    const { copy } = await graftedRows('ws-gone')
+    const keys = await click(copy)
+    // Only the probe's own GET: `pathOf` missed, so nothing is written or posted.
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(write).not.toHaveBeenCalled()
     expect(keys).toEqual(['Escape'])
   })
 
-  it('installs nothing when the fiber is disposed before the probe settles', async () => {
+  it('keeps the copy row while the probe is still in flight', async () => {
+    let release = (): void => {}
+    const gate = new Promise<void>((resolve) => { release = resolve })
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      await gate
+      return { ok: true, status: 200, json: async () => ({ apps: ['vscode'] }) }
+    }))
+    await bench()
+    const { vscode, copy } = await graftedRows('ws-1')
+    // The VS Code row waits for the answer; the browser-local row does not.
+    expect(vscode).toBeNull()
+    expect(copy).not.toBeNull()
+    release()
+    await flush()
+  })
+
+  it('leaves nothing grafted when the fiber is disposed before the probe settles', async () => {
     let release = (): void => {}
     const gate = new Promise<void>((resolve) => { release = resolve })
     vi.stubGlobal('fetch', vi.fn(async () => {
@@ -186,17 +310,17 @@ describe('sidebar-menu-actions browser half', () => {
     expect(viewportRows(menu)).toBe(2)
   })
 
-  it('releases the dictionaries, both entries, and the workspace install with the fiber', async () => {
+  it('releases the dictionaries, the notice entry, and the workspace install with the fiber', async () => {
     stubApps()
     const { ctx, fiber, slots } = await bench()
     await flush()
-    // The install is live before teardown: the arm below grafts the row.
+    // The install is live before teardown: the arm below grafts both rows.
     const live = appendWorkspaceRow('ws-1')
     armPointer(live.trigger)
     const liveMenu = buildMenu()
     document.body.append(liveMenu.menu)
     await flush()
-    expect(viewportRows(liveMenu)).toBe(3)
+    expect(viewportRows(liveMenu)).toBe(4)
     await fiber.dispose()
     expect(slots.entry(NOTICE)).toBeUndefined()
     expect(ctx.locale.bind(NS)('toast.vscodeFailed', { detail: 'x' })).toBe('toast.vscodeFailed')
@@ -207,7 +331,7 @@ describe('sidebar-menu-actions browser half', () => {
     document.body.append(menu.menu)
     await flush()
     expect(viewportRows(menu)).toBe(2)
-    expect(injectedButton(menu.menu)).toBeNull()
+    expect(injectedButton(menu.menu, VSCODE_ROW)).toBeNull()
   })
 })
 
