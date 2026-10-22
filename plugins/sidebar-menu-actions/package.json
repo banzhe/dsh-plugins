@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-sidebar-menu-actions",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Sidebar row-menu extensions: copy a Workspace path, open a Workspace in VS Code or in the OS file browser",
   "repository": {
     "type": "git",
