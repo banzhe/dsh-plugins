@@ -3,9 +3,9 @@
  * The browser half's lifecycle over a real Cordis context, plus the node half's
  * exported name. Beyond the registrations themselves this spec pins the cases that fail
  * silently when a guard is dropped: the copy row must be grafted even when the
- * VS Code probe is still in flight or answered "no", and a full teardown proven
- * not by the returned disposer but by arming a row afterwards and asserting the
- * menu stays as shipped.
+ * launch probe is still in flight or answered with neither app, and a full
+ * teardown proven not by the returned disposer but by arming a row afterwards
+ * and asserting the menu stays as shipped.
  *
  * `pathOf` is driven through both answers: a row whose id the workspace
  * snapshot carries (the POST fires) and one it does not (no request at all).
@@ -21,8 +21,8 @@ import { en, NS, zh } from '../src/client/locales.ts'
 import type { NoticeToastInjected, NoticeToastProps } from '../src/client/NoticeToast.tsx'
 import { name as nodeName } from '../src/index.ts'
 import {
-  appendWorkspaceRow, armPointer, buildMenu, COPY_ROW, flush, injectedButton, recordKeys,
-  requireInjected, viewportRows, VSCODE_ROW,
+  appendWorkspaceRow, armPointer, buildMenu, COPY_ROW, EXPLORER_ROW, flush, injectedButton,
+  recordKeys, requireInjected, viewportRows, VSCODE_ROW,
 } from './fixtures.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
@@ -71,7 +71,7 @@ async function bench(): Promise<Bench> {
   return { ctx, fiber, slots }
 }
 
-function stubApps(apps: readonly string[] = ['vscode']): ReturnType<typeof vi.fn> {
+function stubApps(apps: readonly string[] = ['vscode', 'explorer']): ReturnType<typeof vi.fn> {
   const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ apps }) }))
   vi.stubGlobal('fetch', fetchMock)
   return fetchMock
@@ -109,9 +109,10 @@ async function finishBanner(host: HTMLElement): Promise<void> {
   await act(async () => { done.click() })
 }
 
-/** Graft the menu of one workspace row and return both injected rows. */
+/** Graft the menu of one workspace row and return every injected row. */
 async function graftedRows(workspaceId: string): Promise<{
   readonly vscode: HTMLButtonElement | null
+  readonly explorer: HTMLButtonElement | null
   readonly copy: HTMLButtonElement
 }> {
   const row = appendWorkspaceRow(workspaceId)
@@ -121,6 +122,7 @@ async function graftedRows(workspaceId: string): Promise<{
   await flush()
   return {
     vscode: injectedButton(menu.menu, VSCODE_ROW),
+    explorer: injectedButton(menu.menu, EXPLORER_ROW),
     copy: requireInjected(menu.menu, COPY_ROW),
   }
 }
@@ -179,12 +181,13 @@ describe('sidebar-menu-actions browser half', () => {
     expect(translate('menu.copyWorkspacePath')).toBe('menu.copyWorkspacePath')
   })
 
-  it('keeps the copy row on a Host without VS Code', async () => {
+  it('keeps the copy row only on a Host that resolved neither launch app', async () => {
     stubApps([])
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { slots } = await bench()
     await flush()
-    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: VS Code is not available on this host; the workspace menu keeps the copy-path row only')
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: vscode is not available on this host; the workspace menu omits that row')
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: explorer is not available on this host; the workspace menu omits that row')
     expect(slots.entry(NOTICE)).toBeDefined()
     const row = appendWorkspaceRow('ws-1')
     armPointer(row.trigger)
@@ -193,7 +196,37 @@ describe('sidebar-menu-actions browser half', () => {
     await flush()
     expect(viewportRows(menu)).toBe(3)
     expect(injectedButton(menu.menu, VSCODE_ROW)).toBeNull()
+    expect(injectedButton(menu.menu, EXPLORER_ROW)).toBeNull()
     expect(injectedButton(menu.menu, COPY_ROW)).not.toBeNull()
+  })
+
+  it('omits only the file-browser row on a Host without explorer', async () => {
+    // What a macOS or Linux Host reports: `explorer` is declared on win32 alone.
+    stubApps([VSCODE_ROW])
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { slots } = await bench()
+    await flush()
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: explorer is not available on this host; the workspace menu omits that row')
+    expect(slots.entry(NOTICE)).toBeDefined()
+    const { vscode, explorer } = await graftedRows('ws-1')
+    expect(vscode).not.toBeNull()
+    expect(explorer).toBeNull()
+  })
+
+  it('opens the Workspace in the file browser through the explorer catalog id', async () => {
+    const fetchMock = stubApps()
+    await bench()
+    await flush()
+    const { explorer } = await graftedRows('ws-1')
+    if (explorer === null) throw new Error('the file-browser row was not grafted')
+    const keys = await click(explorer)
+    expect(fetchMock).toHaveBeenLastCalledWith('open-in-app/open', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ app: 'explorer', path: '/ws/alpha' }),
+    })
+    expect(keys).toEqual(['Escape'])
   })
 
   it('installs the workspace menu on a probing Host and opens the resolved path', async () => {
@@ -282,9 +315,10 @@ describe('sidebar-menu-actions browser half', () => {
       return { ok: true, status: 200, json: async () => ({ apps: ['vscode'] }) }
     }))
     await bench()
-    const { vscode, copy } = await graftedRows('ws-1')
-    // The VS Code row waits for the answer; the browser-local row does not.
+    const { vscode, explorer, copy } = await graftedRows('ws-1')
+    // The launch rows wait for the answer; the browser-local row does not.
     expect(vscode).toBeNull()
+    expect(explorer).toBeNull()
     expect(copy).not.toBeNull()
     release()
     await flush()
@@ -314,13 +348,13 @@ describe('sidebar-menu-actions browser half', () => {
     stubApps()
     const { ctx, fiber, slots } = await bench()
     await flush()
-    // The install is live before teardown: the arm below grafts both rows.
+    // The install is live before teardown: the arm below grafts every row.
     const live = appendWorkspaceRow('ws-1')
     armPointer(live.trigger)
     const liveMenu = buildMenu()
     document.body.append(liveMenu.menu)
     await flush()
-    expect(viewportRows(liveMenu)).toBe(4)
+    expect(viewportRows(liveMenu)).toBe(5)
     await fiber.dispose()
     expect(slots.entry(NOTICE)).toBeUndefined()
     expect(ctx.locale.bind(NS)('toast.vscodeFailed', { detail: 'x' })).toBe('toast.vscodeFailed')

@@ -14,7 +14,7 @@ description. All selectors are read on the live document:
 | Arming gestures | capture `pointerdown`, or `keydown` of `Enter`/`Space`, with the target inside that first button |
 | Open menu portal | a `div[role="menu"]` added as a direct child of `document.body` |
 | Menu rows | one wrapper div per `button[role="menuitem"]` inside the `div[role="presentation"]` viewport; rename first, danger delete last; each button has an icon span then a label span |
-| Injected rows | clones of the rename wrapper; icon span content replaced, label set from the dictionary, marker `data-menu-actions="vscode"` / `="copy-path"` (per-row idempotency guard), inserted **before** the delete wrapper in that order |
+| Injected rows | clones of the rename wrapper; icon span content replaced, label set from the dictionary, marker `data-menu-actions="vscode"` / `="explorer"` / `="copy-path"` (per-row idempotency guard), each inserted **before** the delete wrapper in that order |
 | Menu close | `document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))` — the primitive listens for it while open |
 | Injection guards | arm consumed on the first portal-menu appearance; injected only when the armed trigger is still connected and `document.activeElement` is the trigger, `document.body`, or inside that menu |
 
@@ -31,16 +31,25 @@ plugin grafts rows into the open portal menu by DOM instead.
 
 - The **Copy workspace path** row is browser-local (one `writeClipboard` call)
   and is always grafted.
-- The **Open in VS Code** row needs the Host. One `GET open-in-app/apps` per
-  page sets the flag its graft reads; a fetch error, a non-2xx answer, or a
-  missing `vscode` id all leave that one row out (plus one `console.warn`). The
-  copy row is unaffected, and a probe that settles after a menu was already
-  opened still adds the row to the next one.
+- The two launch rows need the Host: **Open in VS Code** and **Open in File
+  Browser**. One `GET open-in-app/apps` per page sets the set of catalog ids
+  their grafts read; a fetch error, a non-2xx answer, or a missing id leaves
+  that one row out (plus one `console.warn` per missing id). The copy row is
+  unaffected, and a probe that settles after a menu was already opened still
+  adds the rows to the next one.
+- The **file-browser row is Windows-only with no platform sniff**. The official
+  open-in-app catalog declares `explorer` on `win32` alone, so the probe reports
+  it only on a Windows Host. Its launcher is the catalog's `shell-open` entry —
+  the OS's open verb for a directory — which honors whichever file browser the
+  user has configured as the default, rather than naming `explorer.exe`. A
+  macOS or Linux Host reports `vscode` but never `explorer`, so exactly that one
+  row stays out.
 - Workspace path resolution reads `ctx.workspaces.list` at click time; a row
   whose Workspace vanished dispatches Escape and sends/writes nothing.
-- Launch failures (non-2xx or rejected fetch) show `toast.vscodeFailed` with
-  the HTTP status or error message, after the menu has closed; a refused
-  clipboard write shows `toast.copyFailed` the same way.
+- Launch failures (non-2xx or rejected fetch) show `toast.vscodeFailed` /
+  `toast.fileBrowserFailed` with the HTTP status or error message, after the
+  menu has closed; a refused clipboard write shows `toast.copyFailed` the same
+  way.
 - Notices are the shipped `Toast` primitive rendered by the plugin's
   `shell.overlay` entry: one at a time, each replacing the last, and a repeat
   of the same text restarts the banner rather than extending it. The plugin

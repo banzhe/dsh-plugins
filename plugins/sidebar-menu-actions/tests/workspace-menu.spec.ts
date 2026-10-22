@@ -15,13 +15,16 @@ import { en } from '../src/client/locales.ts'
 import { injectMenuItem, installWorkspaceMenu, type WorkspaceMenuOptions } from '../src/client/workspaceMenu.ts'
 import {
   appendButtonlessRow, appendUngroupedRow, appendWorkspaceRow, armKey, armPointer,
-  buildMenu, COPY_ROW, flush, injectedButton, injectedButtons, recordKeys, requireInjected,
+  buildMenu, COPY_ROW, EXPLORER_ROW, flush, injectedButton, injectedButtons, recordKeys, requireInjected,
   viewportRows, VSCODE_ROW, type MenuFixture, type WorkspaceRowFixture,
 } from './fixtures.ts'
 import { translateEn as t } from './translate.ts'
 
 /** The workspace directory the default stub resolves; every other id misses. */
 const PATHS: Record<string, string> = { 'ws-1': '/ws/alpha' }
+
+/** The launch rows a Windows Host resolves: both catalog ids are present. */
+const ALL_APPS: readonly string[] = [VSCODE_ROW, EXPLORER_ROW]
 
 interface OptionsFixture {
   readonly options: WorkspaceMenuOptions
@@ -31,10 +34,11 @@ interface OptionsFixture {
 
 function optionsFixture(
   paths: Record<string, string> = PATHS,
-  openInVscode = true,
+  apps: readonly string[] = ALL_APPS,
 ): OptionsFixture {
   const showToast = vi.fn()
   const copyPath = vi.fn()
+  const launchable = new Set(apps)
   return {
     showToast,
     copyPath,
@@ -42,7 +46,7 @@ function optionsFixture(
       t,
       pathOf: (workspaceId: string) => paths[workspaceId],
       showToast,
-      openInVscode: () => openInVscode,
+      launchableApps: () => launchable,
       copyPath,
     },
   }
@@ -50,8 +54,8 @@ function optionsFixture(
 
 let disposers: Array<() => void> = []
 
-function install(paths?: Record<string, string>, openInVscode = true): OptionsFixture {
-  const fixture = optionsFixture(paths, openInVscode)
+function install(paths?: Record<string, string>, apps?: readonly string[]): OptionsFixture {
+  const fixture = optionsFixture(paths, apps)
   disposers.push(installWorkspaceMenu(fixture.options))
   return fixture
 }
@@ -111,8 +115,8 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(4)
-    expect(injectedButtons(menu.menu)).toHaveLength(2)
+    expect(viewportRows(menu)).toBe(5)
+    expect(injectedButtons(menu.menu)).toHaveLength(3)
   })
 
   it('arms from the Enter key', async () => {
@@ -122,7 +126,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(4)
+    expect(viewportRows(menu)).toBe(5)
   })
 
   it('arms from the space key', async () => {
@@ -132,7 +136,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(4)
+    expect(viewportRows(menu)).toBe(5)
   })
 
   /**
@@ -177,7 +181,7 @@ describe('installWorkspaceMenu', () => {
     const menu = buildMenu()
     document.body.append(menu.menu)
     await flush()
-    expect(viewportRows(menu)).toBe(4)
+    expect(viewportRows(menu)).toBe(5)
   })
 
   it('takes an open while the trigger still holds focus', async () => {
@@ -189,7 +193,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(document.activeElement).toBe(row.trigger)
-    expect(injectedButtons(menu.menu)).toHaveLength(2)
+    expect(injectedButtons(menu.menu)).toHaveLength(3)
   })
 
   it('takes an open while the body holds focus', async () => {
@@ -200,7 +204,7 @@ describe('installWorkspaceMenu', () => {
     document.body.append(menu.menu)
     await flush()
     expect(document.activeElement).toBe(document.body)
-    expect(injectedButtons(menu.menu)).toHaveLength(2)
+    expect(injectedButtons(menu.menu)).toHaveLength(3)
   })
 
   it('takes an open while focus sits inside the menu', async () => {
@@ -214,7 +218,7 @@ describe('installWorkspaceMenu', () => {
     inside.focus()
     await flush()
     expect(document.activeElement).toBe(inside)
-    expect(injectedButtons(menu.menu)).toHaveLength(2)
+    expect(injectedButtons(menu.menu)).toHaveLength(3)
   })
 
   it('refuses an open raised while focus is somewhere else entirely', async () => {
@@ -266,22 +270,24 @@ describe('injectMenuItem', () => {
   it('grafts clones of the rename row between rename and delete', async () => {
     install()
     const { menu, button } = await graft()
-    expect(viewportRows(menu)).toBe(4)
+    expect(viewportRows(menu)).toBe(5)
     const wraps = [...menu.presentation.children]
     expect(wraps[0]).toBe(menu.rename)
-    expect(wraps[3]).toBe(menu.deleteRow)
+    expect(wraps[4]).toBe(menu.deleteRow)
     expect(wraps[1]).toBe(button.parentElement)
-    expect(wraps[2]).toBe(requireInjected(menu.menu, COPY_ROW).parentElement)
-    expect(wraps[1]?.className).toBe('row-rename')
-    expect(wraps[2]?.className).toBe('row-rename')
+    expect(wraps[2]).toBe(requireInjected(menu.menu, EXPLORER_ROW).parentElement)
+    expect(wraps[3]).toBe(requireInjected(menu.menu, COPY_ROW).parentElement)
+    for (const wrap of [wraps[1], wraps[2], wraps[3]]) expect(wrap?.className).toBe('row-rename')
     expect(button.getAttribute('role')).toBe('menuitem')
     expect(button.getAttribute('data-menu-actions')).toBe('vscode')
     expect(button.textContent).toBe(en['menu.openInVscode'])
+    expect(requireInjected(menu.menu, EXPLORER_ROW).textContent).toBe(en['menu.openInFileBrowser'])
     expect(requireInjected(menu.menu, COPY_ROW).textContent).toBe(en['menu.copyWorkspacePath'])
     // The rename row's edit icon is gone, replaced by the inline glyphs.
     expect(button.querySelector('span.icon')?.textContent).toBe('')
     expect(button.querySelector('svg path')?.getAttribute('d'))
       .toBe('M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5')
+    expect(requireInjected(menu.menu, EXPLORER_ROW).querySelector('svg path')).not.toBeNull()
     expect(requireInjected(menu.menu, COPY_ROW).querySelector('svg rect')).not.toBeNull()
     // The shipped rows the clones were taken from stay untouched.
     expect(menu.rename.querySelectorAll('span')[0]?.textContent).toBe('rename-glyph')
@@ -289,8 +295,8 @@ describe('injectMenuItem', () => {
     expect(menu.deleteRow.querySelectorAll('span')[1]?.textContent).toBe(menu.deleteLabel)
   })
 
-  it('keeps the copy row and drops the VS Code row when the Host never resolved it', async () => {
-    install(PATHS, false)
+  it('keeps the copy row only when the Host resolved neither launch app', async () => {
+    install(PATHS, [])
     const row = appendWorkspaceRow('ws-1')
     armPointer(row.trigger)
     const menu = buildMenu()
@@ -298,16 +304,33 @@ describe('injectMenuItem', () => {
     await flush()
     expect(viewportRows(menu)).toBe(3)
     expect(injectedButton(menu.menu, VSCODE_ROW)).toBeNull()
+    expect(injectedButton(menu.menu, EXPLORER_ROW)).toBeNull()
     expect(requireInjected(menu.menu, COPY_ROW)).not.toBeNull()
   })
 
-  it('does not double either row when the same menu is offered twice', async () => {
+  it('drops the file-browser row alone on a Host that resolved no explorer', async () => {
+    // Exactly what a non-Windows Host reports: the official catalog declares
+    // `explorer` on win32 alone, so the probe lists `vscode` but never it.
+    install(PATHS, [VSCODE_ROW])
+    const row = appendWorkspaceRow('ws-1')
+    armPointer(row.trigger)
+    const menu = buildMenu()
+    document.body.append(menu.menu)
+    await flush()
+    expect(viewportRows(menu)).toBe(4)
+    expect(requireInjected(menu.menu, VSCODE_ROW)).not.toBeNull()
+    expect(injectedButton(menu.menu, EXPLORER_ROW)).toBeNull()
+    expect(requireInjected(menu.menu, COPY_ROW)).not.toBeNull()
+  })
+
+  it('does not double any row when the same menu is offered twice', async () => {
     const fixture = install()
     const { menu } = await graft()
     injectMenuItem(menu.menu, 'ws-1', fixture.options)
-    expect(viewportRows(menu)).toBe(4)
-    expect(menu.menu.querySelectorAll('button[data-menu-actions="vscode"]')).toHaveLength(1)
-    expect(menu.menu.querySelectorAll('button[data-menu-actions="copy-path"]')).toHaveLength(1)
+    expect(viewportRows(menu)).toBe(5)
+    for (const marker of [VSCODE_ROW, EXPLORER_ROW, COPY_ROW]) {
+      expect(menu.menu.querySelectorAll(`button[data-menu-actions="${marker}"]`)).toHaveLength(1)
+    }
   })
 
   it('bails on a menu with no menuitem rows', () => {
@@ -373,6 +396,42 @@ describe('injectMenuItem', () => {
     vi.stubGlobal('fetch', fetchMock)
     const { button } = await graft('ws-gone')
     const keys = await click(button)
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(keys).toEqual(['Escape'])
+    expect(showToast).not.toHaveBeenCalled()
+  })
+
+  it('opens the resolved directory in the file browser, then dismisses the menu', async () => {
+    install()
+    const fetchMock = vi.fn(async () => ({ ok: true, status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const { menu } = await graft()
+    const keys = await click(requireInjected(menu.menu, EXPLORER_ROW))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledWith('open-in-app/open', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ app: 'explorer', path: '/ws/alpha' }),
+    })
+    expect(keys).toEqual(['Escape'])
+  })
+
+  it('reports a failed file-browser launch under its own log line and notice', async () => {
+    const { showToast } = install()
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 502 })))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { menu } = await graft()
+    await click(requireInjected(menu.menu, EXPLORER_ROW))
+    expect(warn).toHaveBeenCalledWith('sidebar-menu-actions: open in the file browser failed:', 'HTTP 502')
+    expect(showToast).toHaveBeenCalledWith(t('toast.fileBrowserFailed', { detail: 'HTTP 502' }))
+  })
+
+  it('dismisses a file-browser row whose workspace is gone without any request', async () => {
+    const { showToast } = install()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const { menu } = await graft('ws-gone')
+    const keys = await click(requireInjected(menu.menu, EXPLORER_ROW))
     expect(fetchMock).not.toHaveBeenCalled()
     expect(keys).toEqual(['Escape'])
     expect(showToast).not.toHaveBeenCalled()

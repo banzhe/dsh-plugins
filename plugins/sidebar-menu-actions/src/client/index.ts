@@ -4,11 +4,14 @@
  *
  * - **Copy workspace path** — a DOM graft into the Workspace "..." menu, which
  *   ships with **no slot**. Always grafted: a clipboard write is browser-local.
- * - **Open a Workspace in VS Code** — the same graft, added only once
- *   `GET open-in-app/apps` resolves `vscode`; otherwise that one row stays out.
- *   See `workspaceMenu.ts` for the DOM contract.
+ * - **Open a Workspace in VS Code** and **Open in the file browser** — the same
+ *   graft, each added only once `GET open-in-app/apps` resolves its catalog id.
+ *   The file-browser row (`explorer`) is declared on Windows alone by the
+ *   official catalog, so it appears only on a Windows Host and launches the
+ *   user's configured default handler for a directory. See `workspaceMenu.ts`
+ *   for the DOM contract.
  *
- * Both routes report through the plugin's notice surface: the shipped `Toast`
+ * Every route reports through the plugin's notice surface: the shipped `Toast`
  * primitive, mounted by a `shell.overlay` entry. Nothing is self-owned — no
  * stylesheet, no element, no timer — so the entry leaves with its slot
  * registration and the primitive owns the banner's styling and hold.
@@ -27,7 +30,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 import { NoticeToast, type NoticeToastInjected } from './NoticeToast.tsx'
 import { createNoticeStore, type Notice } from './noticeStore.ts'
 import { en, NS, zh, type MenuActionsKey } from './locales.ts'
-import { installWorkspaceMenu, probeVscode } from './workspaceMenu.ts'
+import { installWorkspaceMenu, LAUNCH_APP_IDS, probeOpenInApps } from './workspaceMenu.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
@@ -86,20 +89,30 @@ export function apply(ctx: Context): void {
   }
 
   // The copy row needs nothing from the Host, so the install is immediate; the
-  // VS Code row joins it only after the probe answers, read at graft time.
-  let vscodeReady = false
+  // launch rows join it only after the probe answers, read at graft time.
+  let launchable: ReadonlySet<string> = new Set()
   let tornDown = false
-  const teardown = installWorkspaceMenu({ t, pathOf, showToast, openInVscode: () => vscodeReady, copyPath })
+  const teardown = installWorkspaceMenu({
+    t,
+    pathOf,
+    showToast,
+    launchableApps: () => launchable,
+    copyPath,
+  })
   ctx.effect(() => () => {
     tornDown = true
     teardown()
   }, 'menu-actions: workspace menu lifetime')
-  void probeVscode().then((ready) => {
+  void probeOpenInApps().then((apps) => {
     // After teardown the warning below would be a lie: no menu survives to keep
     // any row. The flag guards that log line, not the install, which is already done.
     if (tornDown) return
-    vscodeReady = ready
-    if (ready) return
-    console.warn('sidebar-menu-actions: VS Code is not available on this host; the workspace menu keeps the copy-path row only')
+    launchable = apps
+    // One line per missing launch row, so a Host that resolved neither says so
+    // explicitly instead of leaving two rows silently absent.
+    for (const app of LAUNCH_APP_IDS) {
+      if (apps.has(app)) continue
+      console.warn(`sidebar-menu-actions: ${app} is not available on this host; the workspace menu omits that row`)
+    }
   })
 }

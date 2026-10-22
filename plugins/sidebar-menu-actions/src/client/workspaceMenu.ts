@@ -3,7 +3,7 @@
  * `ProjectRowItem` renders `[{rename},{delete}]` as data rows with **no slot** to
  * register into — so this module performs DOM menu surgery instead: arm the row's
  * ellipsis trigger, watch `document.body` for the portal menu that click opens,
- * and graft two buttons into the list, cloned off the shipped rename row so they
+ * and graft the buttons into the list, cloned off the shipped rename row so they
  * join the Menu primitive's styling, keyboard walk, and focus return untouched.
  *
  * The DOM contract this code reads is the "DOM contract" table in
@@ -13,11 +13,17 @@
  * Closing goes through the primitive's own Escape listener, so the menu settles
  * exactly like the keyboard.
  *
- * The two rows have different gates. Copying a directory is a browser-local
- * clipboard write, so that row is always grafted. The VS Code row launches a
- * Host application: the open-in-app Host (shipped by the `dsh-web-app` bundle)
- * gates it — one `GET open-in-app/apps` decides whether it is grafted at all,
- * and a click answers `POST open-in-app/open {app:'vscode', path}`.
+ * The rows have different gates. Copying a directory is a browser-local
+ * clipboard write, so that row is always grafted. The launch rows — VS Code, and
+ * the OS's own file browser for the Workspace directory — need the Host: the
+ * open-in-app Host (shipped by the `dsh-web-app` bundle) gates them, where one
+ * `GET open-in-app/apps` decides which are grafted at all and a click answers
+ * `POST open-in-app/open {app, path}`.
+ *
+ * The file-browser row is therefore Windows-only without a platform sniff: the
+ * official catalog declares `explorer` on `win32` alone, so the probe reports it
+ * only when the Host is Windows (and its `shell-open` launcher is the OS's
+ * configured default handler for a directory, not a hard-coded `explorer.exe`).
  */
 import {
   OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_OPEN_ROUTE,
@@ -31,18 +37,15 @@ const ROW_PREFIX = 'workspace:'
 /** Marker attribute on the injected buttons: the idempotency guard and test hook. */
 const MARKER_ATTR = 'data-menu-actions'
 
-/** The closed set of marker values, one per graftable row. */
-type RowMarker = 'vscode' | 'copy-path'
+/** The closed set of marker values: one per graftable launch row, plus the copy row. */
+type LaunchMarker = 'vscode' | 'explorer'
+type RowMarker = LaunchMarker | 'copy-path'
 
-const MARKER_VSCODE: RowMarker = 'vscode'
 const MARKER_COPY: RowMarker = 'copy-path'
 
-/** open-in-app catalog id the VS Code row launches (the probe and the POST body share it). */
-const VSCODE_APP_ID = 'vscode'
-
 /**
- * Wrap one icon's children in the 16px grid and 1.5px stroke envelope both rows
- * share. The clone carries the rename row's wrapper and button classes but must
+ * Wrap one icon's children in the 16px grid and 1.5px stroke envelope every row
+ * shares. The clone carries the rename row's wrapper and button classes but must
  * not keep its edit icon, so the icon span's content is replaced with this.
  */
 const glyph = (children: string): string =>
@@ -51,8 +54,54 @@ const glyph = (children: string): string =>
 /** Angle-bracket glyph for the VS Code row. */
 const CODE_GLYPH = glyph('<path d="M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5"/>')
 
+/** Folder glyph for the file-browser row. */
+const FOLDER_GLYPH = glyph('<path d="M2.5 5.5a1.5 1.5 0 0 1 1.5-1.5h2l1.5 1.5h5a1.5 1.5 0 0 1 1.5 1.5v4.5a1.5 1.5 0 0 1-1.5 1.5H4a1.5 1.5 0 0 1-1.5-1.5z"/>')
+
 /** Two-sheet glyph for the copy row. */
 const COPY_GLYPH = glyph('<rect x="5.5" y="5.5" width="8" height="8" rx="2"/><path d="M10.5 4.5V4a1.5 1.5 0 0 0-1.5-1.5H4A1.5 1.5 0 0 0 2.5 4v5A1.5 1.5 0 0 0 4 10.5h.5"/>')
+
+/** One graftable launch row: which catalog id to probe, and how to graft and report it. */
+interface LaunchRow {
+  readonly marker: LaunchMarker
+  /** open-in-app catalog id, shared by the probe's gate and the POST body. */
+  readonly app: string
+  readonly label: MenuActionsKey
+  readonly icon: string
+  /** Notice raised for either failure shape; `{detail}` is the status or message. */
+  readonly failure: MenuActionsKey
+  /** Console line prefix for the same failure. */
+  readonly failureLog: string
+}
+
+/**
+ * The launch rows in graft order. Each is gated on the Host having resolved its
+ * catalog id, and `explorer` is declared on `win32` alone by the official
+ * catalog — so the file-browser row appears only on a Windows Host, with no
+ * platform sniff here. Its launcher is the official `shell-open` entry, i.e. the
+ * OS's open verb for a directory, which honors whichever file browser the user
+ * has configured as the default rather than naming `explorer.exe`.
+ */
+const LAUNCH_ROWS: readonly LaunchRow[] = [
+  {
+    marker: 'vscode',
+    app: 'vscode',
+    label: 'menu.openInVscode',
+    icon: CODE_GLYPH,
+    failure: 'toast.vscodeFailed',
+    failureLog: 'sidebar-menu-actions: open in VS Code failed:',
+  },
+  {
+    marker: 'explorer',
+    app: 'explorer',
+    label: 'menu.openInFileBrowser',
+    icon: FOLDER_GLYPH,
+    failure: 'toast.fileBrowserFailed',
+    failureLog: 'sidebar-menu-actions: open in the file browser failed:',
+  },
+]
+
+/** The catalog ids the launch rows need, in graft order — the set a probe must answer. */
+export const LAUNCH_APP_IDS: readonly string[] = LAUNCH_ROWS.map(row => row.app)
 
 /** What the injected rows need from their owner: labels, path, and the two outcomes. */
 export interface WorkspaceMenuOptions {
@@ -63,28 +112,28 @@ export interface WorkspaceMenuOptions {
   /** Surface one resolved failure notice after the menu has closed (the plugin's overlay toast). */
   showToast: (text: string) => void
   /**
-   * Whether this Host resolved VS Code, read at graft time. A probe that settles
-   * after the first menu was opened still adds the row to the next one.
+   * The catalog ids this Host resolved, read at graft time. A probe that settles
+   * after the first menu was opened still adds its rows to the next one.
    */
-  openInVscode: () => boolean
+  launchableApps: () => ReadonlySet<string>
   /** Write one resolved directory to the clipboard; reports its own outcome as a notice. */
   copyPath: (path: string) => void
 }
 
 /**
- * Read the Host's resolved-application list once: the VS Code row is grafted only
- * when this Host actually resolved it (an uninstalled app, an SSH launch
- * environment, or an unreachable route all read as "no VS Code" — the menu then
- * keeps only the copy row). Never rejects.
+ * Read the Host's resolved-application list once. A launch row is grafted only
+ * when this Host actually resolved its id (an uninstalled app, an SSH launch
+ * environment, or an unreachable route all read as an empty set, keeping only
+ * the copy row). Never rejects.
  */
-export async function probeVscode(): Promise<boolean> {
+export async function probeOpenInApps(): Promise<ReadonlySet<string>> {
   try {
     const response = await fetch(OPEN_IN_APP_APPS_ROUTE, { headers: { accept: 'application/json' } })
-    if (!response.ok) return false
+    if (!response.ok) return new Set()
     const payload = await response.json() as Partial<OpenInAppAppsPayload>
-    return Array.isArray(payload.apps) && payload.apps.includes(VSCODE_APP_ID)
+    return new Set(Array.isArray(payload.apps) ? payload.apps : [])
   } catch {
-    return false
+    return new Set()
   }
 }
 
@@ -115,12 +164,12 @@ function closeMenu(): void {
  * Graft the rows into an open Workspace menu: clone the rename row's wrapper
  * (same classes, so the Menu primitive styles and walks it as its own) once per
  * row, swap its icon content and label text, mark it, wire its click, and insert
- * it before the danger delete row. Each row keeps the shipped order — VS Code
- * first, then the copy row, then delete.
+ * it before the danger delete row. Each row keeps the shipped order — VS Code,
+ * the file browser, then the copy row, then delete.
  *
- * The VS Code row is skipped when the Host never resolved VS Code. Both rows are
- * guarded individually, so a second observation (or a re-entrant call) doubles
- * neither.
+ * A launch row is skipped when the Host never resolved its app. Every row is
+ * guarded by its own marker, so a second observation (or a re-entrant call)
+ * doubles none of them.
  *
  * Exported so the idempotency guard and the malformed-menu bail are directly
  * exercisable; the observer calls it once per armed open.
@@ -144,17 +193,19 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
     viewport.insertBefore(wrap, lastWrap)
     return button
   }
-  /** The idempotency guard both rows share. */
+  /** The idempotency guard every row shares. */
   const notGrafted = (marker: RowMarker): boolean =>
     menu.querySelector(`[${MARKER_ATTR}="${marker}"]`) === null
 
-  if (options.openInVscode() && notGrafted(MARKER_VSCODE)) {
-    graft(MARKER_VSCODE, options.t('menu.openInVscode'), CODE_GLYPH).addEventListener('click', () => {
+  const launchable = options.launchableApps()
+  for (const row of LAUNCH_ROWS) {
+    if (!launchable.has(row.app) || !notGrafted(row.marker)) continue
+    graft(row.marker, options.t(row.label), row.icon).addEventListener('click', () => {
       const path = options.pathOf(workspaceId)
       /** Both failure shapes (non-2xx answer, rejected request) report identically. */
       const failed = (detail: string): void => {
-        console.warn('sidebar-menu-actions: open in VS Code failed:', detail)
-        options.showToast(options.t('toast.vscodeFailed', { detail }))
+        console.warn(row.failureLog, detail)
+        options.showToast(options.t(row.failure, { detail }))
       }
       // POST first, then settle the menu through the primitive's own Escape path,
       // so close/focus-return behave exactly like a shipped row's selection.
@@ -163,7 +214,7 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
         : fetch(OPEN_IN_APP_OPEN_ROUTE, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ app: VSCODE_APP_ID, path } satisfies OpenInAppOpenPayload),
+          body: JSON.stringify({ app: row.app, path } satisfies OpenInAppOpenPayload),
         })
       closeMenu()
       if (request === undefined) return
@@ -176,7 +227,7 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
 
   if (notGrafted(MARKER_COPY)) {
     graft(MARKER_COPY, options.t('menu.copyWorkspacePath'), COPY_GLYPH).addEventListener('click', () => {
-      // Resolve before closing, exactly as the VS Code row does: the menu must
+      // Resolve before closing, exactly as the launch rows do: the menu must
       // settle like a shipped row's selection even when the Workspace is gone.
       const path = options.pathOf(workspaceId)
       closeMenu()

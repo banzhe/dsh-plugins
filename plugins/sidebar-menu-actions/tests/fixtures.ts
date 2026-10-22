@@ -102,8 +102,9 @@ export function armKey(target: EventTarget, key: string): void {
   target.dispatchEvent(new KeyboardEvent('keydown', { key }))
 }
 
-/** Marker values of the two graftable rows; restated here so the specs pin them independently. */
+/** Marker values of the graftable rows; restated here so the specs pin them independently. */
 export const VSCODE_ROW = 'vscode'
+export const EXPLORER_ROW = 'explorer'
 export const COPY_ROW = 'copy-path'
 
 export function injectedButton(scope: ParentNode, marker: string): HTMLButtonElement | null {

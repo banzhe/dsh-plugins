@@ -24,7 +24,7 @@ CONTEXT.md                              # glossary
 | `plan-toggle` | Toggles plan mode from the Composer with `Shift+Tab` |
 | `session-attention` | `shell.overlay` panel listing running and finished-unread Sessions, with click-to-jump |
 | `session-title-rules` | Rules-based Session title provider (`emoji 主题`) replacing the built-in first-prompt provider |
-| `sidebar-menu-actions` | Workspace row-menu extension: inserts **Open in VS Code** into the Workspace "..." menu |
+| `sidebar-menu-actions` | Workspace row-menu extension: inserts **Open in VS Code**, **Open in File Browser** (Windows), and **Copy workspace path** into the Workspace "..." menu |
 | `web-icons` | Serves the Web launcher icon set (favicon, PWA manifest icons, apple-touch-icon) from a Bundle-owned snapshot |
 
 ## Add a plugin
