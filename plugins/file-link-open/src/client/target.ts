@@ -24,7 +24,6 @@
 /** How many `return` hops from the button to accept a `file` prop. */
 const MAX_LINE_HOPS = 6
 
-/** One file link under the cursor: the button's path plus its optional line. */
 export interface LinkTarget {
   /** Decoded path exactly as the official renderer put it in `title`. */
   readonly path: string
@@ -51,7 +50,6 @@ function fiberHandleOf(element: Element): unknown {
   return key === undefined ? undefined : (element as unknown as Record<string, unknown>)[key]
 }
 
-/** The `file` prop one fiber carries, when it is a link destination object. */
 function filePropOf(fiber: Record<string, unknown>): { path: string, line?: unknown } | undefined {
   const props = fiber.memoizedProps
   if (typeof props !== 'object' || props === null) return undefined
@@ -91,8 +89,7 @@ function isMarkdownFileLink(fiber: Record<string, unknown>): boolean {
 }
 
 /**
- * The line a file-link button opens at, read from its React fiber. Null means
- * the link named none, or the fiber walk found no matching component.
+ * The line a file-link button opens at, read from its React fiber.
  */
 export function lineOfFileLink(button: Element, path: string): number | null {
   let fiber = fiberHandleOf(button) as Record<string, unknown> | null | undefined

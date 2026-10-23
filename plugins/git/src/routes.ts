@@ -13,10 +13,6 @@ import { COMMIT_PATH, MESSAGE_PATH, STATUS_PATH, type GitCommitRequest, type Git
 /** Cordis function-plugin name. */
 export const name = 'git'
 
-/**
- * The route carrier, the trust fence, the workspace registry, and the model
- * stream a message draft needs. All four arrive from the composition.
- */
 export const inject = ['webServer', 'connection', 'workspaceRegistry', 'llm', 'sessions', 'sessionProjections']
 
 /** Trust surface consumed here; the browser-side connection package owns the full type. */
@@ -32,7 +28,6 @@ interface RouteRequest extends AsyncIterable<Buffer> {
   resume(): void
 }
 
-/** The Node response surface these routes write. */
 interface RouteResponse {
   statusCode: number
   setHeader(name: string, value: string): void
@@ -56,7 +51,6 @@ function webServerOf(ctx: Context): WebServerLike {
   return (ctx as unknown as { webServer: WebServerLike }).webServer
 }
 
-/** Answer an untrusted request; true when it was rejected. */
 function rejected(connection: ConnectionLike, req: unknown, res: RouteResponse): boolean {
   const rejection = connection.requestRejection(req)
   if (rejection === undefined) return false
@@ -68,7 +62,7 @@ function rejected(connection: ConnectionLike, req: unknown, res: RouteResponse):
 /** A commit message names files and a sentence; anything larger is hostile. */
 const MAX_BODY_BYTES = 64 * 1024
 
-/** JSON response. Outcomes are live facts, so nothing here is cacheable. */
+/** Outcomes are live facts, so nothing here is cacheable. */
 function sendJson(res: RouteResponse, status: number, payload: unknown): void {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
@@ -76,7 +70,6 @@ function sendJson(res: RouteResponse, status: number, payload: unknown): void {
   res.end(JSON.stringify(payload))
 }
 
-/** 405 with the route's one supported method. */
 function sendMethodNotAllowed(res: RouteResponse, allow: string): void {
   res.statusCode = 405
   res.setHeader('allow', allow)
@@ -89,8 +82,6 @@ function sendError(res: RouteResponse, status: number, code: string, message: st
 }
 
 /**
- * Collect a bounded request body as UTF-8 text; null past the ceiling.
- *
  * A too-large body is drained rather than left unread: an unread stream holds
  * the socket open, and this route answers 413 immediately.
  */
@@ -108,7 +99,6 @@ async function readBoundedBody(req: RouteRequest): Promise<string | null> {
   return Buffer.concat(chunks, size).toString('utf8')
 }
 
-/** The `cwd` query of a status request, or null when it is absent. */
 export function cwdOf(url: string | undefined): string | null {
   if (url === undefined) return null
   const query = url.includes('?') ? url.slice(url.indexOf('?')) : ''
@@ -117,10 +107,8 @@ export function cwdOf(url: string | undefined): string | null {
 }
 
 /**
- * The JSON text of one POST, or a response already sent.
- *
  * Both write routes share this gate: the method, the media type, and the body
- * ceiling. A string comes back only when all three pass.
+ * ceiling.
  */
 async function readJsonPost(req: RouteRequest, res: RouteResponse): Promise<string | null> {
   if (req.method !== 'POST') {
@@ -147,7 +135,6 @@ async function readJsonPost(req: RouteRequest, res: RouteResponse): Promise<stri
   return text
 }
 
-/** One validated message-draft body, or null when the shape is wrong. */
 export function parseMessage(text: string): GitMessageRequest | null {
   let body: unknown
   try {
@@ -164,7 +151,6 @@ export function parseMessage(text: string): GitMessageRequest | null {
   return { cwd, language, sessionId }
 }
 
-/** One validated commit body, or null when the shape is wrong. */
 export function parseCommit(text: string): GitCommitRequest | null {
   let body: unknown
   try {
@@ -181,9 +167,6 @@ export function parseCommit(text: string): GitCommitRequest | null {
 }
 
 /**
- * The workspace root a route may operate on, or null when `requested` is not
- * one.
- *
  * The session tells the panel its cwd, but the route does not trust that
  * string: it must be absolute, and `resolveByPath` must find a workspace
  * registered for that exact directory. A missing path and an unregistered
@@ -200,7 +183,6 @@ async function allowedRoot(ctx: Context, requested: string): Promise<string | nu
   }
 }
 
-/** Register the status and commit routes behind the connection trust fence. */
 export function apply(ctx: Context): void {
   ctx.effect(() => webServerOf(ctx).register({
     kind: 'exact',
@@ -299,11 +281,6 @@ export function apply(ctx: Context): void {
   }), `git: POST ${MESSAGE_PATH}`)
 }
 
-/**
- * The provider and model one draft runs on: the session's own selection when
- * the projection carries one, otherwise the first advertised model of the
- * first registered provider.
- */
 async function modelRoute(ctx: Context, sessionId: string): Promise<ModelSelection> {
   const selected = selectionOf(ctx, sessionId)
   if (selected !== null) return selected
@@ -317,9 +294,6 @@ async function modelRoute(ctx: Context, sessionId: string): Promise<ModelSelecti
 }
 
 /**
- * The session's selected model, or null when the session is not live or its
- * projection has not landed.
- *
  * `pending` is a selection the user made that no request has consumed yet, so it
  * wins over `lastUsed`, the selection the session's latest request ran on.
  */

@@ -38,7 +38,6 @@ interface Bench {
   readonly workspaces: WorkspaceSource
   readonly openSession: ReturnType<typeof vi.fn>
   readonly refreshProjections: ReturnType<typeof vi.fn<(sessionId: string) => Promise<void>>>
-  /** Live source subscriptions this bench's wrappers have handed out. */
   readonly counts: { list: number; status: number; workspaces: number }
 }
 
@@ -93,12 +92,10 @@ function callsFor(b: Bench, id: string): number {
   return b.refreshProjections.mock.calls.filter(call => call[0] === id).length
 }
 
-/** Session ids passed to `refreshProjections`, in call order. */
 function refreshedIds(b: Bench): string[] {
   return b.refreshProjections.mock.calls.map(call => call[0])
 }
 
-/** Projection `values` currently published for one listed id. */
 function metadataOf(b: Bench, id: string): object {
   return b.surface.list.getSnapshot().projectionsBySession[id as never]?.values ?? {}
 }

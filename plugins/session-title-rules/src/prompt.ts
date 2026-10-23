@@ -15,7 +15,6 @@ import { normalizeSessionTitle } from '@deepseek-ai/dsh-session-title'
 /** Loader row id, package identity, and the error prefix every refusal carries. */
 export const PLUGIN_NAME = 'session-title-rules'
 
-/** The single ASCII space separating the type emoji from the topic. */
 const EMOJI_SEPARATOR = ' '
 
 /** Model sentinel meaning "these messages do not identify a topic". */
@@ -45,7 +44,6 @@ const TITLE_TYPES: readonly { readonly type: string; readonly emoji: string }[] 
  */
 const EMOJI_GAP = /^(?:\uFE0F)?[\s|｜]*/u
 
-/** The prompt's one-line gloss of the vocabulary: `✨（功能） / 🎨（设计） / …`. */
 const TYPE_GLOSS = TITLE_TYPES.map(({ type, emoji }) => `${emoji}（${type}）`).join(' / ')
 
 /** Wrapping quote pairs a model may enclose the whole line in. */

@@ -4,8 +4,6 @@
  * the remembered preset to the next fresh session in it.
  *
  * See `docs/adr/0008-per-workspace-agent-preset.md`.
- *
- * @module @banzhe/dsh-agent-preset-per-workspace
  */
 
 import type { Context } from '@deepseek-ai/cordis'

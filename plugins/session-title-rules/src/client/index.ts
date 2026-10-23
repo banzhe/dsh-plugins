@@ -34,7 +34,6 @@ export type {
 } from './controller.ts'
 export type { TitleModelLocaleKey } from './locales.ts'
 
-/** Dictionary namespace: the settings namespace, which is also the row id. */
 const NS = TITLE_MODEL_NS
 
 /** Plugin id, stamped onto the injected stylesheet for teardown bookkeeping. */
@@ -42,7 +41,6 @@ const PLUGIN_ID = '@banzhe/dsh-session-title-rules'
 
 export const inject = ['configForms', 'locale', 'slots', 'remote', 'remote.session']
 
-/** Register this row's configuration page while the Host serves its namespace. */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'session-title-rules: dictionaries')
   // The card's stylesheet rides the plugin's own fiber: unload removes it. It

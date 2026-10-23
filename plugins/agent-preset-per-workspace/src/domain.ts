@@ -3,8 +3,6 @@
  * the same canon the workspace registry uses for session membership, so a
  * workspace renamed in place keeps its preset while a removed and re-added
  * directory starts fresh.
- *
- * @module @banzhe/dsh-agent-preset-per-workspace/domain
  */
 
 import { z } from 'zod'

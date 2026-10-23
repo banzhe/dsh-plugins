@@ -85,7 +85,6 @@ export interface LaunchShape {
   readonly kind: 'argv' | 'shell-open'
   /** Absent on `shell-open` launches, which carry no argv at all. */
   readonly command?: string | undefined
-  /** Absent on `shell-open` launches. */
   readonly args?: readonly string[] | undefined
 }
 
@@ -103,7 +102,7 @@ export interface ResolvedLaunch {
 }
 
 /**
- * Whether one resolved launcher's argv is this plugin's to extend. True means
+ * True means
  * the launcher leaves the path to the official resolver, so extra arguments can
  * be appended safely.
  */
@@ -129,10 +128,6 @@ export function reuseArgsFor(appId: string): readonly string[] | undefined {
 }
 
 /**
- * Rewrite one resolved launcher with this plugin's own launch arguments, or
- * return `resolved` unchanged when its argv is not this plugin's to extend or
- * the editor needs neither argument.
- *
  * `fallbackLaunch` is deliberately left as-is: a fallback only runs after the
  * primary failed, and opening without the extra arguments beats not opening.
  */

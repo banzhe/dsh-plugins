@@ -35,7 +35,6 @@ afterEach(async () => {
   for (const root of pending) await rm(root, { recursive: true, force: true })
 })
 
-/** Write one sheet into a fresh temp directory beside the module that imports it. */
 async function sheet(name: string, content: string): Promise<{ file: string; importer: string }> {
   const root = await mkdtemp(join(tmpdir(), 'dsh-devkit-css-'))
   roots.push(root)
@@ -50,14 +49,12 @@ function loader(name: string, options: CssPluginOptions = {}): Loader {
   return found
 }
 
-/** Resolve through one loader, failing loudly when it declines a sheet it owns. */
 function resolve(plugin: Loader, source: string, importer: string): string {
   const id = plugin.resolveId?.(source, importer)
   if (typeof id !== 'string') throw new Error(`${plugin.name} declined ${source}`)
   return id
 }
 
-/** Load through one loader, keeping the watch files it registers. */
 async function load(plugin: Loader, id: string): Promise<{ source: string; watched: string[] }> {
   const watched: string[] = []
   const source = await plugin.load?.call({ addWatchFile: file => { watched.push(file) } }, id)
@@ -65,7 +62,6 @@ async function load(plugin: Loader, id: string): Promise<{ source: string; watch
   return { source, watched }
 }
 
-/** The class map a CSS Modules loader exported, read back off the module text. */
 function classMapOf(source: string): Record<string, string> {
   const declaration = source.slice(source.lastIndexOf('\n') + 1)
   expect(declaration).toMatch(/^export default \{.*\};$/)

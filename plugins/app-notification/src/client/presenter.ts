@@ -17,7 +17,6 @@ import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { CompletionObserver } from './completion.ts'
 
-/** Capability slice of `navigator` this presenter uses. */
 interface AppBadgeNavigator {
   setAppBadge?: (contents?: number) => Promise<void>
   clearAppBadge?: () => Promise<void>
@@ -87,23 +86,17 @@ function desktopWindowReveal(): (() => Promise<void>) | undefined {
 
 /** Locale-resolved strings one notification carries. */
 export interface NotificationCopy {
-  /** Notification heading. */
   readonly title: string
   /** Notification body, with the Session label already interpolated. */
   readonly detail: string
 }
 
-/** Inputs the presenter needs from its owning plugin. */
 export interface CompletionPresenterOptions {
-  /** Cordis logger for the one-shot capability refusals. */
   readonly logger: Context['logger']
   /** Resolve one Session row's notification copy in the active locale. */
   readonly notifyCopy: (session: SessionSummary) => NotificationCopy
-  /** Resolve the settings row's test-notification copy in the active locale. */
   readonly testCopy: () => NotificationCopy
-  /** Resolve the demo-notification copy in the active locale. */
   readonly demoCopy: () => NotificationCopy
-  /** Open the Session a notification was clicked for. */
   readonly open: (id: SessionId) => void
   /**
    * The live Workspace Controller source. Its registry-global archive set is
@@ -151,7 +144,6 @@ export interface CompletionCapabilities {
   readonly notificationGranted: boolean
 }
 
-/** Which surfaces this page can use; all false outside a capable browser. */
 export function probeCapabilities(): CompletionCapabilities {
   if (typeof navigator === 'undefined') {
     return { badge: false, notificationSupported: false, notificationGranted: false }
@@ -192,11 +184,8 @@ export async function requestNotificationPermission(): Promise<NotificationPermi
  * then its first or second non-blank Session. A Workspace whose Sessions are
  * all blank (no accepted prompt yet) is skipped, as is one with no Sessions;
  * a Workspace reduced to a single candidate always lands on it.
- * @param snapshot - the Workspace Controller snapshot.
- * @param summary - one Session's list row; undefined or `blank` rows are
+ * @param summary - undefined or `blank` rows are
  *   refused as landing targets, so a click never opens an empty conversation.
- * @param random - the randomness source, injectable for tests.
- * @returns the picked Session id, or undefined when no Workspace holds any.
  */
 export function pickWorkspaceDemoTarget(
   snapshot: WorkspaceSnapshot,
@@ -225,9 +214,7 @@ export function pickWorkspaceDemoTarget(
   return picked.sessions[index]
 }
 
-/** Project the finished-unread count onto the installed-PWA icon badge. */
 export class AppBadgePresenter {
-  /** Count written by the last successful projection; undefined before the first. */
   private applied: number | undefined
   private readonly write: ((contents?: number) => Promise<void>) | undefined
   private readonly retract: (() => Promise<void>) | undefined
@@ -239,8 +226,8 @@ export class AppBadgePresenter {
   }
 
   /**
-   * Set or clear the badge to match `count` (0 clears). A repeated count is a
-   * no-op, so unrelated list updates do not re-issue the same platform call.
+   * A repeated count is a no-op, so unrelated list updates do not re-issue the
+   * same platform call.
    */
   project(count: number): void {
     if (this.applied === count) return
@@ -263,19 +250,14 @@ export class AppBadgePresenter {
   }
 }
 
-/** Drives both surfaces from the Session list. Owns one subscription; the caller disposes it. */
 export class CompletionPresenter {
   private readonly observer = new CompletionObserver()
   private readonly capabilities = probeCapabilities()
   private readonly badge: AppBadgePresenter | undefined
-  /** Live desktop notifications channel, probed once; a browser has none. */
   private readonly desktop: NonNullable<DesktopWindowBridge['dshDesktop']>['notifications'] | undefined
-  /** Monotonic id source for desktop notifications; one per raised notification. */
   private desktopSequence = 0
-  /** Click targets by desktop-notification id, keyed for the activation callback. */
   private readonly pendingClicks = new Map<string, () => void>()
   private readonly disposeActivation: (() => void) | undefined
-  /** The last archive set handed to the observer, keyed by the array it came from. */
   private archivedCache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
 
   constructor(private readonly options: CompletionPresenterOptions) {
@@ -320,9 +302,7 @@ export class CompletionPresenter {
   }
 
   /**
-   * Install the status, list, and archive subscriptions and publish the current
-   * state once. Call exactly once per presenter — the caller owns the lifetime
-   * decision. The disposer unsubscribes and retracts the badge.
+   * Call exactly once per presenter — the caller owns the lifetime decision.
    * @param status - per-Session status source (`ctx.uiSession.sessionStatus`).
    * @param list - Session catalog source (`ctx.sessions.list`).
    */
@@ -346,18 +326,16 @@ export class CompletionPresenter {
   }
 
   /**
-   * Show the settings row's test notification. A distinct tag keeps the probe
-   * from replacing (or being replaced by) a real completion announcement.
+   * A distinct tag keeps the probe from replacing (or being replaced by) a real
+   * completion announcement.
    */
   showTest(): boolean {
     return this.notify(this.options.testCopy(), this.options.testTag)
   }
 
   /**
-   * Show the demo notification: clicking it jumps to one random Workspace's
-   * first or second non-blank Session. Refused, without raising, when no
-   * Workspace holds one — the click target must exist beforehand, because a
-   * notification click has no retry.
+   * Refused, without raising, when no Workspace holds one — the click target
+   * must exist beforehand, because a notification click has no retry.
    */
   showDemo(random: () => number = Math.random): boolean {
     const target = pickWorkspaceDemoTarget(
@@ -369,7 +347,6 @@ export class CompletionPresenter {
     })
   }
 
-  /** Fold one observation onto the badge and the notification stream. */
   private apply(
     status: SessionStatusSnapshot,
     list: SessionListState,
@@ -402,8 +379,7 @@ export class CompletionPresenter {
   }
 
   /**
-   * Build one notification, reporting whether the platform accepted the
-   * request. The shell's desktop channel is preferred when present: its
+   * The shell's desktop channel is preferred when present: its
    * activations reach the renderer from the Windows notification center, which
    * the HTML5 constructor cannot. Both refusal shapes are reported rather than
    * thrown: a construction that fails synchronously warns here, and a display
@@ -482,7 +458,6 @@ export class CompletionPresenter {
     return true
   }
 
-  /** Release the activation subscription the constructor installed. */
   detach(): void {
     this.disposeActivation?.()
     this.pendingClicks.clear()

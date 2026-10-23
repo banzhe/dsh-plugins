@@ -49,10 +49,6 @@ let roots: Root[] = []
 // React only honors act() when it is told it runs in a test environment.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-/**
- * Mount the row over a controllable injected face. `requestResult` defaults to
- * `permission` and `testResult` to `permission === 'granted'`.
- */
 async function mount(options: {
   permission: NotificationPermissionState
   badge?: boolean

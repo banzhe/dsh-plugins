@@ -37,7 +37,6 @@ const ROW_PREFIX = 'workspace:'
 /** Marker attribute on the injected buttons: the idempotency guard and test hook. */
 const MARKER_ATTR = 'data-menu-actions'
 
-/** The closed set of marker values: one per graftable launch row, plus the copy row. */
 type LaunchMarker = 'vscode' | 'explorer'
 type RowMarker = LaunchMarker | 'copy-path'
 
@@ -103,9 +102,7 @@ const LAUNCH_ROWS: readonly LaunchRow[] = [
 /** The catalog ids the launch rows need, in graft order — the set a probe must answer. */
 export const LAUNCH_APP_IDS: readonly string[] = LAUNCH_ROWS.map(row => row.app)
 
-/** What the injected rows need from their owner: labels, path, and the two outcomes. */
 export interface WorkspaceMenuOptions {
-  /** Translate a dictionary key of the plugin namespace. */
   t: (key: MenuActionsKey, params?: Record<string, unknown>) => string
   /** Canonical directory of a Workspace, or undefined when the row's id is gone. */
   pathOf: (workspaceId: string) => string | undefined
@@ -167,9 +164,8 @@ function closeMenu(): void {
  * it before the danger delete row. Each row keeps the shipped order — VS Code,
  * the file browser, then the copy row, then delete.
  *
- * A launch row is skipped when the Host never resolved its app. Every row is
- * guarded by its own marker, so a second observation (or a re-entrant call)
- * doubles none of them.
+ * Every row is guarded by its own marker, so a second observation (or a
+ * re-entrant call) doubles none of them.
  *
  * Exported so the idempotency guard and the malformed-menu bail are directly
  * exercisable; the observer calls it once per armed open.
@@ -182,7 +178,6 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
   const lastWrap = last.parentElement as HTMLElement
   const viewport = lastWrap.parentNode as HTMLElement
 
-  /** Clone the rename row into one marked row, returning its button. */
   const graft = (marker: RowMarker, label: string, icon: string): HTMLButtonElement => {
     const wrap = (source.parentElement as HTMLElement).cloneNode(true) as HTMLElement
     const button = wrap.querySelector<HTMLButtonElement>('button[role="menuitem"]') as HTMLButtonElement
@@ -193,7 +188,6 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
     viewport.insertBefore(wrap, lastWrap)
     return button
   }
-  /** The idempotency guard every row shares. */
   const notGrafted = (marker: RowMarker): boolean =>
     menu.querySelector(`[${MARKER_ATTR}="${marker}"]`) === null
 
@@ -242,7 +236,7 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
  * activation, and on each portal-menu appearance consume the arm and — when the
  * trigger still holds and the keyboard is where that gesture left it — graft the
  * rows. The guards keep a stale arm from a cancelled press out of a Session row's
- * menu. Returns the disposer removing both capture listeners and the observer.
+ * menu.
  */
 export function installWorkspaceMenu(options: WorkspaceMenuOptions): () => void {
   let pending: { trigger: HTMLElement; workspaceId: string } | null = null

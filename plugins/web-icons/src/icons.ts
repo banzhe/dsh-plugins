@@ -27,11 +27,8 @@ import { fileURLToPath } from 'node:url'
 
 /** One served icon: the browser-facing pathname and the packaged asset behind it. */
 export interface IconRoute {
-  /** Absolute pathname the browser requests. */
   readonly path: string
-  /** File name under {@link ASSET_DIRECTORY}. */
   readonly asset: string
-  /** `content-type` of the response. */
   readonly contentType: string
 }
 
@@ -64,9 +61,7 @@ export const ASSET_DIRECTORY = fileURLToPath(new URL('../assets/', import.meta.u
 
 /** One asset's identity on disk: what a validator and a response need before its bytes. */
 export interface IconFile {
-  /** Byte length. */
   readonly size: number
-  /** Modification time in milliseconds. */
   readonly mtimeMs: number
   /** Validator over both, as the response sends it. */
   readonly etag: string
@@ -79,8 +74,6 @@ const MISSING_CODES: ReadonlySet<string> = new Set(['ENOENT', 'EISDIR', 'ENOTDIR
  * Whether a rejection is the filesystem reporting no readable file, rather than
  * a failure worth propagating. A rejection carrying no `code` at all is a
  * failure: treating it as absence would report a broken read as a missing file.
- * @param error - the caught value.
- * @returns True when the file is simply not there.
  */
 export function isMissing(error: unknown): boolean {
   const code = (error as NodeJS.ErrnoException | null | undefined)?.code
@@ -93,12 +86,8 @@ function iconPath(asset: string, directory: string): string {
 }
 
 /**
- * Compose the weak validator for one asset: size plus millisecond mtime.
  * Refreshing the snapshot copies files, which moves mtime, so a replaced icon
  * never keeps the validator of the icon it replaced.
- * @param size - byte length on disk.
- * @param mtimeMs - modification time in milliseconds.
- * @returns A weak entity tag.
  */
 export function etagOf(size: number, mtimeMs: number): string {
   return `W/"${String(size)}-${String(Math.trunc(mtimeMs))}"`
@@ -106,9 +95,7 @@ export function etagOf(size: number, mtimeMs: number): string {
 
 /**
  * Read one asset's identity without its bytes.
- * @param asset - file name under the snapshot directory.
- * @param directory - snapshot directory; only tests pass another one.
- * @returns identity, or undefined when no readable file is there.
+ * @param directory - only tests pass another one.
  */
 export async function inspectIcon(asset: string, directory: string = ASSET_DIRECTORY): Promise<IconFile | undefined> {
   try {
@@ -123,9 +110,7 @@ export async function inspectIcon(asset: string, directory: string = ASSET_DIREC
 
 /**
  * Read one asset's bytes, which only a response that carries them needs.
- * @param asset - file name under the snapshot directory.
- * @param directory - snapshot directory; only tests pass another one.
- * @returns bytes, or undefined when no readable file is there.
+ * @param directory - only tests pass another one.
  */
 export async function readIcon(asset: string, directory: string = ASSET_DIRECTORY): Promise<Buffer | undefined> {
   try {
@@ -141,8 +126,7 @@ export async function readIcon(asset: string, directory: string = ASSET_DIRECTOR
  * every asset is there, so a half-installed Bundle cannot serve a mix of new
  * icons and the dist's old ones. Identity only — the bytes wait for a request
  * that carries them.
- * @param routes - the takeover set.
- * @param directory - snapshot directory; only tests pass another one.
+ * @param directory - only tests pass another one.
  */
 export async function assertIconsPresent(
   routes: readonly IconRoute[] = ICON_ROUTES,
@@ -156,12 +140,8 @@ export async function assertIconsPresent(
 }
 
 /**
- * Compare a request's `if-none-match` against the validator this response would
- * carry. Weakness is ignored on both sides: a snapshot that reaches the client
+ * Weakness is ignored on both sides: a snapshot that reaches the client
  * byte-for-byte is the only thing being asserted.
- * @param header - the raw header value, when the request carried one.
- * @param etag - the validator of the bytes on disk now.
- * @returns True when the client already holds these bytes.
  */
 export function matchesEtag(header: string | undefined, etag: string): boolean {
   if (header === undefined) return false

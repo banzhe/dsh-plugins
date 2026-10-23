@@ -92,7 +92,6 @@ export interface AttentionRow {
 
 /** The whole panel content: two sections, newest first, plus their sum. */
 export interface AttentionModel {
-  /** Sessions the host reports as running. */
   readonly running: readonly AttentionRow[]
   /** Ordinary Sessions that finished while they were not the main view. */
   readonly unread: readonly AttentionRow[]
@@ -106,7 +105,6 @@ export interface AttentionModel {
    * behind it. Newest first, like the sections.
    */
   readonly waiting: readonly AttentionRow[]
-  /** Badge number: `running.length + unread.length`. */
   readonly total: number
 }
 
@@ -115,15 +113,13 @@ export type AttentionListSource = ObservableSnapshot<SessionListState>
 /** Session status source (`ctx.uiSession.sessionStatus`). */
 export type AttentionStatusSource = ObservableSnapshot<SessionStatusSnapshot>
 
-/** One classified row before ordering: the row plus the timestamp that ranks it. */
 interface Candidate {
   readonly updatedAt: number
   readonly row: AttentionRow
 }
 
 /**
- * The durable prompt time one list row carries, when its projection has been
- * read. The row's `projectionValues` is a `Partial`, so absence is the normal
+ * The row's `projectionValues` is a `Partial`, so absence is the normal
  * pre-read state, not an error.
  */
 function lastPromptAtOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
@@ -131,14 +127,13 @@ function lastPromptAtOf(projections: SessionProjectionSnapshot | undefined): num
 }
 
 /**
- * Newest first. The sort is stable, so equal timestamps keep Host list order —
+ * The sort is stable, so equal timestamps keep Host list order —
  * candidates are pushed in `list.ids` order.
  */
 function byRecency(left: Candidate, right: Candidate): number {
   return right.updatedAt - left.updatedAt
 }
 
-/** The status-sourced running fact for one row, with the row's own flag as fallback. */
 function isRunning(row: SessionSummary, status: SessionStatusSnapshot): boolean {
   return status.get(row.id)?.running ?? row.running
 }
@@ -154,7 +149,6 @@ interface ChildIndex {
   readonly byParent: ReadonlyMap<SessionId, readonly SessionSummary[]>
 }
 
-/** Group every known row under its parent, in `byId` enumeration order. */
 function childIndexOf(byId: SessionListState['byId']): ChildIndex {
   const byParent = new Map<SessionId, SessionSummary[]>()
   for (const id of idsOf(byId)) {
@@ -206,8 +200,7 @@ function runningChildrenOf(
 }
 
 /**
- * The open-turn start of one running child, from its `subagentTiming`
- * projection. `undefined` before the child's own projection read has landed —
+ * `undefined` before the child's own projection read has landed —
  * the child row renders without a duration until the number exists, exactly
  * like a parent row before `lastPromptAt` is read.
  */
@@ -215,7 +208,6 @@ function activeSinceOf(projections: SessionProjectionSnapshot | undefined): numb
   return projections?.values.subagentTiming?.active?.since
 }
 
-/** The ids that have rows, in `byId` enumeration order. */
 function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
   return Object.keys(byId) as SessionId[]
 }
@@ -348,7 +340,6 @@ function sameModel(left: AttentionModel, right: AttentionModel): boolean {
 
 /** Read-only view of the current panel content, plus the plugin's disposer. */
 export interface AttentionStore extends ObservableSnapshot<AttentionModel> {
-  /** Release every source subscription and drop every listener. */
   dispose(): void
 }
 

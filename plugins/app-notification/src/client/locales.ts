@@ -1,5 +1,3 @@
-/** `app-badge` namespace dictionaries. */
-
 export const NS = 'app-badge'
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
@@ -30,7 +28,6 @@ export const zh = {
   'settings.demo.failed': '没能发送：请先申请通知权限，且至少一个工作区要有会话。',
 } as const
 
-/** English dictionary, key-identical to the Chinese source of truth. */
 export const en: Record<AppBadgeKey, string> = {
   'notify.title': 'Session finished',
   'notify.body': '“{title}” finished. Open to review.',
@@ -58,5 +55,4 @@ export const en: Record<AppBadgeKey, string> = {
   'settings.demo.failed': 'Not sent — grant permission first, and at least one Workspace must have Sessions.',
 }
 
-/** Key domain of the `app-badge` namespace (zh is the source of truth). */
 export type AppBadgeKey = keyof typeof zh

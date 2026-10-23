@@ -26,10 +26,8 @@ import type {
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { en, NS, type PlanToggleKey, zh } from './locales.ts'
 
-/** Wait on the current Session, the Composer input machine, the keymap, and locale. */
 export const inject = ['sessions', 'conversation', 'shortcuts', 'locale']
 
-/** Catalog command name this plugin claims; also the token's leading text. */
 const PLAN_COMMAND = 'plan'
 
 const PLAN_TOKEN = `/${PLAN_COMMAND} `
@@ -37,7 +35,6 @@ const PLAN_TOKEN = `/${PLAN_COMMAND} `
 /** Row id in the shortcut reference, matching the `feature.action` grammar. */
 const SHORTCUT_ID = 'plan.toggle' as ShortcutCommandId
 
-/** Physical gesture: Shift held, Tab pressed, no other modifier. */
 const SHIFT_TAB = { code: 'Tab', modifiers: ['shift'] } as const
 
 /** Readable keycaps for the fixed row, mirroring how the service presents them. */
@@ -49,17 +46,14 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** The keydown arm of the fixed-input union. */
 type FixedKeydown = Extract<ShortcutFixedInput, { type: 'keydown' }>
 
-/** True when `input` is the plain Shift+Tab this plugin owns. */
 function isPlanToggleGesture(input: FixedKeydown): boolean {
   const { code, control, alt, meta, shift, repeat, composing, defaultPrevented } = input.gesture
   if (composing || defaultPrevented || repeat) return false
   return code === 'Tab' && shift && !control && !alt && !meta
 }
 
-/** Composer host under `target`, or null when the event is outside it. */
 function composerFrom(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof Node)) return null
   const el = target instanceof Element ? target : target.parentElement
@@ -77,7 +71,6 @@ function mainSessionId(list: SessionListState): SessionId | undefined {
   return Object.values(list.byId).find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
 }
 
-/** True when the Composer's card currently hosts a trigger menu. */
 function triggerMenuOpen(composer: HTMLElement): boolean {
   const card = composer.closest('[data-composer-card]')
   return card?.querySelector('[data-trigger-menu]') != null
@@ -100,7 +93,6 @@ function argsAfter(draft: string): string {
   return text.startsWith(PLAN_TOKEN) ? text.slice(PLAN_TOKEN.length) : ''
 }
 
-/** `/plan` claim whose submit runs through the Session command channel. */
 function planClaim(session: SessionFace): CommandClaim {
   return {
     name: PLAN_COMMAND,
@@ -121,7 +113,6 @@ function planClaim(session: SessionFace): CommandClaim {
   }
 }
 
-/** Insert `/plan ` at the draft start without replacing existing text. */
 function beginPlan(input: SessionInput, session: SessionFace): boolean {
   const { draftRev } = input.state.getSnapshot()
   return input.beginCommand(planClaim(session), { start: 0, end: 0, draftRev })

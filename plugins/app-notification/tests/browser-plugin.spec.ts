@@ -34,10 +34,6 @@ class FakeNotification {
   close(): void {}
 }
 
-/**
- * Stub the platform capabilities, and hand back the two Session sources, the
- * Workspace source, and the navigation spy the plugin drives.
- */
 function stubCapabilities(options: { badge?: boolean; permission?: NotificationPermission } = {}): SessionSources & {
   openSession: ReturnType<typeof vi.fn>
   workspaces: ReturnType<typeof workspaceSource>
@@ -50,7 +46,6 @@ function stubCapabilities(options: { badge?: boolean; permission?: NotificationP
   return { ...sessionSources(), openSession: vi.fn(), workspaces: workspaceSource() }
 }
 
-/** Boot the browser half over a context providing the five injected services. */
 async function bench(surface: SessionSources & {
   openSession: ReturnType<typeof vi.fn>
   workspaces?: ReturnType<typeof workspaceSource>

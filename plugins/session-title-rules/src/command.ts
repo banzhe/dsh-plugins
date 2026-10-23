@@ -37,8 +37,6 @@ export interface TitleRefreshTarget {
 }
 
 /**
- * Map one `/title-refresh` invocation onto a {@link CommandResult}.
- *
  * A failure is reported as an error rather than swallowed: the automatic cadence
  * logs a warning and keeps the standing title, but an explicit invocation is a
  * direct question, so the reason is the useful answer. Nothing here writes a

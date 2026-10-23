@@ -9,7 +9,6 @@ import { probeOpenInApps } from '../src/client/workspaceMenu.ts'
 
 /** The apps route the probe must address, document-relative (no leading slash). */
 const APPS = 'open-in-app/apps'
-/** The exact request header set the probe must send. */
 const APPS_CALL = [APPS, { headers: { accept: 'application/json' } }] as const
 
 afterEach(() => {

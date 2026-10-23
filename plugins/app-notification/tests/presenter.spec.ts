@@ -18,7 +18,6 @@ import { sessionRow, sessionSources, type SessionRow } from './session-list-doub
 import { workspaceSource, workspaceView } from './workspace-source-double.ts'
 import { CompletionObserver } from '../src/client/completion.ts'
 
-/** A `Notification` stand-in recording every construction and click handler. */
 class FakeNotification {
   static permission: NotificationPermission = 'granted'
   static requestResult: NotificationPermission = 'granted'
@@ -88,7 +87,6 @@ function options(
   }
 }
 
-/** One durable Workspace row as the Workspace Controller projects it. */
 const workspace = (workspaceId: string, sessionIds: string[]): WorkspaceSnapshot['items'][number] =>
   workspaceView(workspaceId, sessionIds)
 
@@ -622,7 +620,6 @@ describe('CompletionPresenter', () => {
   })
 
   describe('with the desktop notifications channel', () => {
-    /** A bridge double recording show requests; activations dispatch by id. */
     function stubDesktopBridge(): {
       show: ReturnType<typeof vi.fn<(request: { id: string; title: string; body: string }) => Promise<boolean>>>
       activations: Array<(activation: { id?: string }) => void>
@@ -734,7 +731,6 @@ describe('pickWorkspaceDemoTarget', () => {
   const snapshot = (items: WorkspaceSnapshot['items'], phase: WorkspaceSnapshot['phase'] = 'ready'): WorkspaceSnapshot =>
     ({ items, archivedSessionIds: [], pinnedSessionIds: [], state: 'idle', phase, error: null })
 
-  /** A reader that refuses blank ids (and unknown ids) as landing targets. */
   const nonBlank = (...blank: readonly string[]) =>
     (id: string): SessionSummary => blank.includes(id)
       ? { ...summary(id), blank: true }

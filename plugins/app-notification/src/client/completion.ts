@@ -22,7 +22,6 @@ import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-sess
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/** One observation: the current finished-unread set and what joined it. */
 export interface CompletionObservation {
   /** Ordinary unarchived Sessions currently finished and not yet opened; subagent children never count. */
   readonly completed: readonly SessionSummary[]
@@ -30,16 +29,9 @@ export interface CompletionObservation {
   readonly newlyCompleted: readonly SessionSummary[]
 }
 
-/** Stateful fold over successive Session status snapshots. */
 export class CompletionObserver {
-  /** Finished-unread ids from the previous observation; undefined before the first. */
   private seen: ReadonlySet<SessionId> | undefined
 
-  /**
-   * Fold one status snapshot against the current list rows and archive set. The
-   * snapshot supplies the finished-unread facts, the list supplies the rows they
-   * name, and the archive set decides which of those rows are filed away.
-   */
   observe(
     status: SessionStatusSnapshot,
     list: SessionListState,

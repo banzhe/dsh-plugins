@@ -19,7 +19,6 @@ interface Spawn {
   readonly args: readonly string[]
 }
 
-/** Runs the real `launchResolved`, capturing spawns instead of spawning. */
 async function launchAndRecord(resolved: ResolvedLaunch, path: string) {
   const { resolver } = await loadOfficialOpenInApp()
   const spawns: Spawn[] = []
@@ -53,7 +52,7 @@ describe('installed official launcher contract', () => {
       withLaunchArgs(vsCode, 'vscode', undefined, pathToken), ABSOLUTE,
     )
     expect(outcome).toBe('launched')
-    // The actual fix for "it keeps opening a new window": without the switch,
+    // Without the switch,
     // VS Code's CLI default is a fresh window.
     expect(spawns).toEqual([{ command: 'Code.exe', args: ['--new-window', '--reuse-window', ABSOLUTE] }])
   })

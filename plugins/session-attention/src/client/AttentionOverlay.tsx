@@ -44,7 +44,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** DOM id tying the toggle to the panel it controls. */
 export const PANEL_ID = 'session-attention-panel'
 
 /**
@@ -73,7 +72,6 @@ export function outlineFor(model: AttentionModel): AttentionOutline | undefined 
   return undefined
 }
 
-/** Business face the plugin injects into the entry. */
 export interface AttentionInjected {
   /** The current running/unread content. Bound to the plugin's store during render. */
   useAttention: () => AttentionModel
@@ -86,7 +84,6 @@ export type AttentionOverlayProps =
   & PropsLocale<'session-attention'>
   & InjectFace<AttentionInjected>
 
-/** The elapsed clock of one running row, counted from its latest human prompt. */
 function Duration({ row, now }: {
   readonly row: AttentionRow
   readonly now: number
@@ -99,7 +96,6 @@ function Duration({ row, now }: {
   )
 }
 
-/** One section's rows, newest first, each a jump target. */
 function Section({ title, rows, state, waiting, now, open, rowLabel }: {
   readonly title: string
   readonly rows: readonly AttentionRow[]
@@ -178,7 +174,6 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
   )
 }
 
-/** Render the toggle, and the panel while it is open. */
 export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProps): ReactNode {
   const model = useAttention()
   const [showing, setShowing] = useState(false)
@@ -202,7 +197,6 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
     document.addEventListener('keydown', onKeyDown)
     return () => { document.removeEventListener('keydown', onKeyDown) }
   }, [showing])
-  /** Jump to one Session and take the panel down behind it. */
   const jump = (id: SessionId): void => {
     open(id)
     setShowing(false)

@@ -1,9 +1,8 @@
 import { defineConfig } from 'vitest/config'
 
 /**
- * Suite for the icon table, the snapshot reader, the validator comparison, and
- * the routes the Host registers. `tests/apply.spec.ts` drives `apply()` and every
- * handler through a fake composition, so both source modules are measured.
+ * `tests/apply.spec.ts` drives `apply()` and every handler through a fake
+ * composition, so both source modules are measured.
  */
 export default defineConfig({
   test: {

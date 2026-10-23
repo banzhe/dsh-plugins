@@ -36,7 +36,6 @@ import { transform } from 'lightningcss'
 import type { TsdownPlugin } from 'tsdown'
 
 const MODULE_SUFFIX = '.module.css'
-/** Query asking for the sheet as text instead of an injector. */
 const INLINE_QUERY = '?inline'
 const MODULE_PREFIX = '\0dsh-css-module:'
 const GLOBAL_PREFIX = '\0dsh-css-global:'
@@ -56,9 +55,7 @@ export interface CssPluginOptions {
 }
 
 /**
- * The stylesheet loaders this repo's client bundles share.
  * @param id - plugin id (package name), stamped onto every injected `<style>` tag.
- * @param options - injection extras; see {@link CssPluginOptions}.
  * @returns three tsdown plugins, one per import form, for `plugins: [...cssPlugins(id)]`.
  */
 export function cssPlugins(id: string, options: CssPluginOptions = {}): TsdownPlugin[] {
@@ -67,7 +64,6 @@ export function cssPlugins(id: string, options: CssPluginOptions = {}): TsdownPl
 }
 
 /**
- * Compile a CSS Modules sheet, export its class map and install its text.
  * @param id - plugin id stamped onto the installed tag.
  * @param registry - whether to publish the sheet on the global record.
  */
@@ -104,7 +100,6 @@ function modulesPlugin(id: string, registry: boolean): TsdownPlugin {
 }
 
 /**
- * Compile a side-effect stylesheet and install its text.
  * @param id - plugin id stamped onto the installed tag.
  * @param registry - whether to publish the sheet on the global record.
  */
@@ -126,9 +121,6 @@ function globalPlugin(id: string, registry: boolean): TsdownPlugin {
   }
 }
 
-/**
- * Hand a compiled stylesheet back as text, for a plugin-owned install/remove effect.
- */
 function inlinePlugin(): TsdownPlugin {
   return {
     name: 'dsh-css-inline',
@@ -147,12 +139,6 @@ function inlinePlugin(): TsdownPlugin {
   }
 }
 
-/**
- * Resolve a stylesheet import against the importing module.
- * @param source - relative import specifier as written in the source.
- * @param importer - absolute path of the importing module.
- * @returns the sheet's absolute path, or undefined when the import cannot name one.
- */
 function stylesheetPath(source: string, importer: string | undefined): string | undefined {
   // A sheet always belongs to the package that imports it: a dependency's
   // stylesheet, a bare specifier, or an entry-level import is not ours to serve,
@@ -162,11 +148,9 @@ function stylesheetPath(source: string, importer: string | undefined): string | 
 }
 
 /**
- * Emit the module that installs one sheet and (for CSS Modules) exports its map.
  * @param id - plugin id stamped onto the tag.
  * @param file - absolute path of the sheet, whose basename names the tag.
- * @param css - compiled stylesheet text.
- * @param classMap - CSS Modules map, or undefined for a side-effect sheet.
+ * @param classMap - undefined for a side-effect sheet.
  * @param registry - whether to publish the sheet on the global record.
  */
 function injectorModule(

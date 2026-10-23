@@ -24,7 +24,6 @@ import type { SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 /** The settings namespace this page edits: also the Loader row id. */
 export const TITLE_MODEL_NS = 'session-title-rules'
 
-/** The three live fields this page owns. */
 export interface TitleModelSettings {
   /** Explicit auxiliary provider route; absent follows the session's own route. */
   provider?: string
@@ -34,7 +33,6 @@ export interface TitleModelSettings {
   reasoningEffort?: string
 }
 
-/** One exact auxiliary route. */
 export interface TitleModelRoute {
   readonly provider: string
   readonly model: string
@@ -62,7 +60,6 @@ export interface TitleModelCandidate extends TitleModelRoute {
   readonly efforts: readonly TitleModelEffort[]
 }
 
-/** State the card renders. */
 export interface TitleModelCardState extends SettingsFormShell {
   /** Staged route; `undefined` means "follow the session's own route". */
   readonly route: TitleModelRoute | undefined
@@ -80,7 +77,6 @@ export interface TitleModelCardState extends SettingsFormShell {
   readonly conflicted: boolean
 }
 
-/** Registration-side face the card binds. */
 export interface TitleModelCardFace {
   hooks: {
     titleModelCard: SnapshotStore<TitleModelCardState>
@@ -107,7 +103,6 @@ export function titleRouteKey(route: TitleModelRoute): string {
   return `${route.provider.length}:${route.provider}${route.model}`
 }
 
-/** Reasoning levels a directory model advertises, id and display name alike. */
 function effortsOf(model: ModelCatalogModel): TitleModelEffort[] {
   return model.reasoning === undefined
     ? []
@@ -178,13 +173,11 @@ export function titleModelCandidates(
   return candidates
 }
 
-/** Whether two optional routes name the same pair. */
 function sameRoute(left: TitleModelRoute | undefined, right: TitleModelRoute | undefined): boolean {
   if (left === undefined || right === undefined) return left === right
   return left.provider === right.provider && left.model === right.model
 }
 
-/** Read a non-empty string field out of the settings section. */
 function textField(value: unknown, field: string): string | undefined {
   if (typeof value !== 'object' || value === null) return undefined
   const held: unknown = Reflect.get(value, field)
@@ -219,7 +212,6 @@ export class TitleModelCardController {
     void this.loadCatalog()
   }
 
-  /** Stop observing settings, suppress late settlements, and release the store. */
   dispose(): void {
     this.disposed = true
     this.saveGeneration += 1
@@ -227,7 +219,6 @@ export class TitleModelCardController {
     this.unsubscribe()
   }
 
-  /** Build the renderer face: the snapshot and staged card actions. */
   inject(): TitleModelCardFace {
     return {
       hooks: { titleModelCard: this.store },

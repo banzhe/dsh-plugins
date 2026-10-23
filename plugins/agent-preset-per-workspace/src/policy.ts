@@ -1,7 +1,5 @@
 /**
  * The decisions this plugin makes, as pure functions.
- *
- * @module @banzhe/dsh-agent-preset-per-workspace/policy
  */
 
 import type { SessionStartSource } from '@deepseek-ai/dsh-agent'

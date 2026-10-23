@@ -26,15 +26,12 @@ export interface SlotsDoubleEntry {
     readonly locale?: string | undefined
   }
   readonly component: unknown
-  /** The business face the registration's `inject` factory returned. */
   readonly injected: Record<string, (...args: never[]) => unknown>
 }
 
-/** Recorded registrations keyed by the row id they registered with. */
 export class SlotsDouble extends Service {
   private readonly entries = new Map<string, SlotsDoubleEntry>()
 
-  /** The context whose fiber owns every registration this double records. */
   constructor(ctx: Context) {
     super(ctx, 'slots')
   }
@@ -48,7 +45,6 @@ export class SlotsDouble extends Service {
     return () => { void dispose() }
   }
 
-  /** Record one registration; returns the disposer that removes this entry. */
   register(
     options: { id?: string; order?: number; locale?: string; inject?: (...args: never[]) => Record<string, never> },
     component: unknown,
@@ -63,13 +59,12 @@ export class SlotsDouble extends Service {
     return () => { this.entries.delete(key) }
   }
 
-  /** The live registration for one row id, if any; undefined once disposed. */
   entry(id: string): SlotsDoubleEntry | undefined {
     return this.entries.get(id)
   }
 
   /**
-   * The injected business face of one row id. Throws when absent, so a spec
+   * Throws when absent, so a spec
    * cannot silently assert against an unregistered row. Typed as the plugin's
    * own injected face: `Record<string, …>` would make every member
    * `| undefined` under `noUncheckedIndexedAccess`, forcing `?.` at each call.

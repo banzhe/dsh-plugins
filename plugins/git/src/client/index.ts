@@ -6,7 +6,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { GitPanel, GitTitle } from './GitPanel.tsx'
 import { en, NS, zh } from './locales.ts'
 
-/** Tab kind this package owns. A page type: opened by kind, no resource address. */
+/** A page type: opened by kind, no resource address. */
 const GIT_KIND = 'git'
 
 /** This implementation's identity in the tab system, and the key its body registers under. */
@@ -38,7 +38,7 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
-/** The git type's registry definition. Labels are read fresh on every call. */
+/** Labels are read fresh on every call. */
 function gitDefinition(t: (key: 'type.label' | 'guide.title' | 'guide.description') => string): TabDefinition {
   return {
     id: GIT_ID,

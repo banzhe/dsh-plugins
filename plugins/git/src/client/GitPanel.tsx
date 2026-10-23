@@ -10,7 +10,6 @@ import { CommitBox } from './CommitBox.tsx'
 import type { GitKey } from './locales.ts'
 import css from './panel.module.css'
 
-/** The slice of a tab occurrence this panel reads. */
 interface GitTabInfo {
   tab: { title: string }
 }
@@ -58,14 +57,13 @@ export type GitPanelProps =
 
 export type GitTitleProps = PropsRuntime<'sidebar.right.pane.tab.title'>
 
-/** What the panel is showing. `idle` covers the moment before the first read. */
+/** `idle` covers the moment before the first read. */
 type PanelState =
   | { readonly kind: 'idle' }
   | { readonly kind: 'loading' }
   | { readonly kind: 'ready'; readonly status: GitStatus }
   | { readonly kind: 'failed'; readonly message: string }
 
-/** The git page: the branch, the commit box, then the changed files. */
 export function GitPanel({ t, sessionId, useSessions }: GitPanelProps): ReactNode {
   const cwd = useSessions((state) => state.byId[sessionId]?.cwd)
   const [panel, setPanel] = useState<PanelState>({ kind: 'idle' })
@@ -159,7 +157,6 @@ export function GitPanel({ t, sessionId, useSessions }: GitPanelProps): ReactNod
   )
 }
 
-/** Chip and floating-header title: the branch glyph plus the captured title. */
 export function GitTitle({ useTabInfo }: GitTitleProps): ReactNode {
   const { tab } = useTabInfo()
   return (

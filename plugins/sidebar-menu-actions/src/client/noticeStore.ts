@@ -13,13 +13,11 @@
  */
 
 export interface Notice {
-  /** Per-show identity; the banner component's React key. */
   readonly seq: number
   /** Resolved banner copy, already translated by the caller. */
   readonly text: string
 }
 
-/** The notice surface the plugin body and the overlay entry share. */
 export interface NoticeStore {
   /** Replace the pending notice and wake every subscriber. */
   show(text: string): void
@@ -31,12 +29,10 @@ export interface NoticeStore {
   snapshot(): Notice | null
 }
 
-/** Create one notice store: `show`/`dismiss` plus the `useSyncExternalStore` pair. */
 export function createNoticeStore(): NoticeStore {
   let current: Notice | null = null
   let seq = 0
   const listeners = new Set<() => void>()
-  /** Wake every subscriber; the store is read through `snapshot` during render. */
   const wake = (): void => { for (const listener of listeners) listener() }
   return {
     show(text) {

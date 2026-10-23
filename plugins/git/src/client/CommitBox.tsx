@@ -5,9 +5,7 @@ import type { GitKey } from './locales.ts'
 import css from './panel.module.css'
 
 /**
- * The commit message field. A textarea, because a single-line input drops
- * newlines. Its height follows the text up to the cap in the stylesheet,
- * after which it scrolls. Enter submits; Shift+Enter breaks the line.
+ * A textarea, because a single-line input drops newlines.
  */
 function MessageField({ value, label, placeholder, disabled, onChange, onSubmit }: {
   value: string
@@ -50,11 +48,9 @@ function MessageField({ value, label, placeholder, disabled, onChange, onSubmit 
   )
 }
 
-/** The message, the two draft buttons, and the button that commits it. The commit stays at the top corner. */
 export function CommitBox({ message, pending, drafting, disabled, notice, t, onChange, onDraft, onSubmit }: {
   message: string
   pending: boolean
-  /** The language whose button is drafting, or null while neither is. */
   drafting: GitMessageLanguage | null
   disabled: boolean
   notice: { text: string; failed: boolean } | null
@@ -95,7 +91,6 @@ export function CommitBox({ message, pending, drafting, disabled, notice, t, onC
   )
 }
 
-/** One language's draft button. While it drafts, its label gives way to the spinner. */
 function DraftButton({ language, label, drafting, disabled, onDraft }: {
   language: GitMessageLanguage
   label: string

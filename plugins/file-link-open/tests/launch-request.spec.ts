@@ -8,7 +8,6 @@ import { parseBody } from '../src/index.ts'
 
 const body = (value: unknown) => JSON.stringify(value)
 
-/** A well-formed request whose only variable is `line`. */
 const request = (line?: unknown) => ({ app: 'vscode', path: '/tmp/a.ts', ...(line === undefined ? {} : { line }) })
 
 describe('parseBody', () => {

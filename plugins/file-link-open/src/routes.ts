@@ -13,11 +13,9 @@
 /** GET route path serving this plugin's local resolution report. */
 export const INFO_PATH = '/api/file-link-open/info'
 
-/** Browser-relative form of {@link INFO_PATH}. */
 export const INFO_ROUTE = INFO_PATH.slice(1)
 
 /** POST route path launching one file in a whitelisted editor. */
 export const LAUNCH_PATH = '/api/file-link-open/launch'
 
-/** Browser-relative form of {@link LAUNCH_PATH}. */
 export const LAUNCH_ROUTE = LAUNCH_PATH.slice(1)

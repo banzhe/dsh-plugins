@@ -4,7 +4,6 @@
  * feature, not separate features.
  */
 
-/** Namespace registered on the locale service; also the registration's `locale` seat. */
 export const NS = 'menu-actions'
 
 export const zh = {
@@ -17,7 +16,6 @@ export const zh = {
   'toast.copyFailed': '复制失败：剪贴板不可用',
 } as const
 
-/** Closed key set: every dictionary access in the plugin resolves against it. */
 export type MenuActionsKey = keyof typeof zh
 
 export const en: Record<MenuActionsKey, string> = {

@@ -38,7 +38,6 @@ export const name = 'file-link-open'
  */
 export const inject = ['webServer', 'connection', 'subprocess']
 
-/** The editor whitelist; the arg tables in `launch-args.ts` are keyed by these ids. */
 export { EDITOR_IDS }
 
 /** Module layouts of the official resolver/catalog across published versions. */
@@ -145,7 +144,6 @@ function isCatalogEntry(value: unknown): boolean {
   return typeof row.id === 'string' && typeof row.platforms === 'object' && row.platforms !== null
 }
 
-/** The resolver module, or null when it does not expose the three functions used here. */
 function officialResolverOf(value: unknown): OfficialResolver | null {
   if (typeof value !== 'object' || value === null) return null
   const candidate = value as Record<string, unknown>
@@ -159,7 +157,6 @@ function officialResolverOf(value: unknown): OfficialResolver | null {
   return candidate as unknown as OfficialResolver
 }
 
-/** The catalog module, or null when its rows or path token are unusable. */
 function officialCatalogOf(value: unknown): OfficialCatalog | null {
   if (typeof value !== 'object' || value === null) return null
   const { OPEN_IN_APP_CATALOG: rows, PATH_TOKEN: pathToken } = value as {
@@ -201,7 +198,6 @@ interface RouteRequest extends AsyncIterable<Buffer> {
   resume(): void
 }
 
-/** The Node response surface these routes write. */
 interface RouteResponse {
   statusCode: number
   setHeader(name: string, value: string): void
@@ -240,7 +236,6 @@ function webServerOf(ctx: Context): WebServerLike {
   return (ctx as unknown as { webServer: WebServerLike }).webServer
 }
 
-/** Answer an untrusted/unauthenticated request; true when it was rejected. */
 function rejected(connection: ConnectionLike, req: unknown, res: RouteResponse) {
   const rejection = connection.requestRejection(req)
   if (rejection === undefined) return false
@@ -260,7 +255,6 @@ function sendJson(res: RouteResponse, status: number, payload: unknown) {
   res.end(JSON.stringify(payload))
 }
 
-/** 405 with the route's one supported method. */
 function sendMethodNotAllowed(res: RouteResponse, allow: string) {
   res.statusCode = 405
   res.setHeader('allow', allow)
@@ -268,8 +262,6 @@ function sendMethodNotAllowed(res: RouteResponse, allow: string) {
 }
 
 /**
- * Collect a bounded request body as UTF-8 text; null past the ceiling.
- *
  * A too-large body is drained rather than left unread: an unread stream holds
  * the socket open, and this route answers 413 immediately.
  */
@@ -287,7 +279,6 @@ async function readBoundedBody(req: RouteRequest): Promise<string | null> {
   return Buffer.concat(chunks, size).toString('utf8')
 }
 
-/** One validated launch request: an app id, an absolute path, and an optional line. */
 interface LaunchRequest {
   readonly app: string
   readonly path: string
@@ -295,10 +286,6 @@ interface LaunchRequest {
   readonly line?: number
 }
 
-/**
- * Validate one POST body at the wire: JSON object with string app/path and an
- * optional positive-integer line. Null means the shape or the line is invalid.
- */
 export function parseBody(text: string): LaunchRequest | null {
   let body: unknown
   try {
@@ -327,7 +314,6 @@ async function pathExists(absolute: string) {
   }
 }
 
-/** Register the info and launch routes behind the connection trust fence. */
 export async function apply(ctx: Context) {
   const launchTimeoutMs = 10_000
 
@@ -359,7 +345,6 @@ export async function apply(ctx: Context) {
     resolveExecutable: resolveExecutableOf,
   })
 
-  /** The official resolver bundle, loaded once at activation. */
   const bundle = await loadOfficialOpenInApp()
 
   /**
@@ -389,7 +374,6 @@ export async function apply(ctx: Context) {
   // resolver as "unavailable").
   availability().catch(() => {})
 
-  /** Read + validate one JSON POST body, answering failures; null when invalid. */
   const readPost = async (req: RouteRequest, res: RouteResponse): Promise<LaunchRequest | null> => {
     const essence = String(req.headers['content-type']).split(';', 1)[0]?.trim().toLowerCase()
     if (essence !== 'application/json') {
@@ -465,8 +449,6 @@ export async function apply(ctx: Context) {
         sendJson(res, 400, { code: 'unavailable-app', message: `unknown or unavailable app: ${parsed.app}` })
         return
       }
-      // The line (if the link named one) and the window-reuse switch are applied
-      // to the resolution's own argv; see launch-args.ts.
       const target = withLaunchArgs(resolved, parsed.app, parsed.line, bundle.pathToken)
       let outcome = await bundle.resolver.launchResolved(target, parsed.path, launchTimeoutMs, internalsOf())
       if (outcome === 'missing') {

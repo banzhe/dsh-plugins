@@ -30,7 +30,6 @@ function officialRendererSource(): string {
   return readFileSync(path.join(root, 'lib', 'index.js'), 'utf8')
 }
 
-/** The official `MarkdownFileLink` component's body, or null when it moved. */
 function markdownFileLinkBody(source: string): string | null {
   const start = source.indexOf('function MarkdownFileLink(')
   if (start < 0) return null
@@ -52,7 +51,6 @@ describe('installed official renderer contract', () => {
   })
 
   it('keeps the path on the button title for ordinary links, so the walk need not guess', () => {
-    // The common case is unchanged: a non-image link writes its decoded path.
     expect(body).toMatch(/title:\s*src === void 0 \? file\.path : void 0/)
   })
 

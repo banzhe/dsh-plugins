@@ -77,7 +77,6 @@ function stubApps(apps: readonly string[] = ['vscode', 'explorer']): ReturnType<
   return fetchMock
 }
 
-/** Mount the plugin's own `shell.overlay` entry over the face it registered. */
 async function mountNotice(slots: SlotsDouble): Promise<HTMLElement> {
   const entry = slots.entry(NOTICE)
   if (entry === undefined) throw new Error('the overlay entry was not registered')
@@ -95,7 +94,6 @@ async function mountNotice(slots: SlotsDouble): Promise<HTMLElement> {
   return host
 }
 
-/** The banner copy on display, or a failure when nothing is mounted. */
 function bannerText(host: HTMLElement): string {
   const banner = host.querySelector<HTMLElement>('[data-toast]')
   if (banner === null) throw new Error('no banner is mounted')
@@ -109,7 +107,6 @@ async function finishBanner(host: HTMLElement): Promise<void> {
   await act(async () => { done.click() })
 }
 
-/** Graft the menu of one workspace row and return every injected row. */
 async function graftedRows(workspaceId: string): Promise<{
   readonly vscode: HTMLButtonElement | null
   readonly explorer: HTMLButtonElement | null
@@ -127,7 +124,6 @@ async function graftedRows(workspaceId: string): Promise<{
   }
 }
 
-/** Click one row and collect every keydown it dispatches on document. */
 async function click(button: HTMLElement): Promise<string[]> {
   const keys = recordKeys()
   // Inside act(): a click that raises a notice is a React update.

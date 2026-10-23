@@ -41,14 +41,10 @@ interface WebServerFace {
 }
 
 /**
- * Serve one snapshot route.
- *
  * The validator comes from the file's identity, so a conditional request and a
  * HEAD are answered with one `stat` and no read; the maskable pair alone is
  * 322 KB. `no-cache` with a validator, not `no-store`: revalidating costs a 304
  * while re-downloading would cost the whole set on every navigation.
- * @param route - the route whose asset this handler owns.
- * @returns The route handler.
  */
 export function serveIcon(route: IconRoute) {
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
@@ -91,10 +87,6 @@ export function serveIcon(route: IconRoute) {
   }
 }
 
-/**
- * Register every takeover route on the composition's web server.
- * @param ctx - Host context carrying the `webServer` service.
- */
 export async function apply(ctx: Context): Promise<void> {
   const { webServer } = ctx as unknown as { webServer: WebServerFace }
   await assertIconsPresent()

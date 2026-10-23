@@ -31,7 +31,6 @@ import { classifyContextTarget, type LinkTarget } from './client/target.ts'
 import { EDITOR_IDS, type EditorId } from './editors.ts'
 import { INFO_ROUTE, LAUNCH_ROUTE } from './routes.ts'
 
-/** Locale namespace owned by this plugin. */
 export const NS = 'fileLinkOpen'
 
 export const zh = {
@@ -153,7 +152,6 @@ function relativizeToCwd(text: string, cwd: string | null | undefined) {
   return text
 }
 
-/** Directory portion of an absolute POSIX (or Windows-style) path. */
 function dirnameOf(p: string) {
   const normalized = p.replaceAll('\\', '/')
   const index = normalized.lastIndexOf('/')
@@ -168,7 +166,6 @@ interface AppState {
   info: { available?: string[] | null | undefined } | null
 }
 
-/** One JSON array of ids, filtering anything else; null when the value is not an array. */
 function stringArrayOf(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null
   const out: string[] = []
@@ -178,21 +175,20 @@ function stringArrayOf(value: unknown): string[] | null {
   return out
 }
 
-/** The official `/apps` payload's ids, or null when the body is not that shape. */
+/** The official `/apps` payload's ids. */
 function appsOf(data: unknown): string[] | null {
   if (typeof data !== 'object' || data === null) return null
   const { apps } = data as Partial<OpenInAppAppsPayload>
   return stringArrayOf(apps)
 }
 
-/** This plugin's own `/info` payload, or null when the body is not an object. */
+/** This plugin's own `/info` payload. */
 function infoOf(data: unknown): AppState['info'] {
   if (typeof data !== 'object' || data === null) return null
   const available = (data as { available?: unknown }).available
   return { available: available === undefined ? undefined : stringArrayOf(available) }
 }
 
-/** One application's real bundle icon with a generic-glyph fallback (official route). */
 function AppIcon(props: { id: string, size: number }) {
   const [failed, setFailed] = React.useState(false)
   if (failed) {
@@ -215,7 +211,6 @@ function AppIcon(props: { id: string, size: number }) {
   )
 }
 
-/** Locale-bound translator handed down to the menu. */
 type Translator = (key: LocaleKey, params?: Record<string, string>) => string
 
 /**
@@ -257,7 +252,6 @@ function buildItems(state: AppState, t: Translator, line: number | null): MenuEn
   return items
 }
 
-/** One menu selection: dispatch to the route or the clipboard. */
 function dispatchSelection(id: string, filePath: string, line: number | null, cwd: string | null, deps: { close(): void }) {
   const absolute = resolveWorkspacePath(cwd, filePath)
   // Every path closes the menu immediately: the detached launches take seconds
@@ -373,7 +367,6 @@ export function apply(ctx: ClientContext) {
     )
   }
 
-  /** Publish the current context state into the context-menu root. */
   function renderContextMenu() {
     contextRoot.render(<LinkMenu menu={contextState} t={t} />)
   }

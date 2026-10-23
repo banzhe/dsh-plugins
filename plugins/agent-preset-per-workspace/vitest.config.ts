@@ -1,7 +1,6 @@
 import { defineConfig } from 'vitest/config'
 
 /**
- * Thresholds cover every shipped module, `src/index.ts` included:
  * `tests/plugin.spec.ts` drives its listeners over a real Cordis context, so
  * the glue is measured honestly rather than excluded.
  */

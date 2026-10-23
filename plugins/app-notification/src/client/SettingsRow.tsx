@@ -22,7 +22,6 @@ import type { AppBadgeKey } from './locales.ts'
 export interface CompletionSettingsInjected {
   /** Read the live notification permission. */
   permission: () => NotificationPermissionState
-  /** Whether this page can drive the icon badge at all. */
   badgeSupported: () => boolean
   /** Ask for notification permission; must be called from a user gesture. */
   request: () => Promise<NotificationPermissionState>
@@ -37,7 +36,6 @@ export type CompletionSettingsRowProps =
   & PropsLocale<'app-badge'>
   & InjectFace<CompletionSettingsInjected>
 
-/** Locale key naming each permission state (exhaustive over the union). */
 const PERMISSION_KEYS = {
   granted: 'settings.permission.granted',
   denied: 'settings.permission.denied',

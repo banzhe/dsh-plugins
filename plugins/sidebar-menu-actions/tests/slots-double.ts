@@ -17,7 +17,6 @@
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
 
-/** Registration options as this plugin passes them. */
 export interface SlotRegisterOptions {
   readonly name?: string | undefined
   readonly id?: string | undefined
@@ -34,11 +33,9 @@ export interface SlotsDoubleEntry {
     readonly locale?: string | undefined
   }
   readonly component: unknown
-  /** The business face the registration's `inject` factory returned. */
   readonly injected: Record<string, (...args: never[]) => unknown>
 }
 
-/** Recorded registrations keyed by the row id they registered with. */
 export class SlotsDouble extends Service {
   private readonly entries = new Map<string, SlotsDoubleEntry>()
 
@@ -56,7 +53,6 @@ export class SlotsDouble extends Service {
     return () => { void dispose() }
   }
 
-  /** Record one registration; returns the disposer that removes this entry. */
   register(options: SlotRegisterOptions, component: unknown): () => void {
     const key = options.id ?? ''
     const record: SlotsDoubleEntry = {
@@ -68,12 +64,10 @@ export class SlotsDouble extends Service {
     return () => { this.entries.delete(key) }
   }
 
-  /** The live registration for one row id, if any; undefined once disposed. */
   entry(id: string): SlotsDoubleEntry | undefined {
     return this.entries.get(id)
   }
 
-  /** The injected business face of one row id. Throws when absent. */
   injection(id: string): Record<string, (...args: never[]) => unknown> {
     const found = this.entries.get(id)
     if (found === undefined) throw new Error(`no live slot registration "${id}"`)

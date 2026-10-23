@@ -26,7 +26,6 @@ import { formLabels, type TitleModelLocaleKey } from './locales.ts'
 import type { TitleModelCandidate, TitleModelCardFace } from './controller.ts'
 import { titleRouteKey } from './controller.ts'
 
-/** Props the Plugins page binds for this row's configuration page. */
 export type TitleModelCardProps =
   PropsRuntime<'plugins.row.config'>
   & PropsLocale<'session-title-rules'>
@@ -47,10 +46,6 @@ interface ProviderGroup {
   readonly candidates: TitleModelCandidate[]
 }
 
-/**
- * Group the flat candidate list by provider, keeping directory order and
- * excluding unavailable rows.
- */
 function groupByProvider(candidates: readonly TitleModelCandidate[]): ProviderGroup[] {
   const groups: ProviderGroup[] = []
   for (const candidate of candidates) {
@@ -65,7 +60,6 @@ function groupByProvider(candidates: readonly TitleModelCandidate[]): ProviderGr
   return groups
 }
 
-/** One labelled row: title, description, and the dropdown that edits it. */
 function PreferenceRow({ title, description, label, disabled, items, selectedId, onSelect }: {
   readonly title: string
   readonly description: string
@@ -120,9 +114,6 @@ function PreferenceRow({ title, description, label, disabled, items, selectedId,
   )
 }
 
-/**
- * Render the title-model form, or its one-liner when the page asks for a summary.
- */
 export function TitleModelCard(props: TitleModelCardProps) {
   const { t } = props
   const state = props.useTitleModelCard(snapshot => snapshot)
@@ -200,7 +191,6 @@ export function TitleModelCard(props: TitleModelCardProps) {
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** This plugin's settings page copy. */
     'session-title-rules': TitleModelLocaleKey
   }
 }

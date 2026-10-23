@@ -41,7 +41,6 @@ const SEED: Record<string, unknown> = {
   'react/jsx-runtime': JsxRuntime,
 }
 
-/** Materialize one published browser bundle through a module-table facade. */
 function loadClientBundle(packageName: string): Record<string, unknown> {
   const path = resolve('node_modules', packageName, 'lib/client.js')
   const source = readFileSync(path, 'utf8')
@@ -111,7 +110,6 @@ function declareGeneralItem(ctx: Context): void {
   )
 }
 
-/** Boot the plugin over the REAL slot registry. */
 async function bench(permission: NotificationPermission = 'denied'): Promise<{
   ctx: Context
   slots: { entries: (key: string) => readonly { options: { id?: string; order?: number }; component: unknown }[]; getVersion: (key: string) => number }

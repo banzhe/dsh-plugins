@@ -11,7 +11,6 @@ import type { GitKey } from './locales.ts'
 import css from './panel.module.css'
 import { buildChangeTree, type ChangeNode } from './tree.ts'
 
-/** The letter a status wears in the tree. */
 const STATUS_MARK: Record<GitChangeStatus, string> = {
   added: 'A',
   modified: 'M',
@@ -20,7 +19,6 @@ const STATUS_MARK: Record<GitChangeStatus, string> = {
   untracked: 'U',
 }
 
-/** The locale key naming one status, for the row's accessible name. */
 const STATUS_KEY: Record<GitChangeStatus, GitKey> = {
   added: 'status.added',
   modified: 'status.modified',
@@ -29,7 +27,6 @@ const STATUS_KEY: Record<GitChangeStatus, GitKey> = {
   untracked: 'status.untracked',
 }
 
-/** One directory row: a disclosure whose children are the next level. */
 function DirectoryRow({ node, depth, t }: { node: ChangeNode; depth: number; t: (key: GitKey) => string }): ReactNode {
   const [open, setOpen] = useState(true)
   const Icon = open ? IconFolderOpenRegular : IconFolderCloseRegular
@@ -60,7 +57,6 @@ function DirectoryRow({ node, depth, t }: { node: ChangeNode; depth: number; t: 
   )
 }
 
-/** One file row. It names the change and does not open it. */
 function FileRow({ node, depth, t }: { node: ChangeNode; depth: number; t: (key: GitKey) => string }): ReactNode {
   const status = node.status ?? 'modified'
   return (
@@ -76,14 +72,12 @@ function FileRow({ node, depth, t }: { node: ChangeNode; depth: number; t: (key:
   )
 }
 
-/** A tree row: a directory when the node has no status of its own, a file otherwise. */
 function ChangeRow({ node, depth, t }: { node: ChangeNode; depth: number; t: (key: GitKey) => string }): ReactNode {
   return node.status === undefined
     ? <DirectoryRow node={node} depth={depth} t={t} />
     : <FileRow node={node} depth={depth} t={t} />
 }
 
-/** The changed paths as a folder tree. An empty list says so. */
 export function ChangeTree({ changes, t }: {
   changes: readonly GitChange[]
   t: (key: GitKey) => string

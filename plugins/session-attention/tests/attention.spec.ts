@@ -19,10 +19,8 @@ import {
 } from './session-list-double.ts'
 import { workspaceSource } from './workspace-source-double.ts'
 
-/** No archive set — the default for every spec that is not about archiving. */
 const NONE: ReadonlySet<SessionId> = new Set()
 
-/** Fold a list and a status over an archive set, empty by default. */
 function fold(
   list: SessionListState,
   status: SessionStatusSnapshot,
@@ -36,7 +34,6 @@ function status(running: boolean | undefined, completed: boolean): SessionStatus
   return { running, pendingInteraction: undefined, completionUnread: completed }
 }
 
-/** The size of the full list the order-contract specs fold over. */
 const LIST_SIZE = 2000
 
 /**
@@ -48,7 +45,6 @@ function padRows(count: number): SessionRow[] {
   return Array.from({ length: count }, (_, index) => sessionRow(`pad-${index}`, { updatedAt: index }))
 }
 
-/** The given rows, padded with idle filler to {@link LIST_SIZE}. */
 function scaledList(rows: readonly SessionRow[]): SessionRow[] {
   return [...rows, ...padRows(LIST_SIZE - rows.length)]
 }
@@ -104,7 +100,6 @@ describe('deriveAttention', () => {
       sessionRow('idle', { updatedAt: 9 }),
     ]
     const model = fold(sessionListOf(rows), sessionStatusOf(rows))
-    // Newest first inside each section.
     expect(model.running).toEqual([
       { id: 'newer-run', title: 'newer-run' },
       { id: 'older-run', title: 'older-run' },
@@ -363,7 +358,6 @@ describe('deriveAttention', () => {
     // Before the projection is read the row is listed with no duration fact.
     expect(store.getSnapshot().running).toEqual([{ id: 'run', title: 'run' }])
 
-    // The projection read lands with the current prompt time.
     const base = 1_720_000_000_000
     sources.update((draft) => {
       draft.byId['run' as SessionId] = sessionRow('run', {
@@ -666,7 +660,6 @@ describe('createAttentionStore', () => {
     expect(store.getSnapshot().unread).toEqual([])
     expect(store.getSnapshot().total).toBe(0)
 
-    // Restoring brings it back.
     workspaces.setArchived()
     expect(store.getSnapshot().unread).toEqual([{ id: 'a', title: 'a' }])
     unsubscribe()

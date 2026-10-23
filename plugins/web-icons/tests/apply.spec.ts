@@ -25,14 +25,12 @@ vi.mock('../src/icons.ts', async (importOriginal) => {
   }
 })
 
-/** One route as the fake composition's webServer received it. */
 interface Registered {
   readonly kind: 'exact'
   readonly path: string
   readonly handler: (req: IncomingMessage, res: ServerResponse) => Promise<void>
 }
 
-/** A response recorder standing in for the socket that owns the real one. */
 interface Recorder {
   status: number | undefined
   headers: Record<string, unknown>
@@ -42,7 +40,6 @@ interface Recorder {
   end: (body?: Buffer) => void
 }
 
-/** Compose the two ctx members the plugin touches, and keep what it registers. */
 function fakeComposition() {
   const routes: Registered[] = []
   const disposers: Array<() => void> = []
@@ -70,7 +67,6 @@ function fakeComposition() {
   return { ctx: ctx as unknown as Context, routes, disposers }
 }
 
-/** One request/response exchange against a route handler. */
 async function exchange(
   handler: Registered['handler'],
   method = 'GET',
@@ -100,7 +96,6 @@ function routeNamed(routes: readonly Registered[], path: string): Registered {
   return route
 }
 
-/** A composition with every route registered, plus its favicon handler. */
 async function served() {
   const composition = fakeComposition()
   await apply(composition.ctx)

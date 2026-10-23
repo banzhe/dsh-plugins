@@ -53,7 +53,6 @@ export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionR
   }
 }
 
-/** The projection snapshot one row's `lastPromptAt` fact shapes. */
 function projectionOf(row: SessionRow): SessionProjectionSnapshot {
   return {
     state: 'ready',
@@ -99,7 +98,6 @@ function pendingOf(id: SessionId): SessionStatus['pendingInteraction'] {
 
 /**
  * One status entry with only the fields this plugin reads.
- * (Lives here beside the row factories that need the same shape.)
  */
 export function statusOf(running: boolean | undefined, completed: boolean): SessionStatus {
   return { running, pendingInteraction: undefined, completionUnread: completed }
@@ -122,11 +120,6 @@ export function sessionListOf(rows: readonly SessionRow[]): SessionListState {
   }
 }
 
-/**
- * Rows of one parent with a child catalog, ready to drive through
- * {@link sessionSources}: the parent row plus its child rows, in catalog
- * order, with a session-row id alias for readability (`parent`, `child-1`…).
- */
 export function parentWithChildren(
   parent: SessionRow,
   children: readonly (readonly [id: string, over: Partial<SessionRow>])[],
@@ -137,7 +130,6 @@ export function parentWithChildren(
   ]
 }
 
-/** The catalog entry one child id shapes, with the id as the label. */
 export function subagentCatalogEntry(id: string): WireCatalogEntry {
   return { id: id as SessionId, createdAt: 0, mode: 'one-shot', label: id }
 }
@@ -155,8 +147,6 @@ export interface SessionSources {
 }
 
 /**
- * The two sources plus the `update` writer.
- *
  * `update` writes the list and re-derives the status from the result, which is
  * the order the host publishes in.
  */

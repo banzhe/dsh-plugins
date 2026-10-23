@@ -25,7 +25,6 @@ export const zh = {
   'status.untracked': '未跟踪',
 } as const
 
-/** Closed key set: every dictionary access in the plugin resolves against it. */
 export type GitKey = keyof typeof zh
 
 export const en: Record<GitKey, string> = {

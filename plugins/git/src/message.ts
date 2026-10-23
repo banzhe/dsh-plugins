@@ -1,6 +1,5 @@
 /**
- * Draft one commit message from a diff. The route owns the call; this module
- * owns the prompt and the answer.
+ * The route owns the call; this module owns the prompt and the answer.
  *
  * The two prompts restate the git-message-zh and git-message-en skills: a
  * Conventional Commit subject in the requested language, with a body only when
@@ -23,7 +22,6 @@ export interface MessageModel {
   stream(options: GenerateOptions): AsyncIterable<StreamChunk>
 }
 
-/** One draft: the diff, the language, and the session whose model should write it. */
 export interface MessageDraft {
   readonly diff: string
   readonly language: GitMessageLanguage
@@ -33,7 +31,7 @@ export interface MessageDraft {
   readonly llm: MessageModel
 }
 
-/** End-to-end deadline for one draft. The draft sets no output-token cap. */
+/** The draft sets no output-token cap. */
 const TIMEOUT_MS = 60_000
 
 /** The type list, written once so the prompt and the subject check cannot drift. */
@@ -43,8 +41,6 @@ const TYPES = ['feat', 'fix', 'refactor', 'perf', 'test', 'docs', 'style', 'buil
 const SUBJECT = new RegExp(`^(${TYPES.join('|')})(\\([^)\\n]+\\))?: \\S`, 'u')
 
 /**
- * The whole drafting rule, in the language the draft must come back in.
- *
  * It rides in the user turn: the model this panel drafts with treats the system
  * slot as weak and answers from the user turn. The system prompt repeats it.
  */
@@ -75,7 +71,7 @@ const PROMPTS: Record<GitMessageLanguage, string> = {
   en: `You draft commit messages. Write one English commit message from the diff.\n${RULES.en}`,
 }
 
-/** Concatenate one kind of block. Reasoning is kept apart from the visible answer. */
+/** Reasoning is kept apart from the visible answer. */
 function textOf(blocks: readonly ContentBlock[], type: 'text' | 'reasoning'): string {
   return blocks
     .filter((block): block is Extract<ContentBlock, { type: typeof type }> => block.type === type)
@@ -84,7 +80,6 @@ function textOf(blocks: readonly ContentBlock[], type: 'text' | 'reasoning'): st
     .trim()
 }
 
-/** Strip one pair of wrapping fences or backticks from a whole answer. */
 function unwrapped(text: string): string {
   const fence = /^```[^\n]*\n([\s\S]*?)\n```$/u.exec(text)
   if (fence?.[1] !== undefined) return fence[1].trim()
@@ -93,8 +88,6 @@ function unwrapped(text: string): string {
 }
 
 /**
- * The message to put in the field.
- *
  * The visible answer wins when it is a commit message. A reasoning model often
  * writes the real message inside its thinking and emits a one-line paraphrase
  * as the answer; that paraphrase is dropped in favour of the last Conventional
@@ -107,8 +100,6 @@ function messageOf(blocks: readonly ContentBlock[]): string {
 }
 
 /**
- * The last Conventional Commit message inside `text`, or null when there is none.
- *
  * Reasoning restates the message several times, so the last subject line is the
  * one it settled on. The blank line between that subject and its body is part
  * of the message; the blank line after the body ends it.
@@ -126,7 +117,6 @@ function conventionalOf(text: string): string | null {
   return [subject, ...(end === -1 ? body : body.slice(0, end))].join('\n').trim()
 }
 
-/** A terminal finish reason that is not a clean stop. */
 function finishError(finish: FinishReason): string | null {
   switch (finish.kind) {
     case 'stop':
@@ -143,7 +133,6 @@ function finishError(finish: FinishReason): string | null {
   }
 }
 
-/** One commit message for `draft`, or throws when the model returns nothing usable. */
 export async function draftMessage(draft: MessageDraft): Promise<string> {
   const signal = AbortSignal.timeout(TIMEOUT_MS)
   const messages: Message[] = [createUserMessage({

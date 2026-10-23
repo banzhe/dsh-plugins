@@ -52,9 +52,7 @@ export function apply(ctx: Context): void {
    */
   const subscribeNotices = (listener: () => void): (() => void) => notices.subscribe(listener)
   const snapshotNotices = (): Notice | null => notices.snapshot()
-  /** Stable render-time reader, invoked by the overlay entry on every render. */
   const useNotice = (): Notice | null => useSyncExternalStore(subscribeNotices, snapshotNotices)
-  /** Surface one resolved notice; the overlay entry renders it through `Toast`. */
   const showToast = (text: string): void => { notices.show(text) }
   const noticeInjected = (): NoticeToastInjected => ({
     useNotice,
@@ -75,7 +73,6 @@ export function apply(ctx: Context): void {
     ctx.workspaces.list.getSnapshot().items
       .find(item => String(item.workspaceId) === workspaceId)?.path
 
-  /** Clipboard write answering itself: success and failure each raise one notice. */
   const copyPath = (path: string): void => {
     void writeClipboard(path).then((accepted) => {
       if (accepted) {

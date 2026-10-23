@@ -57,10 +57,8 @@ interface Harness {
   /** The toggle, always mounted. */
   trigger(): HTMLButtonElement
   panel(): HTMLElement | null
-  /** Section headings exactly as rendered. */
   headings(): string[]
   rowLabels(): string[]
-  /** Each row indicator's state, in render order. */
   stateDots(): string[]
   badge(): string | null
   click(element: HTMLElement): Promise<void>
@@ -68,7 +66,6 @@ interface Harness {
   update(recipe: Parameters<SessionSources['update']>[0]): Promise<void>
 }
 
-/** Boot the browser half over a context providing the six injected services, then mount its entry. */
 async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
   const surface = sessionSources(rows)
   const open = vi.fn()
@@ -359,7 +356,6 @@ describe('AttentionOverlay', () => {
     await overlay.click(overlay.trigger())
     // Only the running child mounts, between the parent and the section's end.
     expect(overlay.rowLabels()).toEqual(['Parent', 'Worker'])
-    // One indented child row, wearing the running spinner.
     expect(overlay.stateDots()).toEqual(['ongoing', 'ongoing'])
     expect(overlay.host.querySelectorAll('.sa-child-row')).toHaveLength(1)
 

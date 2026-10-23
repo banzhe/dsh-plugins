@@ -2,7 +2,6 @@
 
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 
-/** Locale keys the page renders. */
 export type TitleModelLocaleKey =
   | 'overridden' | 'reset' | 'readOnly' | 'unavailable'
   | 'save' | 'saving' | 'saveFailed'
@@ -13,7 +12,6 @@ export type TitleModelLocaleKey =
   | 'unavailableRoute'
   | 'invalidPair'
 
-/** English copy. */
 export const en: Record<TitleModelLocaleKey, string> = {
   overridden: 'Overridden',
   reset: 'Reset to default',
@@ -39,7 +37,6 @@ export const en: Record<TitleModelLocaleKey, string> = {
   invalidPair: 'Choose both a model and a provider before saving.',
 }
 
-/** Simplified Chinese copy. */
 export const zh: Record<TitleModelLocaleKey, string> = {
   overridden: '已覆盖',
   reset: '恢复默认',
@@ -65,9 +62,6 @@ export const zh: Record<TitleModelLocaleKey, string> = {
   invalidPair: '保存前请同时选择模型和提供方。',
 }
 
-/**
- * The form frame's copy, read from this page's dictionary.
- */
 export function formLabels(t: (key: TitleModelLocaleKey) => string): SettingsFormLabels {
   return {
     unavailable: t('unavailable'),

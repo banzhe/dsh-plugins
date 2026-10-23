@@ -20,7 +20,6 @@ import {
 } from './fixtures.ts'
 import { translateEn as t } from './translate.ts'
 
-/** The workspace directory the default stub resolves; every other id misses. */
 const PATHS: Record<string, string> = { 'ws-1': '/ws/alpha' }
 
 /** The launch rows a Windows Host resolves: both catalog ids are present. */
@@ -89,7 +88,6 @@ async function graft(workspaceId = 'ws-1'): Promise<{
   return { row, menu, button: requireInjected(menu.menu, VSCODE_ROW) }
 }
 
-/** Click one row and collect every keydown it dispatches on document. */
 async function click(button: HTMLElement): Promise<string[]> {
   const keys = recordKeys()
   button.click()

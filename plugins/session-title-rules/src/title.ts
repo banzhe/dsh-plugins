@@ -25,8 +25,8 @@ import type { ContentBlock, FinishReason, GenerateOptions, Message, StreamChunk 
 import type { SessionTitleModelIdentity, SessionTitleUserMessage } from '@deepseek-ai/dsh-session-title'
 import { formatTitleOutput, PLUGIN_NAME, TITLE_SYSTEM_PROMPT } from './prompt.ts'
 
-// 0.1.7-alpha.2 removed the shared `plugin` message source: every producer now
-// declares its own `kind` on `MessageSourceMap`.
+// There is no shared `plugin` message source: every producer declares its own
+// `kind` on `MessageSourceMap`.
 declare module '@deepseek-ai/dsh-llm' {
   interface MessageSourceMap {
     'dsh-session-title-rules': { kind: 'dsh-session-title-rules' }
@@ -58,15 +58,11 @@ export interface TitlePolicy {
   readonly reasoningEffort?: string | undefined
 }
 
-/** Everything one derivation needs, as one value. */
 export interface TitleDerivation {
-  /** Live deployment policy for this call. */
   readonly policy: TitlePolicy
-  /** The service's request: messages, logged route, cancellation, session. */
   readonly request: SessionTitleProviderRequest
   /** The service's current standing title, shown to the model as `原名称` only. */
   readonly currentTitle: string | undefined
-  /** The model stream. */
   readonly llm: TitleModelAccess
 }
 
@@ -95,7 +91,6 @@ const MAX_SELECTED_MESSAGES = 8
 const MAX_MESSAGE_CHARS = 400
 
 /**
- * The exact auxiliary route and reasoning effort one revision runs on.
  * @throws when the pair is half-configured, or when neither an override nor a
  *   logged request route exists.
  */
@@ -157,7 +152,6 @@ function frameTitleInput(
 
 /** The framed user turn plus the messages it actually carried. */
 interface FramedTitleInput {
-  /** The exact user text handed to the model. */
   readonly input: string
   /** The messages the frame carried, oldest first — the only seqs a result may cite. */
   readonly messages: readonly SessionTitleUserMessage[]
@@ -188,7 +182,6 @@ function buildTitleInput(
   }
 }
 
-/** Concatenate the text blocks of one assembled auxiliary response. */
 function textOf(blocks: readonly ContentBlock[]): string {
   return blocks
     .filter((block): block is Extract<ContentBlock, { type: 'text' }> => block.type === 'text')
@@ -196,7 +189,6 @@ function textOf(blocks: readonly ContentBlock[]): string {
     .join(' ')
 }
 
-/** Translate a terminal finish reason into an auxiliary-call failure. */
 function finishError(finish: FinishReason): Error | undefined {
   switch (finish.kind) {
     case 'stop':

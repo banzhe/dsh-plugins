@@ -111,14 +111,12 @@ export function injectedButton(scope: ParentNode, marker: string): HTMLButtonEle
   return scope.querySelector(`button[data-menu-actions="${marker}"]`)
 }
 
-/** The injected row for one marker, or a failure when the graft did not happen. */
 export function requireInjected(scope: ParentNode, marker: string): HTMLButtonElement {
   const found = injectedButton(scope, marker)
   if (found === null) throw new Error(`no "${marker}" row was injected`)
   return found
 }
 
-/** Every injected row of one menu, in document order. */
 export function injectedButtons(scope: ParentNode = document): HTMLButtonElement[] {
   return [...scope.querySelectorAll<HTMLButtonElement>('button[data-menu-actions]')]
 }
@@ -127,7 +125,6 @@ export function viewportRows(fixture: MenuFixture): number {
   return fixture.presentation.children.length
 }
 
-/** Record every keydown dispatched on document, for the Escape assertion. */
 export function recordKeys(): { keys: string[]; stop: () => void } {
   const keys: string[] = []
   const listener = (event: Event): void => { keys.push((event as KeyboardEvent).key) }

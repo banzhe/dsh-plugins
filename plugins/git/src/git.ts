@@ -3,28 +3,23 @@ import { open, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { GitChange, GitChangeStatus, GitStatus } from './shared.ts'
 
-/** How long one git invocation may run before it is killed. */
 const GIT_TIMEOUT_MS = 15_000
 
-/** How much of a git failure is kept; a hostile repo must not flood the answer. */
+/** A hostile repo must not flood the answer. */
 const GIT_ERROR_CAP = 4_000
 
 /**
- * How much stdout one git invocation may return.
- *
  * Separate from the error cap: a status or a diff past a few kilobytes is a
  * normal repository, and killing it there fails the panel. The draft trims
  * what it shows afterwards.
  */
 const GIT_OUTPUT_CAP = 1_000_000
 
-/** One git invocation's captured output. */
 interface GitOutput {
   readonly stdout: string
   readonly stderr: string
 }
 
-/** A git invocation that exited non-zero, or never started. */
 export class GitError extends Error {
   constructor(message: string) {
     super(message)
@@ -32,7 +27,6 @@ export class GitError extends Error {
   }
 }
 
-/** Run one git command in `cwd`; rejects with {@link GitError} on any failure. */
 function runGit(cwd: string, args: readonly string[]): Promise<GitOutput> {
   return new Promise((resolve, reject) => {
     execFile('git', ['-c', 'core.quotepath=false', ...args], {
@@ -52,8 +46,6 @@ function runGit(cwd: string, args: readonly string[]): Promise<GitOutput> {
 }
 
 /**
- * The workspace root git itself reports, resolved to its real path.
- *
  * `rev-parse` fails outside a repository, which is the signal the route turns
  * into "not a git repository" rather than an empty change list.
  */
@@ -62,7 +54,6 @@ export async function resolveRepoRoot(cwd: string): Promise<string> {
   return realpath(stdout.trim())
 }
 
-/** Map one porcelain status letter onto the closed set the panel renders. */
 function statusOf(letter: string): GitChangeStatus {
   switch (letter) {
     case 'A':
@@ -80,8 +71,6 @@ function statusOf(letter: string): GitChangeStatus {
 }
 
 /**
- * Read one porcelain v1 record.
- *
  * Records are `XY <path>`, and a rename is `XY <from> -> <to>`. The panel
  * shows the path as it stands now, so a rename keeps the destination. A
  * record shorter than the status columns is skipped rather than guessed.
@@ -106,8 +95,6 @@ async function readBranch(cwd: string): Promise<string | null> {
 }
 
 /**
- * The working tree's changed paths, unstaged and untracked together.
- *
  * `git status` is the one read: it reports the index and the worktree in one
  * pass, and `-uall` lists each untracked file instead of collapsing a new
  * directory into one row.
@@ -127,12 +114,9 @@ export async function readStatus(cwd: string): Promise<GitStatus> {
   return { branch, changes }
 }
 
-/** How much of a diff one draft may carry; past this the tail is marked truncated. */
 const DIFF_CAP = 24_000
 
 /**
- * The change context one message draft reads.
- *
  * The commit button stages everything and commits it, so the draft describes
  * that same set: staged, unstaged, and untracked. Untracked files have no
  * diff, so each one's contents are appended under its path.
@@ -148,10 +132,8 @@ export async function readChangeContext(cwd: string): Promise<string> {
   return `${combined.slice(0, DIFF_CAP)}\n\n[diff truncated]`
 }
 
-/** Per-file ceiling inside the untracked section; a binary or a huge file is named, not inlined. */
 const UNTRACKED_FILE_CAP = 8_000
 
-/** How many untracked files are read at once. The rest wait for the cap check. */
 const UNTRACKED_BATCH = 8
 
 /**
@@ -179,8 +161,6 @@ async function untrackedContext(cwd: string): Promise<string> {
 }
 
 /**
- * One untracked file's text, or a one-line note when it cannot be inlined.
- *
  * Only the capped prefix is read. One extra byte distinguishes a file that
  * fits from one that was cut; a NUL in that prefix marks a binary file.
  */
@@ -206,8 +186,6 @@ async function readUntracked(cwd: string, file: string): Promise<string> {
 }
 
 /**
- * Commit everything `git status` would list.
- *
  * Untracked and unstaged paths are staged first, so the button commits the
  * tree the panel is showing rather than only whatever was already staged.
  * `commit` prints the new hash on stdout; an empty index makes git exit

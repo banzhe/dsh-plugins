@@ -1,14 +1,12 @@
 import { defineConfig } from 'vitest/config'
 
 /**
- * Suite for the stylesheet loaders every Bundle's client build shares. The specs
- * drive the plugin hooks directly over real sheets in a temp directory: no build
- * runs, and the assertions are the emitted module's text, which is what the
- * bundle carries.
+ * The specs drive the plugin hooks directly over real sheets in a temp
+ * directory: no build runs, and the assertions are the emitted module's text,
+ * which is what the bundle carries.
  *
- * Coverage is package-wide and per-file, like the Bundles': these loaders decide
- * what every client artifact contains, so a mode without a spec is a mode nobody
- * would notice was broken.
+ * These loaders decide what every client artifact contains, so a mode without
+ * a spec is a mode nobody would notice was broken.
  */
 export default defineConfig({
   test: {

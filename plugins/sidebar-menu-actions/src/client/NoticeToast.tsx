@@ -29,11 +29,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
-/** Business face the plugin injects into the entry: the pending notice and how to drop it. */
 export interface NoticeToastInjected {
-  /** The notice on display, or null. Bound to the plugin's store during render. */
   useNotice: () => Notice | null
-  /** Take the notice shown under `seq` down. */
   dismiss: (seq: number) => void
 }
 
