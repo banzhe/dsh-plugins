@@ -294,12 +294,13 @@ async function modelRoute(ctx: Context, sessionId: string): Promise<ModelSelecti
 }
 
 /**
- * `pending` is a selection the user made that no request has consumed yet, so it
- * wins over `lastUsed`, the selection the session's latest request ran on.
+ * `next` is the selection the next model step uses: a choice the user made that
+ * no request has consumed yet, falling back to `lastUsed`, the selection the
+ * session's latest request ran on.
  */
 function selectionOf(ctx: Context, sessionId: string): ModelSelection | null {
   const session = ctx.sessions.get(SessionId(sessionId))
   if (session === undefined) return null
-  const value = ctx.sessionProjections.stateOf(session, 'modelSelection')
-  return value?.pending ?? value?.lastUsed ?? null
+  const { values } = ctx.sessionProjections.snapshot(session, ['modelSelection'])
+  return values.modelSelection?.next ?? null
 }
