@@ -39,6 +39,15 @@ Moved out of the plugin's README, which now covers only features and installatio
     hairline layer of `--dsw-elevation-panel` while keeping its two soft glow
     layers. Either one beside the attention ring reads as a second border. The
     panel keeps its hairline, since nothing else outlines it.
+- **Windows taskbar pulse** — a second projection of the same model, not of
+  the toggle's `running` outline. `dshDesktop.window.setProgressBar` is a
+  capability probe: a browser has no `dshDesktop`, and a shell predating the
+  channel has `window` without the write, so the presenter never throws and
+  never retries. The pulse is the native indeterminate bar (`progress > 1`);
+  it is on only while listed Sessions are running and none are waiting or
+  finished-unread. Waiting, unread, idle, unload, and a refused IPC all
+  clear it (`progress < 0`). Non-Windows shells resolve the IPC without
+  touching the window.
 - **Panel** — what the toggle opens (entry id `session-attention.panel`, order
   100). Two sections, newest first:
   - **Running** (`进行中`) — the host reports the Session as running

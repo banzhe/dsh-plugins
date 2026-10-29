@@ -19,6 +19,7 @@ A Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
     - A parent that is idle but has a running child is listed as a container row.
   - **Unread** (`未读`) — finished while it was not the main view, the same fact as the sidebar's green dot.
   - Each row wears the shipped `StateDot`: the running spinner, the green done dot, or the amber warning dot when that turn is blocked on you. Waiting for an answer is not activity, so no spinner.
+- **Windows taskbar** — while listed Sessions are running and none are waiting or finished-unread, the desktop app's taskbar button shows the native indeterminate progress pulse. Waiting, unread, or an idle list clears it. Browsers and older shells do nothing.
 - **Click a row** to show that Session as the main view; the panel closes behind it, and an unread reminder clears on its own.
 - **Escape** and the panel's close button close it; the open state is in-memory (a reload starts closed).
 - Every state color is read from `ui-theme` tokens; none is hand-picked. Under `prefers-reduced-motion` the sweep drops its animation and the ring stays.

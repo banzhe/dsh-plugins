@@ -27,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
 import { createAttentionStore, deriveAttention, type AttentionModel } from './attention.ts'
 import { en, NS, zh } from './locales.ts'
+import { TaskbarProgressPresenter } from './taskbar.ts'
 // Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
 // sheet is inlined at build time. See `tsdown.config.ts` and `overlay.css`.
 import overlayCss from './overlay.css?inline'
@@ -52,6 +53,20 @@ export function apply(ctx: ClientContext): void {
 
   const store = createAttentionStore(ctx.sessions.list, ctx.uiSession.sessionStatus, ctx.workspaces.list)
   ctx.effect(() => () => { store.dispose() }, 'session-attention: attention store lifetime')
+  // The Windows taskbar pulse is a projection of the same model the overlay
+  // reads. A browser, or a shell predating the channel, is inert: the
+  // presenter probes once and the fiber still disposes cleanly.
+  ctx.effect(() => {
+    const presenter = new TaskbarProgressPresenter(ctx.logger)
+    if (!presenter.viable) return () => {}
+    const sync = (): void => { presenter.project(store.getSnapshot()) }
+    sync()
+    const unsubscribe = store.subscribe(sync)
+    return () => {
+      unsubscribe()
+      presenter.clear()
+    }
+  }, 'session-attention: windows taskbar progress')
 
   // The run-duration column counts from `lastPromptAt` for main rows and from
   // a running child's open-turn start (`subagentTiming.active.since`, one read

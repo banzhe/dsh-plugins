@@ -27,6 +27,7 @@ afterEach(async () => {
   fibers = []
   for (const fiber of pending) await fiber.dispose()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
   document.head.innerHTML = ''
 })
 
@@ -203,6 +204,59 @@ describe('session-attention browser half', () => {
     }
   })
 })
+
+describe('taskbar pulse through the desktop bridge', () => {
+  function stubProgressBar(): ReturnType<typeof vi.fn> {
+    const setProgressBar = vi.fn(async () => {})
+    vi.stubGlobal('dshDesktop', { window: { setProgressBar } })
+    return setProgressBar
+  }
+
+  it('pulses the taskbar for a running session on boot and clears when it completes', async () => {
+    const setProgressBar = stubProgressBar()
+    const b = await bench([sessionRow('a', { running: true })])
+    expect(setProgressBar.mock.calls).toEqual([[2]])
+
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { completed: true })
+    })
+    expect(setProgressBar.mock.calls).toEqual([[2], [-1]])
+
+    await retire(b)
+    expect(setProgressBar.mock.calls).toEqual([[2], [-1]])
+  })
+
+  it('clears a pulse when the fiber unloads while a session is still running', async () => {
+    const setProgressBar = stubProgressBar()
+    const b = await bench([sessionRow('a', { running: true })])
+    expect(setProgressBar.mock.calls).toEqual([[2]])
+    await retire(b)
+    expect(setProgressBar.mock.calls).toEqual([[2], [-1]])
+  })
+
+  it('does not pulse a blocked running session', async () => {
+    const setProgressBar = stubProgressBar()
+    await bench([sessionRow('a', { running: true, blocked: true })])
+    expect(setProgressBar).not.toHaveBeenCalledWith(2)
+  })
+
+  it('does not pulse when a running session shares the list with unread', async () => {
+    const setProgressBar = stubProgressBar()
+    await bench([
+      sessionRow('a', { running: true }),
+      sessionRow('b', { completed: true }),
+    ])
+    expect(setProgressBar).not.toHaveBeenCalledWith(2)
+  })
+
+  it('boots without a progress bridge and never calls a progress function', async () => {
+    const reveal = vi.fn()
+    vi.stubGlobal('dshDesktop', { protocolVersion: 1, window: { reveal } })
+    await expect(bench([sessionRow('a', { running: true })])).resolves.toBeTruthy()
+    expect(reveal).not.toHaveBeenCalled()
+  })
+})
+
 
 describe('durable prompt-time reads', () => {
   it('reads the displayed rows and their running children, not the whole list', async () => {
