@@ -1,5 +1,11 @@
 # @banzhe/dsh-session-attention
 
+## 0.2.3
+
+### Patch Changes
+
+- a9c7973: On Windows, pulse the desktop taskbar with the native indeterminate progress while listed Sessions are running and none are waiting or finished-unread.
+
 ## 0.2.2
 
 ### Patch Changes

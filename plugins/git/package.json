@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-git",
-  "version": "0.2.2",
+  "version": "0.2.3",
   "description": "Right-sidebar Git panel: the workspace's changed files, and a message that commits them",
   "repository": {
     "type": "git",

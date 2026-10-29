@@ -1,5 +1,11 @@
 # @banzhe/dsh-git
 
+## 0.2.3
+
+### Patch Changes
+
+- a8cf17d: Read the model selection from `sessionProjections.snapshot()` instead of the deprecated `stateOf(session, key)`, which now returns `unknown` since DSH removed `SessionProjectionStateMap`.
+
 ## 0.2.2
 
 ### Patch Changes
