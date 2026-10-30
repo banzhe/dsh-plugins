@@ -32,17 +32,21 @@
  * running and no finished session is ever hidden by this filter.
  *
  * Subagent children are not panel rows of their own: they mount under their
- * parent's running row (and an idle parent with a running child is a container
- * row in the running section), carrying no prompt time — a child's work
- * started with the delegation, not with a human prompt the child owns.
+ * parent's running row, one nesting level per delegation hop. A row is listed
+ * when it is running itself or when any descendant is running — an idle parent
+ * whose only activity is a running child, or a running grandchild below an
+ * idle one, is a container row in the running section, and the idle
+ * intermediates between it and the running work are container rows too. Neither
+ * carries a prompt time: a child's work started with the delegation, not with a
+ * human prompt the child owns.
  *
  * Archived Sessions never list, whatever their status says. The archive set is
  * registry-global and the sidebar files those rows away: a Session the user put
  * away is not work waiting for a look, even while the host still reports it
  * running or finished-unread. Archiving does not clear `completionUnread`, so
  * the status map cannot answer this on its own — the archive set is a third
- * input, and it also gates the children: a running child under an archived
- * parent would otherwise re-mount the row the user just filed away.
+ * input, and it also gates the descendants: a running one under an archived
+ * Session would otherwise re-mount the row the user just filed away.
  */
 import type {
   SessionListState, SessionProjectionSnapshot, SessionSummary,
@@ -67,18 +71,18 @@ export interface AttentionRow {
    */
   readonly lastPromptAt?: number
   /**
-   * Running subagent children of the row, catalog order first (the parent's
-   * `subagentCatalog` projection array, which the Host folds in parent catalog
-   * event order), retain-backed rows last in list order. Only running children
-   * mount: a finished or finished-unread child has dropped out of the fold by
-   * the time its parent renders. Container rows (themselves idle, running
-   * children only) mount children too, but carry no prompt time of their own.
+   * The listed subagent descendants of the row, one nesting level per
+   * delegation hop: catalog order first (the node's own `subagentCatalog`
+   * projection array, which the Host folds in catalog event order),
+   * retain-backed rows last in list order. A child mounts when it is running or
+   * when running work hangs below it; a settled branch under a listed node
+   * never mounts.
    */
   readonly children?: readonly AttentionRow[]
   /**
-   * Marks an idle parent listed only because running children hang from it: a
-   * container row renders without the spinner and without a duration, since
-   * it holds no human prompt of its own to count from.
+   * Marks a node listed only because running work hangs below it: a container
+   * row renders without the spinner and without a duration, since it holds no
+   * live run of its own to count from.
    */
   readonly container?: boolean
   /**
@@ -162,41 +166,89 @@ function childIndexOf(byId: SessionListState['byId']): ChildIndex {
 }
 
 /**
- * The running subagent children of one parent row, labeled from the child
- * row's `displayTitle` (the controller already derives it from the title
- * projection, then the catalog label, then the id). Catalog order comes
- * first, because that is the Host's own child order; rows the catalog does
- * not know follow in `byId` order.
+ * One fold's inputs to a subtree expansion, fixed for the whole fold.
  */
-function runningChildrenOf(
-  parent: SessionId,
-  index: ChildIndex,
-  catalog: readonly SessionId[] | undefined,
-  status: SessionStatusSnapshot,
-  timingOf: ReadonlyMap<SessionId, number>,
-): AttentionRow[] | undefined {
+interface SubtreeContext {
+  readonly list: SessionListState
+  readonly index: ChildIndex
+  readonly status: SessionStatusSnapshot
+}
+
+/**
+ * The direct subagent children of one node, labeled from the child row's
+ * `displayTitle` (the controller already derives it from the title projection,
+ * then the catalog label, then the id). Two sources, because either can lag:
+ * the node's own `subagentCatalog` projection (the fact the sidebar counts, and
+ * the Host's own child order) and the indexed `byId` rows, which already know a
+ * child whose catalog projection has not arrived. Catalog order comes first;
+ * rows the catalog does not name follow in `byId` order. A catalog entry with
+ * no row here, another `parentId`, or a non-subagent origin is ignored, exactly
+ * like a foreign row in the index.
+ */
+function directChildrenOf(parent: SessionId, ctx: SubtreeContext): readonly SessionSummary[] {
   const seen = new Set<SessionId>()
   const ordered: SessionSummary[] = []
-  for (const id of catalog ?? []) {
-    const row = index.byId[id]
-    if (row === undefined || row.parentId !== parent || seen.has(id)) continue
-    seen.add(id)
+  for (const entry of ctx.list.projectionsBySession[parent]?.values.subagentCatalog ?? []) {
+    const row = ctx.index.byId[entry.id]
+    if (row === undefined || row.parentId !== parent || seen.has(entry.id)) continue
+    seen.add(entry.id)
     ordered.push(row)
   }
-  for (const row of index.byParent.get(parent) ?? []) {
+  for (const row of ctx.index.byParent.get(parent) ?? []) {
     if (seen.has(row.id)) continue
     seen.add(row.id)
     ordered.push(row)
   }
-  const children = ordered
-    .filter(row => row.origin === 'subagent' && isRunning(row, status))
-    .map((row): AttentionRow => {
-      const turnedAt = timingOf.get(row.id)
-      return turnedAt === undefined
-        ? { id: row.id, title: row.displayTitle }
-        : { id: row.id, title: row.displayTitle, turnedAt }
-    })
+  return ordered.filter(row => row.origin === 'subagent')
+}
+
+/**
+ * The mounted descendants of one node in direct-child order: every child that
+ * is running or that itself carries running work below it.
+ *
+ * `visited` is shared by one root's whole expansion, so a forged `parentId`
+ * cycle terminates and no id lands in the tree twice.
+ */
+function runningChildrenOf(
+  parent: SessionId,
+  ctx: SubtreeContext,
+  visited: Set<SessionId>,
+): AttentionRow[] | undefined {
+  const children: AttentionRow[] = []
+  for (const row of directChildrenOf(parent, ctx)) {
+    if (visited.has(row.id)) continue
+    visited.add(row.id)
+    const node = runningNodeOf(row, ctx, visited)
+    if (node !== undefined) children.push(node)
+  }
   return children.length === 0 ? undefined : children
+}
+
+/**
+ * One descendant node, or `undefined` when neither it nor anything below it is
+ * running. A running node keeps the spinner and counts from its own open turn;
+ * an idle one listed only for the work below it is a container and nests that
+ * work one level deeper.
+ */
+function runningNodeOf(
+  row: SessionSummary,
+  ctx: SubtreeContext,
+  visited: Set<SessionId>,
+): AttentionRow | undefined {
+  const running = isRunning(row, ctx.status)
+  const children = runningChildrenOf(row.id, ctx, visited)
+  if (!running) {
+    return children === undefined
+      ? undefined
+      : { id: row.id, title: row.displayTitle, container: true, children }
+  }
+  const turnedAt = activeSinceOf(ctx.list.projectionsBySession[row.id])
+  return {
+    id: row.id,
+    title: row.displayTitle,
+    ...(turnedAt === undefined ? {} : { turnedAt }),
+    ...(children === undefined ? {} : { children }),
+  }
 }
 
 /**
@@ -216,10 +268,10 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
  * Fold one list snapshot, one status snapshot, and the archive set into the
  * panel's content: the running and finished-unread sections, each newest first,
  * plus the listed subset of them whose work is blocked on the user. Running
- * subagent children mount under their parent's running row.
+ * subagent descendants mount under their row, nested one level per hop.
  *
  * `archived` is the registry-global archive set: its members never list, and a
- * running child whose parent is archived never re-mounts that parent.
+ * running descendant under an archived Session never re-mounts that Session.
  */
 export function deriveAttention(
   list: SessionListState,
@@ -229,25 +281,7 @@ export function deriveAttention(
   const running: Candidate[] = []
   const unread: Candidate[] = []
   const waiting: Candidate[] = []
-  // The open-turn start per running child id, read from the child's own
-  // projection block — the same block the parent's catalog rides.
-  const timingOf = new Map<SessionId, number>()
-  for (const [id, projection] of Object.entries(list.projectionsBySession)) {
-    const since = activeSinceOf(projection)
-    if (since !== undefined) timingOf.set(id as SessionId, since)
-  }
-  // Catalog child order, keyed by parent id. The `subagentCatalog` projection
-  // rides the parent row's projection block; a child order the Host published
-  // is the order the block folds in parent catalog event order.
-  const catalogOrder = new Map<SessionId, readonly SessionId[]>()
-  list.ids.forEach((id) => {
-    const row = list.byId[id]
-    if (row === undefined || row.origin === 'subagent' || row.blank) return
-    const catalog = list.projectionsBySession[id]?.values.subagentCatalog
-    if (catalog === undefined) return
-    catalogOrder.set(id, catalog.map(entry => entry.id))
-  })
-  const childIndex = childIndexOf(list.byId)
+  const ctx: SubtreeContext = { list, index: childIndexOf(list.byId), status }
   list.ids.forEach((id) => {
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
@@ -264,22 +298,24 @@ export function deriveAttention(
     // row in `waiting` beside that section, which is what keeps the outline from
     // ever reporting a state the panel has no row for.
     const blocked = entry?.pendingInteraction !== undefined
-    const isRunning = entry?.running ?? row.running
     // The run the row is in started with the latest human prompt, a durable
     // fact the list projection already carries: counting from it needs no
     // client-side timer of the plugin's own.
     const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
-    const children = runningChildrenOf(id, childIndex, catalogOrder.get(id), status, timingOf)
-    if (isRunning || children !== undefined) {
+    // The root's own id seeds `visited`: a forged `parentId` chain looping back
+    // to it must not re-mount the row inside itself.
+    const children = runningChildrenOf(id, ctx, new Set<SessionId>([id]))
+    if (isRunning(row, status) || children !== undefined) {
       const candidate: Candidate = {
         updatedAt: row.updatedAt,
         row: {
           id,
           title: row.displayTitle,
           ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
-          // An idle parent with running children is a container row: no
-          // spinner, no dot, and no duration. The children are the signal.
-          ...(isRunning ? {} : { container: true }),
+          // A row whose only activity is running work below it is a container
+          // row: no spinner, no dot, and no duration. The descendants are the
+          // signal.
+          ...(isRunning(row, status) ? {} : { container: true }),
           ...(children === undefined ? {} : { children }),
         },
       }
@@ -304,29 +340,33 @@ export function deriveAttention(
 }
 
 /**
- * Comparable form of one section. Equality is decided on content, never on
- * object identity, so a source notification that does not actually change the
- * panel keeps the previous snapshot object — `useSyncExternalStore` re-renders
- * on identity, and an unrelated list update must not cost a render.
+ * Comparable form of one row and everything mounted below it. Equality is
+ * decided on content, never on object identity, so a source notification that
+ * does not actually change the panel keeps the previous snapshot object —
+ * `useSyncExternalStore` re-renders on identity, and an unrelated list update
+ * must not cost a render.
  *
  * The prompt time rides the same comparison: it moves only when the user
- * prompts again, which is exactly a new run and a new count. Children and the
- * container flag ride the key too: a subagent starting or finishing under a
- * parent whose fact otherwise stands still is a change the panel must repaint,
- * and the flag is what moves a parent into and out of the container look.
+ * prompts again, which is exactly a new run and a new count. The key covers the
+ * nesting to any depth — ids, labels, container flags and turned-at anchors —
+ * because a subagent starting or finishing a few hops down, with every row
+ * above it otherwise standing still, is a change the panel must repaint.
  */
-function sectionKey(rows: readonly AttentionRow[]): string {
-  return rows.map(row => [
+function rowKey(row: AttentionRow): string {
+  return [
     row.id,
     row.title,
     row.lastPromptAt ?? '',
     row.container ? 'c' : '',
     // A child's open-turn start moves when a new turn opens: a re-key, not a
     // repaint of a standing number — the clock re-anchors in the same update.
-    row.children === undefined
-      ? ''
-      : row.children.map(child => `${child.id}\u0002${child.title}\u0002${child.turnedAt ?? ''}`).join('\u0003'),
-  ].join('\u0000')).join('\u0001')
+    row.turnedAt ?? '',
+    row.children === undefined ? '' : row.children.map(rowKey).join('\u0003'),
+  ].join('\u0002')
+}
+
+function sectionKey(rows: readonly AttentionRow[]): string {
+  return rows.map(rowKey).join('\u0001')
 }
 
 /** Whether two models would render identically. */

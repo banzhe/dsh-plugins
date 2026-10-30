@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
-import { parentWithChildren, sessionRow, sessionSources, type SessionRow, type SessionSources } from './session-list-double.ts'
+import { descendantChain, parentWithChildren, sessionRow, sessionSources, subagentRow, type SessionRow, type SessionSources } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
 import { workspaceSource, type WorkspaceSource } from './workspace-source-double.ts'
 
@@ -321,6 +321,33 @@ describe('durable prompt-time reads', () => {
     // cell, so the child's version reads even though the host list does not
     // list the child.
     expect(refreshedIds(b)).toEqual(['child-1'])
+  })
+
+  it('reads a running grandchild through the same path as a running child', async () => {
+    const b = await bench(descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', { running: true, updatedAt: 1 }],
+    ]))
+    await flushMicrotasks()
+    // Only the deepest running row has a version to read: the two container
+    // rows above it render no duration cell, exactly as an idle direct parent
+    // does, so neither gets a read.
+    expect(refreshedIds(b)).toEqual(['grandchild'])
+
+    // The same version republished: the claim holds, no reread.
+    b.surface.publish(() => {})
+    await flushMicrotasks()
+    expect(callsFor(b, 'grandchild')).toBe(1)
+
+    // A newer version carrying the grandchild's turn timing is one more read,
+    // the same claim a running direct child gets.
+    b.surface.update((draft) => {
+      draft.byId['grandchild' as never] = subagentRow('grandchild', {
+        parentId: 'child' as SessionId, running: true, updatedAt: 2, activeSince: 500,
+      })
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['grandchild', 'grandchild'])
   })
 
   it('reads a running child version once, rereads when its updatedAt moves', async () => {

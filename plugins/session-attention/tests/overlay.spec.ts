@@ -16,7 +16,7 @@ import { apply, inject } from '../src/client/index.ts'
 import { zh, type AttentionKey } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import {
-  parentWithChildren, sessionRow, sessionSources,
+  descendantChain, parentWithChildren, sessionRow, sessionSources,
   type SessionRow, type SessionSources,
 } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
@@ -367,6 +367,52 @@ describe('AttentionOverlay', () => {
     })
     expect(overlay.rowLabels()).toEqual(['Parent'])
     expect(overlay.stateDots()).toEqual(['ongoing'])
+  })
+
+  it('nests a running grandchild one level deeper than a running child', async () => {
+    const now = Date.now()
+    const rows = descendantChain(sessionRow('parent', { displayTitle: 'Parent' }), [
+      ['child', { displayTitle: 'Worker' }],
+      ['grandchild', { displayTitle: 'Helper', running: true, activeSince: now - 65_000 }],
+    ])
+    const overlay = await bench(rows)
+    await overlay.click(overlay.trigger())
+
+    // Every level mounts: the two idle ancestors as container rows, the running
+    // grandchild as the innermost child row. Only that leaf carries a duration
+    // cell, and it sits inside the row's own button — so its label reads the
+    // title and the clock run together, exactly as a running direct child's does.
+    expect(overlay.rowLabels()).toEqual(['Parent', 'Worker', 'Helper1:05'])
+    const childRows = [...overlay.host.querySelectorAll<HTMLElement>('.sa-child-row')]
+    expect(childRows).toHaveLength(2)
+    // A child row's `<li>` and its child list are siblings, so the depth reads
+    // off the list that item belongs to: a list following another child row is
+    // a nested one.
+    const isNested = (row: HTMLElement): boolean =>
+      row.parentElement?.parentElement?.previousElementSibling?.classList
+        .contains('sa-child-row') ?? false
+    const nested = childRows.filter(isNested)
+    expect(nested).toHaveLength(1)
+    expect(nested[0]?.textContent).toContain('Helper')
+    const topChildRows = childRows.filter(row => !nested.includes(row))
+    expect(topChildRows).toHaveLength(1)
+    expect(topChildRows[0]?.textContent).toContain('Worker')
+
+    // Both ancestors are containers: no dot and no duration cell of their own.
+    const containers = [...overlay.host.querySelectorAll<HTMLElement>('.sa-row[data-container]')]
+    expect(containers).toHaveLength(2)
+    for (const container of containers) {
+      expect(container.querySelector('[data-test-state-dot]')).toBeNull()
+      expect(container.querySelector('.sa-row-duration')).toBeNull()
+    }
+
+    // The running grandchild carries the same spinner and turn clock a running
+    // direct child carries.
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+    expect(nested[0]?.querySelectorAll('[data-test-state-dot]')).toHaveLength(1)
+    const grandchildCells = [...(nested[0]?.querySelectorAll<HTMLElement>('.sa-row-duration') ?? [])]
+      .map(node => node.textContent ?? '')
+    expect(grandchildCells).toEqual(['1:05'])
   })
 
   it('shows an idle parent as a container row while its subagents run', async () => {

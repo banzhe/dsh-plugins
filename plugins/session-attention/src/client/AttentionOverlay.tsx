@@ -96,6 +96,45 @@ function Duration({ row, now }: {
   )
 }
 
+/**
+ * The indented block under one row: its mounted subagent descendants, each a
+ * jump target of its own, nested one list per delegation hop. A container node
+ * holds no turn of its own, so it draws no dot and no duration; the running
+ * descendant below it carries both.
+ */
+function Children({ rows, state, now, open, rowLabel }: {
+  readonly rows: readonly AttentionRow[]
+  readonly state: StateDotState
+  readonly now: number
+  readonly open: (id: SessionId) => void
+  readonly rowLabel: (title: string) => string
+}): ReactNode {
+  return (
+    <ul className="sa-list sa-children">
+      {rows.map(row => (
+        <li key={row.id}>
+          <button
+            type="button"
+            className="sa-row sa-child-row"
+            data-container={row.container === true || undefined}
+            aria-label={rowLabel(row.title)}
+            onClick={() => { open(row.id) }}
+          >
+            {row.container !== true && <StateDot state={state} size={10} />}
+            <span className="sa-row-title">{row.title}</span>
+            {row.turnedAt !== undefined && row.container !== true && (
+              <Duration row={row} now={now} />
+            )}
+          </button>
+          {row.children !== undefined && (
+            <Children rows={row.children} state={state} now={now} open={open} rowLabel={rowLabel} />
+          )}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function Section({ title, rows, state, waiting, now, open, rowLabel }: {
   readonly title: string
   readonly rows: readonly AttentionRow[]
@@ -143,29 +182,14 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
                 <Duration row={row} now={now} />
               )}
             </button>
-            {/* Running subagent children of this row, catalog order first, each
-                a jump target of its own. The container row's children are the
-                only activity the row reports. A child's own duration counts
-                from its open turn (`turnedAt`), not its parent's prompt. */}
+            {/* The row's mounted subagent descendants, catalog order first,
+                each a jump target of its own. A container row's descendants
+                are the only activity the row reports; an idle one between the
+                row and the running work nests that work one level deeper. A
+                child's own duration counts from its open turn (`turnedAt`),
+                not its parent's prompt. */}
             {row.children !== undefined && (
-              <ul className="sa-list sa-children">
-                {row.children.map(child => (
-                  <li key={child.id}>
-                    <button
-                      type="button"
-                      className="sa-row sa-child-row"
-                      aria-label={rowLabel(child.title)}
-                      onClick={() => { open(child.id) }}
-                    >
-                      <StateDot state={state} size={10} />
-                      <span className="sa-row-title">{child.title}</span>
-                      {child.turnedAt !== undefined && (
-                        <Duration row={child} now={now} />
-                      )}
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <Children rows={row.children} state={state} now={now} open={open} rowLabel={rowLabel} />
             )}
           </li>
         ))}

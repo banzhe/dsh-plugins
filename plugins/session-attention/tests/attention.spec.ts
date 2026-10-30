@@ -14,7 +14,7 @@ import {
 } from '../src/client/attention.ts'
 import type { SessionRow } from './session-list-double.ts'
 import {
-  parentWithChildren, sessionListOf, sessionRow, sessionSources,
+  descendantChain, parentWithChildren, sessionListOf, sessionRow, sessionSources,
   sessionStatusOf, subagentCatalogEntry, subagentRow,
 } from './session-list-double.ts'
 import { workspaceSource } from './workspace-source-double.ts'
@@ -32,6 +32,16 @@ function fold(
 /** One status entry with only the fields this plugin reads. */
 function status(running: boolean | undefined, completed: boolean): SessionStatus {
   return { running, pendingInteraction: undefined, completionUnread: completed }
+}
+
+/** A listed row and everything mounted under it, depth-first, as ids. */
+interface TreeRow {
+  readonly id: SessionId
+  readonly children?: readonly TreeRow[]
+}
+
+function treeIds(rows: readonly TreeRow[]): string[] {
+  return rows.flatMap(row => [row.id as string, ...treeIds(row.children ?? [])])
 }
 
 const LIST_SIZE = 2000
@@ -584,6 +594,290 @@ describe('deriveAttention child order at scale', () => {
     // enumeration per listed row — `LIST_SIZE` of them. A fold that groups the
     // rows once pays a small constant, whatever the list size.
     expect(enumerations()).toBeLessThan(10)
+  })
+})
+
+describe('deriveAttention nested subagents', () => {
+  it('mounts a running grandchild under an idle child of an idle parent', () => {
+    const rows = descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{ id: 'grandchild', title: 'grandchild' }],
+      }],
+    }])
+    const grandchild = model.running[0]?.children?.[0]?.children?.[0]
+    // The running leaf is a run of its own, not a container, and has no layer
+    // below it: both keys stay off the row rather than reading as empty.
+    expect(grandchild).not.toHaveProperty('container')
+    expect(grandchild).not.toHaveProperty('children')
+    // Only the top-level row is a panel row: both descendants ride it.
+    expect(model.running.map(row => row.id)).toEqual(['parent'])
+    expect(model.unread).toEqual([])
+    expect(model.total).toBe(1)
+  })
+
+  it('keeps nesting through idle descendants down to the deepest running row', () => {
+    const rows = descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', {}],
+      ['great-grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{
+          id: 'grandchild',
+          title: 'grandchild',
+          container: true,
+          children: [{ id: 'great-grandchild', title: 'great-grandchild' }],
+        }],
+      }],
+    }])
+    expect(treeIds(model.running)).toEqual(['parent', 'child', 'grandchild', 'great-grandchild'])
+    expect(model.total).toBe(1)
+  })
+
+  it('drops an idle sibling that leaves no running descendant behind it', () => {
+    const parentId = 'parent' as SessionId
+    const rows: SessionRow[] = [
+      sessionRow('parent', { catalog: [subagentCatalogEntry('sibling'), subagentCatalogEntry('child')] }),
+      subagentRow('sibling', { parentId }),
+      subagentRow('child', { parentId, catalog: [subagentCatalogEntry('grandchild')] }),
+      subagentRow('grandchild', { parentId: 'child' as SessionId, running: true }),
+    ]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{ id: 'grandchild', title: 'grandchild' }],
+      }],
+    }])
+    expect(treeIds(model.running)).not.toContain('sibling')
+    expect(model.total).toBe(1)
+  })
+
+  it('mounts a running grandchild its own parent catalog never names', () => {
+    const rows = descendantChain(sessionRow('parent'), [['child', {}]])
+    // The grandchild is retained beside the list rather than published in the
+    // child's catalog: it still rides the child row it names as its parent.
+    const retained = subagentRow('grandchild', { parentId: 'child' as SessionId, running: true })
+    const list = sessionListOf(rows)
+    list.ids.push(retained.id)
+    list.byId[retained.id] = retained
+
+    const model = fold(list, sessionStatusOf([...rows, retained]))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{ id: 'grandchild', title: 'grandchild' }],
+      }],
+    }])
+    expect(model.total).toBe(1)
+  })
+
+  it('lets the status snapshot decide a descendant in both directions', () => {
+    // The row says idle, the status says running: the status wins, so the
+    // grandchild mounts and its ancestors become containers.
+    const idleRows = descendantChain(sessionRow('parent'), [['child', {}], ['grandchild', {}]])
+    const running = fold(sessionListOf(idleRows), sessionStatusOf(idleRows, { grandchild: true }))
+    expect(running.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{ id: 'grandchild', title: 'grandchild' }],
+      }],
+    }])
+
+    // The row says running, the status says settled: nothing mounts, and no
+    // ancestor may be listed off that row flag.
+    const runRows = descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const settled = fold(sessionListOf(runRows), sessionStatusOf(runRows, { grandchild: false }))
+    expect(settled.running).toEqual([])
+    expect(settled.unread).toEqual([])
+    expect(settled.total).toBe(0)
+  })
+
+  it('returns one finite tree when parent links point back at the ancestry', () => {
+    const parentId = 'parent' as SessionId
+    const rows: SessionRow[] = [
+      // The ancestry names itself: the top row's catalog carries its own id,
+      // and the child's catalog names the row above it.
+      sessionRow('parent', { catalog: [subagentCatalogEntry('child'), subagentCatalogEntry('parent')] }),
+      subagentRow('child', {
+        parentId,
+        catalog: [subagentCatalogEntry('parent'), subagentCatalogEntry('grandchild')],
+      }),
+      subagentRow('grandchild', {
+        parentId: 'child' as SessionId,
+        running: true,
+        catalog: [subagentCatalogEntry('child')],
+      }),
+      // A row claiming itself as its parent, and a pair claiming each other.
+      subagentRow('self', { parentId: 'self' as SessionId, running: true, catalog: [subagentCatalogEntry('self')] }),
+      subagentRow('loop-a', {
+        parentId: 'loop-b' as SessionId,
+        running: true,
+        catalog: [subagentCatalogEntry('loop-b')],
+      }),
+      subagentRow('loop-b', {
+        parentId: 'loop-a' as SessionId,
+        running: true,
+        catalog: [subagentCatalogEntry('loop-a')],
+      }),
+    ]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    const ids = treeIds(model.running)
+    // Every id appears at most once, and the reachable chain is still the one
+    // the parent catalog published.
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(ids).toEqual(['parent', 'child', 'grandchild'])
+    expect(model.total).toBe(1)
+  })
+
+  it('never re-mounts an archived parent because a grandchild still runs', () => {
+    const rows = descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const archived = new Set(['parent'] as SessionId[])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), archived)
+    expect(model.running).toEqual([])
+    expect(model.unread).toEqual([])
+    expect(model.waiting).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
+  it('keeps the direct-child container shape when the child has no descendants', () => {
+    const rows = parentWithChildren(sessionRow('parent'), [['child', { running: true }]])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{ id: 'child', title: 'child' }],
+    }])
+    const child = model.running[0]?.children?.[0]
+    expect(child).not.toHaveProperty('container')
+    expect(child).not.toHaveProperty('children')
+    expect(model.total).toBe(1)
+  })
+
+  it('keeps a running parent\'s own row free of the container flag', () => {
+    const rows = descendantChain(sessionRow('parent', { running: true }), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      children: [{
+        id: 'child',
+        title: 'child',
+        container: true,
+        children: [{ id: 'grandchild', title: 'grandchild' }],
+      }],
+    }])
+    expect(model.running[0]).not.toHaveProperty('container')
+  })
+
+  it('keeps a running child free of the container flag while its own child runs', () => {
+    const rows = descendantChain(sessionRow('parent', { running: true }), [
+      ['child', { running: true }],
+      ['grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running[0]?.children).toEqual([{
+      id: 'child',
+      title: 'child',
+      children: [{ id: 'grandchild', title: 'grandchild' }],
+    }])
+    expect(model.running[0]?.children?.[0]).not.toHaveProperty('container')
+  })
+
+  it('lists a parent with a running grandchild as running, never as unread', () => {
+    const rows = descendantChain(sessionRow('parent', { completed: true }), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.running.map(row => row.id)).toEqual(['parent'])
+    expect(model.running[0]?.container).toBe(true)
+    expect(model.unread).toEqual([])
+    expect(model.total).toBe(1)
+  })
+
+  it('lists a settled ancestry as unread only', () => {
+    const rows = descendantChain(sessionRow('parent', { completed: true }), [
+      ['child', {}],
+      ['grandchild', {}],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    expect(model.unread).toEqual([{ id: 'parent', title: 'parent' }])
+    expect(model.running).toEqual([])
+    expect(model.total).toBe(1)
+  })
+
+  it('also waits on a blocked parent that is listed through its running grandchild', () => {
+    const rows = descendantChain(sessionRow('parent', { blocked: true }), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    // The blocked container keeps the row it already joined: the same rules an
+    // idle parent with a running direct child follows.
+    expect(model.running.map(row => row.id)).toEqual(['parent'])
+    expect(model.running[0]?.container).toBe(true)
+    expect(model.waiting).toEqual(model.running)
+    expect(model.total).toBe(1)
+  })
+
+  it('keeps every subagent row off the panel rows, however it runs', () => {
+    const rows = descendantChain(sessionRow('parent'), [
+      ['child', {}],
+      ['grandchild', { running: true }],
+    ])
+    // A running descendant whose parent never arrived has no row to ride.
+    const orphan = subagentRow('orphan', { parentId: 'missing-parent' as SessionId, running: true })
+    const model = fold(sessionListOf([...rows, orphan]), sessionStatusOf([...rows, orphan]))
+    expect(model.running.map(row => row.id)).toEqual(['parent'])
+    expect(model.running[0]?.container).toBe(true)
+    expect(treeIds(model.running)).toEqual(['parent', 'child', 'grandchild'])
+    expect(model.unread).toEqual([])
+    expect(model.total).toBe(1)
   })
 })
 

@@ -52,9 +52,10 @@ Moved out of the plugin's README, which now covers only features and installatio
   100). Two sections, newest first:
   - **Running** (`进行中`) — the host reports the Session as running
     (`running` on the Session status snapshot, falling back to the list row's
-    own flag). Each running row also shows how long the current run has been
-    going, `m:ss` or `h:mm:ss`, right-aligned in the panel's tertiary label
-    tone. The count starts at the Session's latest human prompt
+    own flag), or running work hangs anywhere below it. Each running row also
+    shows how long the current run has been going, `m:ss` or `h:mm:ss`,
+    right-aligned in the panel's tertiary label tone. The count starts at the
+    Session's latest human prompt
     (`sessionListMetadata.lastPromptAt`, the durable fact the list projection
     carries — so it survives a page reload), and a new prompt restarts it. A
     row whose projection has not been read yet shows no number; the plugin
@@ -65,21 +66,27 @@ Moved out of the plugin's README, which now covers only features and installatio
     waits for a newer `updatedAt`. The number is
     re-rendered by a one-second interval that exists only while the panel is
     open.
-    - **Running subagents** — each running row renders its running subagent
-      children (`origin: 'subagent'`, same status rule as the parent) as an
-      indented block under it, catalog order first and retained rows the
-      catalog does not know appended in list order. A settled, finished, or
-      finished-unread child never mounts. A running child also shows its own
-      duration, counted from the start of its open turn
-      (`subagentTiming.active.since` — the child has no human prompt of its
-      own, so a child count follows the child's turn, and a new turn
-      re-anchors it); the cell appears once the child's projection read has
-      landed, one `refreshProjections` read per child version (`updatedAt`),
-      claimed from the same versioned store the parent reads use. An idle
-      parent with a running child is listed as a **container row** in this
+    - **Running subagents** — each listed row renders its running subagent
+      descendants (`origin: 'subagent'`, same status rule as the parent) as an
+      indented block under it, nested one level per delegation hop: a child
+      mounts when it is running or when running work hangs below it, so an idle
+      subagent between the row and the running work is a container node too and
+      nests that work one level deeper. Order is catalog order first and
+      retained rows the catalog does not know appended in list order; a
+      catalog entry with no row here, another `parentId`, or a non-subagent
+      origin is ignored. A settled branch under a listed node never mounts. A
+      running descendant also shows its own duration, counted from the start of
+      its open turn (`subagentTiming.active.since` — the child has no human
+      prompt of its own, so a child count follows the child's turn, and a new
+      turn re-anchors it); the cell appears once the child's projection read has
+      landed, one `refreshProjections` read per descendant version
+      (`updatedAt`), claimed from the same versioned store the parent reads
+      use. A Session that is idle but has a running descendant — a child or a
+      deeper one — is listed as a **container row** in this
       section anyway: no spinner dot and no duration (it holds no human prompt
-      to count from), title in the secondary label tone. Children are not
-      badge rows: `total` counts top-level rows only. A catalog-only child
+      to count from), title in the secondary label tone, and every idle hop
+      between it and the running work is a container row as well. Children are
+      not badge rows: `total` counts top-level rows only. A catalog-only child
       that is not held by this client reports running late (the row's
       `running` is only backed while the client holds the child); it appears
       when the host publishes its status through the shared list channel.
@@ -98,9 +105,10 @@ Moved out of the plugin's README, which now covers only features and installatio
   (a reload starts closed).
 
 Excluded on purpose: subagent children as panel rows of their own (`origin:
-'subagent'` — they are not Host-list members anyway; a **running** one mounts
-under its parent's running row instead, and a settled one does not display) and
-blank New-Session placeholders. The status
+'subagent'` — they are not Host-list members anyway; a **running** one, or an
+idle one with running work below it, mounts under its parent's row instead, and
+a settled branch does not display) and blank New-Session placeholders. The
+status
 snapshot decides running versus finished-unread, and the row's own `running` is
 only the fallback for a Session whose baseline never arrived; a status entry
 carrying both is listed as running, because "still working" is the more
@@ -144,16 +152,17 @@ actionable fact.
   Archiving does not clear `completionUnread`, so the status map cannot answer
   this on its own — the set is a third store input with its own subscription,
   because an archive mutation moves neither the Session list nor the status.
-  The gate applies to the listed row's own id, so a running child under an
-  archived parent does not re-mount it as a container row either. The set is
+  The gate applies to the listed row's own id, so a running descendant under an
+  archived Session does not re-mount it as a container row either. The set is
   rebuilt only when the controller hands over a new array, which it does on a
   mutation and not on unrelated snapshot churn.
-- A parent Session whose only activity is a running subagent is listed as a
-  container row in the running section (see above); a running parent is
-  normally running itself while it delegates.
-- Subagent children show no duration inherited from the parent: a child's
-  work started with its own current turn, and the child's open turn start
-  (`subagentTiming.active.since`) is what its cell counts from — a per-child
+- A Session whose only activity is a running subagent — a child or a deeper
+  descendant — is listed as a container row in the running section (see above),
+  and every idle hop between it and the running work is a container row too; a
+  running Session is normally running itself while it delegates.
+- Subagent descendants show no duration inherited from the parent: a node's
+  work started with its own current turn, and the node's open turn start
+  (`subagentTiming.active.since`) is what its cell counts from — a per-node
   durable fact the same versioned projection read the parents use.
 - A running row's elapsed time is measured from the Session's latest human
   prompt (`lastPromptAt`), not from the row's `updatedAt`: the activity
@@ -163,7 +172,8 @@ actionable fact.
 - Labels follow the app locale through the `session-attention` namespace
   (zh/en).
 - Projection reads go to the rows the panel lists — running rows, their
-  running children, and unread rows — never the whole session list. A large
+  running descendants at every nesting level, and unread rows — never the whole
+  session list. A large
   workspace (hundreds of Sessions) otherwise opens into that many concurrent
   `session/projections` calls on first load, which exhausts the browser's
   connection pool for several seconds (`ERR_INSUFFICIENT_RESOURCES`) and

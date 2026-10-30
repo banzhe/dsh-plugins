@@ -103,9 +103,21 @@ export function statusOf(running: boolean | undefined, completed: boolean): Sess
   return { running, pendingInteraction: undefined, completionUnread: completed }
 }
 
-export function sessionStatusOf(rows: readonly SessionRow[]): SessionStatusSnapshot {
+/**
+ * The status snapshot for these rows. `running` keys an id to the status
+ * source's own answer, which is the one running fact a row cannot carry: the
+ * fold reads the status entry first and only falls back to `row.running`.
+ */
+export function sessionStatusOf(
+  rows: readonly SessionRow[],
+  running: Readonly<Record<string, boolean>> = {},
+): SessionStatusSnapshot {
+  const runningOf = (row: SessionRow): boolean | undefined => {
+    const override = running[row.id]
+    return override === undefined ? row.running : override
+  }
   return new Map(rows.map(row => [row.id, {
-    running: row.running,
+    running: runningOf(row),
     pendingInteraction: row.blocked === true ? pendingOf(row.id) : undefined,
     completionUnread: row.completed === true,
   } satisfies SessionStatus]))
@@ -132,6 +144,35 @@ export function parentWithChildren(
 
 export function subagentCatalogEntry(id: string): WireCatalogEntry {
   return { id: id as SessionId, createdAt: 0, mode: 'one-shot', label: id }
+}
+
+/**
+ * A root row whose catalog names `chain[0]`, whose row names `chain[1]` in its
+ * own catalog, and so on — the shape a descendant deeper than a direct child
+ * arrives in. `parentWithChildren` publishes one level, so this one publishes
+ * the chain: the root row first, then the descendants in order.
+ *
+ * Every row but the last has its `catalog` written here, so an entry's `over`
+ * carries that row's other facts; the last entry keeps whatever catalog it was
+ * given.
+ */
+export function descendantChain(
+  root: SessionRow,
+  chain: readonly (readonly [id: string, over: Partial<SessionRow>])[],
+): SessionRow[] {
+  const first = chain[0]
+  return [
+    { ...root, ...(first === undefined ? {} : { catalog: [subagentCatalogEntry(first[0])] }) },
+    ...chain.map(([id, over], index) => {
+      const next = chain[index + 1]
+      const parentId = index === 0 ? root.id : chain[index - 1]?.[0] ?? root.id
+      return subagentRow(id, {
+        parentId: parentId as SessionId,
+        ...(next === undefined ? {} : { catalog: [subagentCatalogEntry(next[0])] }),
+        ...over,
+      })
+    }),
+  ]
 }
 
 export interface SessionSources {
