@@ -1,5 +1,11 @@
 # @banzhe/dsh-session-attention
 
+## 0.2.4
+
+### Patch Changes
+
+- 0a7f705: Keep an idle Session listed as a container row when its only activity is a nested subagent (grandchild or deeper), with the running descendant nested under the idle intermediates.
+
 ## 0.2.3
 
 ### Patch Changes
