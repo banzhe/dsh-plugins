@@ -9,7 +9,16 @@ import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-sess
 import type { SessionStatus, SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-export type SessionRow = SessionSummary & { completed?: boolean }
+export interface WireCatalogEntry {
+  readonly id: SessionId
+  readonly createdAt: number
+  readonly mode: 'unknown'
+}
+
+export type SessionRow = SessionSummary & {
+  completed?: boolean
+  catalog?: readonly WireCatalogEntry[]
+}
 
 export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionRow {
   return {
@@ -23,10 +32,74 @@ export function sessionRow(id: string, over: Partial<SessionRow> = {}): SessionR
   }
 }
 
-export function sessionStatusOf(rows: readonly SessionRow[]): SessionStatusSnapshot {
-  return new Map(rows.filter(row => row.completed === true).map(row => [row.id, {
-    running: undefined, pendingInteraction: undefined, completionUnread: true,
-  } satisfies SessionStatus]))
+export function subagentRow(id: string, over: Partial<SessionRow> = {}): SessionRow {
+  return sessionRow(id, { origin: 'subagent', ...over })
+}
+
+export function subagentCatalogEntry(id: string): WireCatalogEntry {
+  return { id: id as SessionId, createdAt: 1_700_000_000_000, mode: 'unknown' }
+}
+
+type CataloguedRow = SessionRow & { catalog: readonly WireCatalogEntry[] }
+
+type CatalogProjection = NonNullable<SessionListState['projectionsBySession'][SessionId]>
+
+function catalogProjection(catalog: readonly WireCatalogEntry[]): CatalogProjection {
+  return {
+    state: 'ready',
+    error: null,
+    values: {
+      subagentCatalog: catalog.map(entry => ({
+        id: entry.id,
+        createdAt: entry.createdAt,
+        mode: entry.mode,
+      })),
+    },
+  }
+}
+
+function isCataloguedRow(
+  row: SessionSummary | undefined,
+): row is CataloguedRow {
+  return row !== undefined && 'catalog' in row && row.catalog !== undefined
+}
+
+/**
+ * The catalog rides on the row here; the host publishes it as a projection value,
+ * so the double rebuilds the projection record from the rows that carry one.
+ */
+function catalogProjections(
+  rows: readonly (SessionSummary | undefined)[],
+): SessionListState['projectionsBySession'] {
+  const entries: [SessionId, CatalogProjection][] = []
+  for (const row of rows) {
+    if (isCataloguedRow(row)) entries.push([row.id, catalogProjection(row.catalog)])
+  }
+  return Object.fromEntries(entries)
+}
+
+/**
+ * `running` supplies the parent's view of a subagent the row set cannot express
+ * (a catalog-only child, or a status flag that outranks the retained row).
+ */
+export function sessionStatusOf(
+  rows: readonly SessionRow[],
+  running: Readonly<Record<string, boolean | undefined>> = {},
+): SessionStatusSnapshot {
+  const status = new Map<SessionId, SessionStatus>(
+    rows.filter(row => row.completed === true).map(row => [row.id, {
+      running: undefined, pendingInteraction: undefined, completionUnread: true,
+    } satisfies SessionStatus]),
+  )
+  for (const [id, value] of Object.entries(running)) {
+    const base = status.get(id as SessionId)
+    status.set(id as SessionId, {
+      running: value,
+      pendingInteraction: base?.pendingInteraction ?? undefined,
+      completionUnread: base?.completionUnread ?? false,
+    })
+  }
+  return status
 }
 
 export function sessionListOf(rows: readonly SessionRow[]): SessionListState {
@@ -34,7 +107,7 @@ export function sessionListOf(rows: readonly SessionRow[]): SessionListState {
     ids: rows.map(row => row.id),
     byId: Object.fromEntries(rows.map(row => [row.id, row])),
     phase: 'ready',
-    projectionsBySession: {},
+    projectionsBySession: catalogProjections(rows),
   }
 }
 
@@ -55,7 +128,13 @@ export function sessionSources(rows: readonly SessionRow[] = []): SessionSources
     list,
     status,
     update(recipe: (state: SessionListState) => void): void {
-      list.update(recipe)
+      list.update((state) => {
+        recipe(state)
+        const projected = state.ids.map(id => state.byId[id])
+        if (projected.some(row => isCataloguedRow(row))) {
+          state.projectionsBySession = catalogProjections(projected)
+        }
+      })
       const snapshot = list.getSnapshot()
       // An id may be listed without a row (the host does this for a Session it
       // has not projected yet), which the fold then skips.

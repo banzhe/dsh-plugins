@@ -13,7 +13,7 @@ import { apply, inject } from '../src/client/index.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 import { LocaleDouble } from './locale-double.ts'
 import { SlotsDouble } from './slots-double.ts'
-import { sessionRow, sessionSources, type SessionSources } from './session-list-double.ts'
+import { sessionRow, sessionSources, subagentRow, type SessionRow, type SessionSources } from './session-list-double.ts'
 import { workspaceSource, workspaceView } from './workspace-source-double.ts'
 
 class FakeNotification {
@@ -143,6 +143,39 @@ describe('app-badge browser half', () => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
     expect(FakeNotification.instances).toEqual([])
+  })
+
+  it('holds both surfaces until the running subagent stops', async () => {
+    const surface = stubCapabilities()
+    await bench(surface)
+    const badge = navigator as unknown as { setAppBadge: { mock: { calls: (number | undefined)[][] } } }
+    const badgeCounts = (): (number | undefined)[] => badge.setAppBadge.mock.calls.flat()
+    const parent = (over: Partial<SessionRow> = {}): SessionRow =>
+      sessionRow('parent', { displayTitle: 'Parent', ...over })
+    const child = (over: Partial<SessionRow> = {}): SessionRow =>
+      subagentRow('child', { parentId: 'parent' as SessionId, ...over })
+    surface.update((state) => {
+      state.ids = ['parent' as SessionId, 'child' as SessionId]
+      state.byId['parent' as SessionId] = parent({ running: true })
+      state.byId['child' as SessionId] = child({ running: true })
+    })
+    surface.update((state) => {
+      state.byId['parent' as SessionId] = parent({ completed: true, updatedAt: 2 })
+    })
+    // The parent stopped, but its subagent is still working: nothing to tell the user yet.
+    expect(FakeNotification.instances).toEqual([])
+    expect(badgeCounts()).not.toContain(1)
+
+    surface.update((state) => {
+      state.byId['child' as SessionId] = child({ running: false })
+    })
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
+    expect(FakeNotification.instances[0]?.options).toMatchObject({
+      body: en['notify.body'].replace('{title}', 'Parent'),
+      tag: 'dsh-session-completed',
+    })
+    expect(badgeCounts().at(-1)).toBe(1)
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

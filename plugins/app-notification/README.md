@@ -8,7 +8,8 @@ A Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
 
 ## Features
 
-- Badge count matches the sidebar's green completion dots: ordinary Sessions that are finished and not yet opened. `origin: 'subagent'` rows are excluded.
+- Badge count follows the sidebar's green completion dots — ordinary Sessions that are finished and not yet opened — and is never higher than that count. `origin: 'subagent'` rows are excluded.
+- A Session that is still waiting on a running subagent descendant — a child, or a grandchild behind an idle child — is neither counted nor announced. Its announcement lands once the last descendant settles.
 - Archived Sessions never count and are never announced. Archiving a finished Session retracts it from the badge; restoring it re-counts it silently.
 - Each newly finished ordinary Session raises one notification tagged `dsh-session-completed`; a run of completions replaces rather than stacks.
 - Clicking a notification focuses this window, then opens that Session.
