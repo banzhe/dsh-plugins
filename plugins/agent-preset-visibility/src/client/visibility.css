@@ -1,0 +1,95 @@
+/*
+ * The preset-visibility page's token sheet, imported as text
+ * (`./visibility.css?inline`) and inlined into `lib/client.js` at build time:
+ * the ModuleLoader fetches one artifact, so a plain `.css` import has nowhere to
+ * land. See `tsdown.config.ts` for the seam.
+ *
+ * Class names are prefixed `apv-`, so the sheet cannot collide with the shell's.
+ * The values mirror the shipped settings sections (ui-agent-preset's
+ * `AgentPresetSection.module.css`): a heading, a tertiary intro line, and one
+ * row per item over the card tokens.
+ */
+.apv-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.apv-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.apv-intro,
+.apv-count,
+.apv-notice {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.apv-notice[data-failed='true'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.apv-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+  overflow: hidden;
+}
+
+.apv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+}
+
+.apv-row + .apv-row {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+/* A hidden row stays readable — this page is where it is recovered — but is
+   marked as not part of the picker. */
+.apv-row[data-hidden='true'] .apv-tail {
+  opacity: 0.6;
+}
+
+.apv-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: none;
+}
+
+.apv-id {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.apv-state {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  min-width: 48px;
+  text-align: right;
+}
+
+.apv-state[data-hidden='true'] {
+  color: var(--dsw-alias-label-secondary, var(--dsw-alias-label-tertiary));
+}

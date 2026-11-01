@@ -1,0 +1,85 @@
+{
+  "name": "@banzhe/dsh-agent-preset-visibility",
+  "version": "0.1.0",
+  "description": "Hide chosen agent presets from the web preset picker while their registration, selection and subagent delegation keep working, with a settings page to choose which presets stay hidden",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/banzhe/dsh-plugins.git",
+    "directory": "plugins/agent-preset-visibility"
+  },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/index.js",
+    "lib/index.js.map",
+    "lib/index.d.ts",
+    "lib/client.js",
+    "lib/client.js.map",
+    "cordis.patch.yml"
+  ],
+  "scripts": {
+    "build": "tsdown",
+    "prepare": "tsdown",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-settings"
+      ]
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.5-alpha.1",
+    "@deepseek-ai/dsh-agent-preset-registry": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-api-remotes": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-store": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.1-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.2.1-alpha.2",
+    "@deepseek-ai/schemastery": "^3.18.5-alpha.1"
+  },
+  "devDependencies": {
+    "@banzhe/dsh-devkit": "workspace:*",
+    "@deepseek-ai/cordis": "catalog:",
+    "@deepseek-ai/dsh-agent-preset-registry": "catalog:",
+    "@deepseek-ai/dsh-api-remotes": "catalog:",
+    "@deepseek-ai/dsh-client-locale": "catalog:",
+    "@deepseek-ai/dsh-client-store": "catalog:",
+    "@deepseek-ai/dsh-client-ui-primitives": "catalog:",
+    "@deepseek-ai/dsh-client-ui-renderer": "catalog:",
+    "@deepseek-ai/dsh-client-ui-settings": "catalog:",
+    "@deepseek-ai/dsh-client-ui-slots": "catalog:",
+    "@deepseek-ai/schemastery": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
+    "jsdom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tsdown": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

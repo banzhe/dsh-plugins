@@ -1,0 +1,8 @@
+# Inserts this Bundle's Host row and its browser row.
+#
+# The Host half carries the Config schema the settings page writes; the browser
+# half is the same Loader row's `dsh.client` entry, added by the client module
+# scanner rather than by a second row here.
+- insert:
+    - id: agent-preset-visibility
+      name: '@banzhe/dsh-agent-preset-visibility'
