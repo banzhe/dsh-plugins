@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-agent-preset-visibility",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Hide chosen agent presets from the web preset picker while their registration, selection and subagent delegation keep working, with a settings page to choose which presets stay hidden",
   "repository": {
     "type": "git",
