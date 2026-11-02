@@ -1,5 +1,11 @@
 # @banzhe/dsh-session-attention
 
+## 0.2.5
+
+### Patch Changes
+
+- 7377f61: List pinned Sessions in the attention panel even while they are idle, as container rows that carry no spinner or duration; a pin on its own adds nothing to the badge, the toggle outline, or the Windows taskbar pulse.
+
 ## 0.2.4
 
 ### Patch Changes
