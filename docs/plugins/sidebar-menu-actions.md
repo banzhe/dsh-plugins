@@ -13,8 +13,8 @@ description. All selectors are read on the live document:
 | The "..." trigger | the row's **first** `button` (the second is New session) |
 | Arming gestures | capture `pointerdown`, or `keydown` of `Enter`/`Space`, with the target inside that first button |
 | Open menu portal | a `div[role="menu"]` added as a direct child of `document.body` |
-| Menu rows | one wrapper div per `button[role="menuitem"]` inside the `div[role="presentation"]` viewport; rename first, danger delete last; each button has an icon span then a label span |
-| Injected rows | clones of the rename wrapper; icon span content replaced, label set from the dictionary, marker `data-menu-actions="vscode"` / `="explorer"` / `="copy-path"` (per-row idempotency guard), each inserted **before** the delete wrapper in that order |
+| Menu rows | one wrapper div per `button[role="menuitem"]` inside the `div[role="presentation"]` viewport; rename first, danger delete last; each button has an icon span (`span[class*="itemIcon"]`, wrapping the keyed `span[data-slot="contextMenu.icon"]`) then a label span (`span[class*="itemLabel"]`) |
+| Injected rows | clones of the rename wrapper; the icon slot (or the icon span when the row carries no slot) gets the inline glyph, the label span gets the dictionary text, marker `data-menu-actions="vscode"` / `="explorer"` / `="copy-path"` (per-row idempotency guard), each inserted **before** the delete wrapper in that order |
 | Menu close | `document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))` — the primitive listens for it while open |
 | Injection guards | arm consumed on the first portal-menu appearance; injected only when the armed trigger is still connected and `document.activeElement` is the trigger, `document.body`, or inside that menu |
 

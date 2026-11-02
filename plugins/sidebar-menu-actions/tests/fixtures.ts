@@ -78,16 +78,26 @@ export function buildMenu(): MenuFixture {
   }
 }
 
+/**
+ * One shipped row: the icon wrapper holding the keyed `contextMenu.icon` slot,
+ * then the label span — the three-span markup the Web primitive emits, so a row
+ * index can never stand in for a role.
+ */
 function menuRow(className: string, iconGlyph: string, label: string): HTMLDivElement {
   const wrapper = document.createElement('div')
   wrapper.className = className
   const button = document.createElement('button')
   button.setAttribute('role', 'menuitem')
   const icon = document.createElement('span')
-  icon.className = 'icon'
-  icon.textContent = iconGlyph
+  icon.className = '_itemIcon_fixture'
+  icon.setAttribute('aria-hidden', 'true')
+  const slot = document.createElement('span')
+  slot.dataset.slot = 'contextMenu.icon'
+  slot.style.display = 'contents'
+  slot.textContent = iconGlyph
+  icon.append(slot)
   const text = document.createElement('span')
-  text.className = 'label'
+  text.className = '_itemLabel_fixture'
   text.textContent = label
   button.append(icon, text)
   wrapper.append(button)

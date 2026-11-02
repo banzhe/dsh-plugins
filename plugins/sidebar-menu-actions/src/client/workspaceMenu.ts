@@ -152,6 +152,33 @@ function rowAndTrigger(target: EventTarget | null): { trigger: HTMLElement; work
   return { trigger, workspaceId }
 }
 
+/**
+ * The icon container of one menu row: the class-matched wrapper, else the row's
+ * first span. The shipped markup nests the keyed `contextMenu.icon` slot inside
+ * that wrapper, so the container is never the label or the slot itself.
+ * @param wrap - one row wrapper, cloned or shipped.
+ * @returns the span whose content holds the leading glyph.
+ */
+function iconHost(wrap: HTMLElement): HTMLElement {
+  return wrap.querySelector<HTMLElement>('span[class*="itemIcon"]') ?? (wrap.querySelector<HTMLElement>('span') as HTMLElement)
+}
+
+/**
+ * The label span of one menu row: the class-matched label, else the last span
+ * outside the icon container (a row's shortcut span trails it, so class-matched
+ * labels win whenever the wrapper exists).
+ * @param wrap - one row wrapper, cloned or shipped.
+ * @param iconSpan - the row's icon container, excluded from the fallback walk.
+ * @returns the span carrying the row's visible text.
+ */
+function labelHost(wrap: HTMLElement, iconSpan: HTMLElement): HTMLElement {
+  const matched = wrap.querySelector<HTMLElement>('span[class*="itemLabel"]')
+  if (matched !== null) return matched
+  const candidates = Array.from(wrap.querySelectorAll<HTMLElement>('span'))
+    .filter(span => span !== iconSpan && !iconSpan.contains(span) && !span.className.includes('shortcut'))
+  return candidates[candidates.length - 1] as HTMLElement
+}
+
 /** Close the open menu through the primitive's own Escape listener. */
 function closeMenu(): void {
   document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
@@ -181,9 +208,12 @@ export function injectMenuItem(menu: HTMLElement, workspaceId: string, options: 
   const graft = (marker: RowMarker, label: string, icon: string): HTMLButtonElement => {
     const wrap = (source.parentElement as HTMLElement).cloneNode(true) as HTMLElement
     const button = wrap.querySelector<HTMLButtonElement>('button[role="menuitem"]') as HTMLButtonElement
-    const spans = wrap.querySelectorAll<HTMLSpanElement>('span')
-    ;(spans[0] as HTMLSpanElement).innerHTML = icon
-    ;(spans[1] as HTMLSpanElement).textContent = label
+    const iconSpan = iconHost(wrap)
+    const labelSpan = labelHost(wrap, iconSpan)
+    // The shipped icon span wraps the keyed icon slot; writing the slot keeps the
+    // wrapper a shipped row carries, and a row without one takes the glyph itself.
+    ;(iconSpan.querySelector<HTMLElement>('[data-slot="contextMenu.icon"]') ?? iconSpan).innerHTML = icon
+    labelSpan.textContent = label
     button.setAttribute(MARKER_ATTR, marker)
     viewport.insertBefore(wrap, lastWrap)
     return button

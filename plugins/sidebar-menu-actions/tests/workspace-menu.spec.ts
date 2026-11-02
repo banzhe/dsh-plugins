@@ -281,16 +281,22 @@ describe('injectMenuItem', () => {
     expect(button.textContent).toBe(en['menu.openInVscode'])
     expect(requireInjected(menu.menu, EXPLORER_ROW).textContent).toBe(en['menu.openInFileBrowser'])
     expect(requireInjected(menu.menu, COPY_ROW).textContent).toBe(en['menu.copyWorkspacePath'])
-    // The rename row's edit icon is gone, replaced by the inline glyphs.
-    expect(button.querySelector('span.icon')?.textContent).toBe('')
+    // The rename row's edit icon is gone, replaced by the inline glyphs inside
+    // the keyed icon slot, and the label lands in the label span the row renders.
+    expect(button.querySelector('span[class*="itemIcon"]')?.textContent).toBe('')
+    expect(button.querySelector('span[class*="itemLabel"]')?.textContent).toBe(en['menu.openInVscode'])
+    expect(requireInjected(menu.menu, EXPLORER_ROW).querySelector('span[class*="itemLabel"]')?.textContent)
+      .toBe(en['menu.openInFileBrowser'])
+    expect(requireInjected(menu.menu, COPY_ROW).querySelector('span[class*="itemLabel"]')?.textContent)
+      .toBe(en['menu.copyWorkspacePath'])
     expect(button.querySelector('svg path')?.getAttribute('d'))
       .toBe('M6 4.5 3 8l3 3.5M10 4.5 13 8l-3 3.5')
     expect(requireInjected(menu.menu, EXPLORER_ROW).querySelector('svg path')).not.toBeNull()
     expect(requireInjected(menu.menu, COPY_ROW).querySelector('svg rect')).not.toBeNull()
     // The shipped rows the clones were taken from stay untouched.
-    expect(menu.rename.querySelectorAll('span')[0]?.textContent).toBe('rename-glyph')
-    expect(menu.rename.querySelectorAll('span')[1]?.textContent).toBe(menu.renameLabel)
-    expect(menu.deleteRow.querySelectorAll('span')[1]?.textContent).toBe(menu.deleteLabel)
+    expect(menu.rename.querySelector('[data-slot="contextMenu.icon"]')?.textContent).toBe('rename-glyph')
+    expect(menu.rename.querySelector('span[class*="itemLabel"]')?.textContent).toBe(menu.renameLabel)
+    expect(menu.deleteRow.querySelector('span[class*="itemLabel"]')?.textContent).toBe(menu.deleteLabel)
   })
 
   it('keeps the copy row only when the Host resolved neither launch app', async () => {
