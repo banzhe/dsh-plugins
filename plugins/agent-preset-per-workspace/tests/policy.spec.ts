@@ -1,6 +1,31 @@
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { describe, expect, it } from 'vitest'
-import { isTopLevelSession, needsSelect, needsWrite, shouldApplyOn } from '../src/policy.ts'
+import { isPresetResolutionError, isTopLevelSession, needsSelect, needsWrite, shouldApplyOn } from '../src/policy.ts'
+
+describe('isPresetResolutionError', () => {
+  it('recognises the code a preset registry raises for an unknown preset', () => {
+    expect(isPresetResolutionError({ code: 'agent-preset/not-found' })).toBe(true)
+  })
+
+  it('recognises the code a preset registry raises for an unusable preset', () => {
+    const error = Object.assign(new Error('Unknown agent preset: gone'), { code: 'agent-preset/invalid' })
+    expect(isPresetResolutionError(error)).toBe(true)
+  })
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['a bare string', 'agent-preset/not-found'],
+    ['a number', 42],
+    ['a boolean', true],
+    ['an error carrying no code at all', new Error('workspace/not-found')],
+    ['an error carrying an unrelated code', Object.assign(new Error('no such workspace'), { code: 'workspace/not-found' })],
+    ['an error carrying a locked-preset code', Object.assign(new Error('locked'), { code: 'agent-preset/locked' })],
+    ['an error whose code is not a string', Object.assign(new Error('number code'), { code: 404 })],
+  ])('rejects %s', (_label, error) => {
+    expect(isPresetResolutionError(error)).toBe(false)
+  })
+})
 
 describe('isTopLevelSession', () => {
   it('accepts an ordinary session with no lineage and no subagent classification', () => {

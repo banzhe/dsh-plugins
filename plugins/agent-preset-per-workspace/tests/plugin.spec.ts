@@ -1,9 +1,9 @@
 /**
- * The plugin's two listeners, driven through its real `apply` over a real
- * Cordis context and the REAL domain facility, with an in-memory KV backend
- * standing in for the json medium. The three Host services the plugin reads are
- * doubles, because a real preset registry needs a Loader tree and a real
- * workspace registry needs session persistence.
+ * The plugin's listeners and the session-creation factory it wraps, driven
+ * through its real `apply` over a real Cordis context and the REAL domain
+ * facility, with an in-memory KV backend standing in for the json medium. The
+ * Host services the plugin reads are doubles, because a real preset registry
+ * needs a Loader tree and a real workspace registry needs session persistence.
  *
  * The `agentPresets` double mirrors the one behaviour this plugin depends on
  * (`packages/preset/agent-preset-registry/src/index.ts:319-334`): `select`
@@ -11,11 +11,17 @@
  * re-emits it with `(sessionId, presetId)`. The composition a fresh creation
  * gets in its setup callback appends nothing, so it stays invisible here —
  * which is exactly the seam the recorder leans on.
+ *
+ * The `sessionController` double is the Host's session factory. The plugin wraps
+ * its `create`, so the request that arrives there is exactly what the wrapper
+ * composed or chose to leave alone, and the reference left behind after unload is
+ * the one it restored.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { WORKSPACE_PRESET_DOMAIN, WORKSPACE_PRESET_TABLE, workspacePresetDomainSpec } from '../src/domain.ts'
+import type { SessionControllerLike, SessionCreateRequestLike } from '../src/index.ts'
 import { apply, inject } from '../src/index.ts'
 
 const CWD = 'D:/work/demo'
@@ -38,6 +44,18 @@ interface AgentDouble {
   session: SessionDouble
 }
 
+/** Calls that reached the session factory, i.e. the requests the wrapper let through. */
+type CreateMock = ReturnType<typeof vi.fn<(request?: SessionCreateRequestLike) => Promise<unknown>>>
+
+/**
+ * The Host factory the plugin patches. `create` is declared as a property holding
+ * a function rather than as a method, so reading the reference back (to prove the
+ * plugin restored it) never implies a `this` the service would need.
+ */
+interface SessionControllerDouble {
+  create: (request?: SessionCreateRequestLike) => Promise<unknown>
+}
+
 interface Bench {
   ctx: Context
   facility: DomainFacility
@@ -46,6 +64,11 @@ interface Bench {
   live: Map<string, SessionDouble>
   resolveByPath: ReturnType<typeof vi.fn>
   select: ReturnType<typeof vi.fn>
+  /** The Host service object itself, the very reference the plugin patches. */
+  controller: SessionControllerDouble
+  /** The factory as it stood before the plugin wrapped it. */
+  originalCreate: SessionControllerLike['create']
+  factory: CreateMock
 }
 
 /** Either mark alone disqualifies a session; a shape in this table must never take or bank a default. */
@@ -76,6 +99,7 @@ function bench(options: {
   select?: (agent: AgentDouble, agentPreset: string) => Promise<string>
   resolveByPath?: (path: string) => Promise<{ id: string } | undefined>
   putFails?: boolean
+  create?: (request?: SessionCreateRequestLike) => Promise<unknown>
 } = {}): Bench {
   const tables = new Map<string, Map<string, unknown>>()
   const unit = {
@@ -114,7 +138,13 @@ function bench(options: {
   }))
   ctx.provide('agentPresets', { select } as never)
 
-  return { ctx, facility, tables, live, resolveByPath, select }
+  const factory = vi.fn<(request?: SessionCreateRequestLike) => Promise<unknown>>(
+    options.create ?? (async () => undefined),
+  )
+  const controller: SessionControllerDouble = { create: factory }
+  ctx.provide('sessionController', controller as never)
+
+  return { ctx, facility, tables, live, resolveByPath, select, controller, originalCreate: factory, factory }
 }
 
 /** Boots through the real `inject` list, so a missing service fails here as it would in the Loader. */
@@ -137,6 +167,18 @@ function create(bench: Bench, agent: AgentDouble, source: string): Promise<void>
 
 /** Flush the recorder's detached write. */
 const settle = (): Promise<void> => new Promise(resolve => { setTimeout(resolve, 0) })
+
+/** The request the session factory actually received. */
+function lastRequest(b: Bench): SessionCreateRequestLike | undefined {
+  return b.factory.mock.calls.at(-1)?.[0]
+}
+
+/** Boots and waits for the optional `sessionController` inject to attach to the factory. */
+async function bootWrappingSessions(b: Bench): Promise<{ dispose(): Promise<void> }> {
+  const fiber = await boot(b)
+  await vi.waitFor(() => { expect(b.controller.create).not.toBe(b.originalCreate) })
+  return fiber
+}
 
 const disposers: Array<{ dispose(): Promise<void> }> = []
 
@@ -371,6 +413,226 @@ describe('applying a remembered preset', () => {
 
     expect(b.select).not.toHaveBeenCalled()
     await vi.waitFor(() => { expect(debug).toHaveBeenCalledTimes(2) })
+  })
+})
+
+describe('composing a session creation', () => {
+  it('injects the remembered preset for the workspace id on the request', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+
+    await b.controller.create({ workspaceId: WORKSPACE as never, sessionId: 'session-1' })
+
+    expect(b.factory).toHaveBeenCalledTimes(1)
+    expect(lastRequest(b)).toEqual({ workspaceId: WORKSPACE, sessionId: 'session-1', agentPreset: 'code' })
+    // The id was handed over, so no directory has to be resolved.
+    expect(b.resolveByPath).not.toHaveBeenCalled()
+  })
+
+  it('injects the remembered preset for a workspace id given without a session', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+
+    await b.controller.create({ workspaceId: WORKSPACE as never })
+
+    expect(lastRequest(b)).toEqual({ workspaceId: WORKSPACE, agentPreset: 'code' })
+  })
+
+  it('resolves the workspace from the directory on the request', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+
+    await b.controller.create({ cwd: CWD })
+
+    expect(b.resolveByPath).toHaveBeenCalledWith(CWD)
+    expect(lastRequest(b)).toEqual({ cwd: CWD, agentPreset: 'code' })
+  })
+
+  it('resolves the workspace from the directory of the live session being reused', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-1', { cwd: CWD })
+
+    await b.controller.create({ sessionId: 'session-1' })
+
+    expect(lastRequest(b)).toEqual({ sessionId: 'session-1', agentPreset: 'code' })
+  })
+
+  it('keeps a pick made while its own injection is in flight', async () => {
+    // The pick below lands while the factory is still composing this session;
+    // the echo that follows carries the preset this injection chose, and it must
+    // not write that choice back over the person's newer pick.
+    const b: Bench = bench({
+      create: async () => {
+        commitPick(b, 'session-1', 'code')
+        await settle()
+        b.ctx.emit('agent-preset/selected', 'session-2' as never, 'standard')
+        await settle()
+        return undefined
+      },
+    })
+    await seed(b, 'standard')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-1', { cwd: CWD })
+    sessionOf(b, 'session-2', { cwd: CWD, agentPreset: 'standard' })
+
+    await b.controller.create({ workspaceId: WORKSPACE as never, sessionId: 'session-2' })
+
+    expect(lastRequest(b)?.agentPreset).toBe('standard')
+    expect(stored(b)?.agentPreset).toBe('code')
+  })
+
+  it('leaves a composition the caller asked for alone', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+
+    await b.controller.create({ workspaceId: WORKSPACE as never, agentPreset: 'minimal' })
+
+    expect(lastRequest(b)).toEqual({ workspaceId: WORKSPACE, agentPreset: 'minimal' })
+    expect(b.resolveByPath).not.toHaveBeenCalled()
+  })
+
+  it.each(NON_TOP_LEVEL_HEADERS)('leaves a reuse of %s alone', async (_label, header) => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-2', header)
+    const request = { sessionId: 'session-2' }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it.each(NON_TOP_LEVEL_HEADERS)('leaves a workspace-keyed reuse of %s alone', async (_label, header) => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-2', header)
+    const request = { workspaceId: WORKSPACE as never, sessionId: 'session-2' }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it('leaves a creation for a session that is no longer live alone', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    const request = { sessionId: 'session-gone' }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it('leaves a creation for a live session without a directory alone', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-blank', {})
+    const request = { sessionId: 'session-blank' }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it('leaves a creation outside every workspace alone', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    const request = { cwd: ORPHAN_CWD }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it('leaves a creation in a workspace that remembers nothing alone', async () => {
+    const b = bench()
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-1', { cwd: CWD })
+    const request = { workspaceId: WORKSPACE as never, sessionId: 'session-1' }
+
+    await b.controller.create(request)
+
+    expect(lastRequest(b)).toEqual(request)
+  })
+
+  it('leaves a creation with no request at all alone', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+
+    await b.controller.create()
+
+    expect(b.factory).toHaveBeenCalledTimes(1)
+    expect(lastRequest(b)?.agentPreset).toBeUndefined()
+  })
+
+  it.each([
+    ['unknown', 'agent-preset/not-found'],
+    ['invalid', 'agent-preset/invalid'],
+  ])('recreates without the preset when the remembered one is %s', async (_label, code) => {
+    const b: Bench = bench({
+      create: async () => {
+        // Only the composed attempt fails; the retry is expected to succeed.
+        if (b.factory.mock.calls.length === 1) {
+          throw Object.assign(new Error('Unknown agent preset: gone'), { code })
+        }
+        return { created: true }
+      },
+    })
+    await seed(b, 'gone')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-1', { cwd: CWD })
+    const warn = vi.spyOn(b.ctx.logger, 'warn').mockImplementation(() => {})
+    const request = { workspaceId: WORKSPACE as never, sessionId: 'session-1' }
+
+    await expect(b.controller.create(request)).resolves.toEqual({ created: true })
+
+    expect(b.factory).toHaveBeenCalledTimes(2)
+    expect(lastRequest(b)).toEqual(request)
+    expect(warn).toHaveBeenCalledTimes(1)
+    // The stale memory survives, so a preset that comes back is honoured again.
+    expect(stored(b)?.agentPreset).toBe('gone')
+    expect(stored(b)?.updatedAt).toBe('seed')
+  })
+
+  it('propagates a creation failure that is not about the preset', async () => {
+    const b = bench({ create: async () => { throw new Error('workspace/not-found') } })
+    await seed(b, 'code')
+    disposers.push(await bootWrappingSessions(b))
+    sessionOf(b, 'session-1', { cwd: CWD })
+    const warn = vi.spyOn(b.ctx.logger, 'warn').mockImplementation(() => {})
+
+    await expect(b.controller.create({ workspaceId: WORKSPACE as never, sessionId: 'session-1' }))
+      .rejects.toThrow('workspace/not-found')
+
+    expect(b.factory).toHaveBeenCalledTimes(1)
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  it('restores the factory when the plugin unloads', async () => {
+    const b = bench()
+    await seed(b, 'code')
+    const fiber = await bootWrappingSessions(b)
+    expect(b.controller.create).not.toBe(b.originalCreate)
+
+    await fiber.dispose()
+
+    expect(b.controller.create).toBe(b.originalCreate)
+    const request = { workspaceId: WORKSPACE as never }
+    await b.controller.create(request)
+    expect(b.factory).toHaveBeenCalledTimes(1)
+    expect(lastRequest(b)).toEqual(request)
   })
 })
 

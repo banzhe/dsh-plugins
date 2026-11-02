@@ -38,3 +38,14 @@ export function needsSelect(
 export function needsWrite(current: PresetBinding | undefined, next: string): boolean {
   return current?.agentPreset !== next
 }
+
+/**
+ * Whether an error from `sessionController.create` indicates that the
+ * workspace's remembered preset no longer resolves or is broken, so creation
+ * should fall back to the un-injected request (global default).
+ */
+export function isPresetResolutionError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  const { code } = error as { code?: unknown }
+  return code === 'agent-preset/not-found' || code === 'agent-preset/invalid'
+}

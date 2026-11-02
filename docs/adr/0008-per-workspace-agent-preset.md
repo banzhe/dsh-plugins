@@ -13,6 +13,12 @@ Being able to *read* the event is not the whole story, because the applier's own
 
 The chip and resume both read the `agentPreset` session projection, which the applied selection advances, so no client change is needed and the GUI cannot disagree with the host.
 
+## The one entry where a request can still be shaped
+
+Both observations act after the composer has resolved a preset, which is one beat too late for a blank session that is being reused. `sessionController.create(request)` resolves an omitted `agentPreset` to the global default and only then reaches the session, so `reuseLive` (a still-attached blank session) and `reuseSetup` (a stored one) commit that default onto a session whose own preset was never asked for — and the `agent-preset/selected` echo of that switch is indistinguishable from a hand pick, so it also overwrites the workspace binding. The workspace's remembered preset has to be in the request, not applied after it.
+
+When `sessionController` is present, the plugin therefore wraps `sessionController.create` through `ctx.inject(['sessionController'], …)` and, for a request that names no preset, supplies the one its workspace remembers — for a reused session only after confirming it is a top-level one, since a subagent's or fork's composition belongs to its parent. The wrapper marks the session it is switching, so the resulting echo is suppressed exactly like an applier's own `select`. A remembered preset that no longer resolves rejects with `agent-preset/not-found` or `agent-preset/invalid`; the wrapper then warns and retries the original request, which is the same "do nothing" fallback the applier uses. The wrapper is installed as an own property of the controller inside `ctx.effect`, so unloading the plugin restores the controller's own method.
+
 ## Keying by `WorkspaceId`, not by path
 
 `ctx.workspaceRegistry.resolveByPath` canonicalizes through `fs.realpath` and returns the owning workspace, whose `id` is a generated uuid that survives a rename (`packages/workspace/workspace/src/types.ts:12-16`). That is the same canon the workspace registry already uses for session membership, so a binding means the same thing the sidebar does. The cost is that removing a project and re-adding the same directory starts a fresh project — deliberately so, and this memory starts fresh with it.
