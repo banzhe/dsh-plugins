@@ -12,7 +12,7 @@
  * be unclickable. The wrapper itself stays click-through; only the trigger, the
  * panel, and their controls take pointer events.
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
   IconChecklistOutlineRegular, IconCloseOutlineRegular, StateDot,
@@ -20,7 +20,7 @@ import {
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { formatDuration, runElapsed, type AttentionModel, type AttentionRow } from './attention.ts'
+import { formatDuration, hasRunningActivity, runElapsed, type AttentionModel, type AttentionRow } from './attention.ts'
 import type { AttentionKey } from './locales.ts'
 
 /**
@@ -64,10 +64,12 @@ export type AttentionOutline = 'waiting' | 'running' | 'unread'
  * 3. `unread` — work finished and nobody has looked.
  *
  * An empty list earns nothing, so the resting toggle keeps its plain surface.
+ * A Session listed only because it is pinned is in the running section but has
+ * no work to report: the outline stays quiet for it, exactly like the badge.
  */
 export function outlineFor(model: AttentionModel): AttentionOutline | undefined {
   if (model.waiting.length > 0) return 'waiting'
-  if (model.running.length > 0) return 'running'
+  if (hasRunningActivity(model)) return 'running'
   if (model.unread.length > 0) return 'unread'
   return undefined
 }
@@ -226,13 +228,10 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
     setShowing(false)
   }
   const label = (title: string): string => t('row.open', { title })
-  // The outline is derived, never stored: a source push that changes what is
-  // running or unread re-renders the trigger with the matching attribute, and an
-  // attribute React leaves off entirely when the list is empty.
-  const outline = outlineFor(model)
-  // The same derived set the outline reads, restated for row lookup: `waiting` is
-  // already the subset of the listed rows that is blocked on the user.
-  const waiting = new Set<string>(model.waiting.map(row => row.id))
+  // Both derive from the model alone, so the open panel's one-second clock tick
+  // repaints rows without recomputing them.
+  const outline = useMemo(() => outlineFor(model), [model])
+  const waiting = useMemo(() => new Set<SessionId>(model.waiting.map(row => row.id)), [model])
   return (
     <div className="sa-root">
       {showing && (
@@ -248,7 +247,10 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
               <IconCloseOutlineRegular size={16} />
             </button>
           </div>
-          {model.total === 0
+          {/* The empty state answers "is there a row to show", not "is
+              anything counting": a pinned Session at rest renders in the running
+              section while the badge still reads zero. */}
+          {model.running.length === 0 && model.unread.length === 0
             ? <p className="sa-empty">{t('panel.empty')}</p>
             : (
                 <div className="sa-body">

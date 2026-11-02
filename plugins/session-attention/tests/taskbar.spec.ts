@@ -81,10 +81,19 @@ describe('shouldPulseTaskbar', () => {
     }))).toBe(false)
   })
 
-  it('returns true for a container running row with no waiting or unread', () => {
+  it('returns true for a container row whose running child carries the work', () => {
     expect(shouldPulseTaskbar(attention({
-      running: [row('run', { container: true })],
+      running: [row('parent', { container: true, children: [row('child')] })],
     }))).toBe(true)
+  })
+
+  it('returns false for a pinned Session listed at rest', () => {
+    // The only container row without children a fold produces is a pinned
+    // Session: nothing is running, so the taskbar stays quiet.
+    expect(shouldPulseTaskbar(attention({
+      running: [row('pinned', { container: true })],
+      total: 0,
+    }))).toBe(false)
   })
 
   it('does not consult total', () => {

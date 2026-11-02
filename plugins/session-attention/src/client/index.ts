@@ -122,12 +122,16 @@ export function apply(ctx: ClientContext): void {
       // without ceremony; if it returns, its claim still holds for that
       // version, so no duplicate read is stacked.
       const snapshot = ctx.sessions.list.getSnapshot()
-      const archived = new Set<SessionId>(ctx.workspaces.list.getSnapshot().archivedSessionIds)
-      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot(), archived)
+      const workspaces = ctx.workspaces.list.getSnapshot()
+      const archived = new Set<SessionId>(workspaces.archivedSessionIds)
+      const pinned = new Set<SessionId>(workspaces.pinnedSessionIds)
+      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot(), archived, pinned)
       // A container row renders no anchor of its own, so only the other rows
       // read; every level of the nesting reads, because the running descendant
       // a container nests is where the anchor cell actually lands. Unread rows
-      // never carry an anchor, so they read nothing.
+      // never carry an anchor, so they read nothing, and a row listed only
+      // because it is pinned is a container too: its label and version come
+      // from the list row the fold already read.
       const claim = (row: AttentionRow): void => {
         if (row.container !== true) {
           // The model rows carry no version (the fold sorts on the inner

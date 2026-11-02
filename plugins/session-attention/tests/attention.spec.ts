@@ -25,8 +25,14 @@ function fold(
   list: SessionListState,
   status: SessionStatusSnapshot,
   archived: ReadonlySet<SessionId> = NONE,
+  pinned: ReadonlySet<SessionId> = NONE,
 ) {
-  return deriveAttention(list, status, archived)
+  return deriveAttention(list, status, archived, pinned)
+}
+
+/** A pin set, written the way the Workspace controller hands one over. */
+function pinnedIds(...ids: readonly string[]): ReadonlySet<SessionId> {
+  return new Set(ids as SessionId[])
 }
 
 /** One status entry with only the fields this plugin reads. */
@@ -475,6 +481,101 @@ describe('deriveAttention archive gating', () => {
       children: [{ id: 'kept-child', title: 'kept-child' }],
     }])
     expect(model.total).toBe(1)
+  })
+})
+
+describe('deriveAttention pins', () => {
+  it('lists an idle pinned Session as a container row that never counts', () => {
+    const rows = [sessionRow('pinned-idle'), sessionRow('plain-idle')]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-idle'))
+    expect(model.running).toEqual([{ id: 'pinned-idle', title: 'pinned-idle', container: true }])
+    expect(model.unread).toEqual([])
+    expect(model.waiting).toEqual([])
+    // The pin asks for the row, not for a notification: nothing counts.
+    expect(model.total).toBe(0)
+  })
+
+  it('counts a pinned Session that is already running once', () => {
+    const rows = [sessionRow('pinned-running', { running: true })]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-running'))
+    expect(model.running).toEqual([{ id: 'pinned-running', title: 'pinned-running' }])
+    expect(model.total).toBe(1)
+  })
+
+  it('counts a pinned row carrying a running subagent and mounts only the running ones', () => {
+    const rows = parentWithChildren(sessionRow('parent'), [
+      ['live', { running: true }],
+      ['settled', {}],
+    ])
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('parent'))
+    expect(model.running).toEqual([{
+      id: 'parent',
+      title: 'parent',
+      container: true,
+      children: [{ id: 'live', title: 'live' }],
+    }])
+    expect(model.total).toBe(1)
+  })
+
+  it('keeps an unread pinned Session in the unread section, counted', () => {
+    const rows = [sessionRow('pinned-unread', { completed: true })]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-unread'))
+    expect(model.running).toEqual([])
+    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread' }])
+    expect(model.total).toBe(1)
+  })
+
+  it('never lists a pinned Session that is archived or blank', () => {
+    const rows = [sessionRow('pinned-archived'), sessionRow('pinned-blank', { blank: true })]
+    const model = fold(
+      sessionListOf(rows),
+      sessionStatusOf(rows),
+      new Set<SessionId>(['pinned-archived' as SessionId]),
+      pinnedIds('pinned-archived', 'pinned-blank'),
+    )
+    expect(model.running).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
+  it('does not repaint when a pin adds nothing the panel was not already showing', () => {
+    const rows = [sessionRow('running', { running: true })]
+    const sources = sessionSources(rows)
+    const workspaces = workspaceSource()
+    const store = createAttentionStore(sources.list, sources.status, workspaces.source)
+    const listener = vi.fn()
+    const unsubscribe = store.subscribe(listener)
+    workspaces.setPinned('running')
+    // The row already sat in the running section as a live run: the pin adds no
+    // fact the snapshot carries, so the model keeps its identity.
+    expect(listener).not.toHaveBeenCalled()
+    unsubscribe()
+    store.dispose()
+  })
+
+  it('drops the row when the pin is released, and repaints once per real change', () => {
+    const rows = [sessionRow('idle')]
+    const sources = sessionSources(rows)
+    const workspaces = workspaceSource([], ['idle'])
+    const store = createAttentionStore(sources.list, sources.status, workspaces.source)
+    const seen: number[] = []
+    const unsubscribe = store.subscribe(() => { seen.push(store.getSnapshot().running.length) })
+    expect(store.getSnapshot().running.map(row => row.id)).toEqual(['idle'])
+    expect(store.getSnapshot().total).toBe(0)
+
+    workspaces.setPinned()
+    expect(store.getSnapshot().running).toEqual([])
+    expect(seen).toEqual([0])
+
+    // A republished pin set with the same membership is not a change.
+    workspaces.setPinned()
+    expect(seen).toEqual([0])
+
+    workspaces.setPinned('idle')
+    expect(store.getSnapshot().running.map(row => row.id)).toEqual(['idle'])
+    expect(seen).toEqual([0, 1])
+
+    unsubscribe()
+    store.dispose()
   })
 })
 

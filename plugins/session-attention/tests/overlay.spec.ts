@@ -61,13 +61,19 @@ interface Harness {
   rowLabels(): string[]
   stateDots(): string[]
   badge(): string | null
+  /** Replace the registry-global pin set, as a pin mutation echoes it. */
+  setPinned(...sessionIds: readonly string[]): Promise<void>
   click(element: HTMLElement): Promise<void>
   escape(): Promise<void>
   update(recipe: Parameters<SessionSources['update']>[0]): Promise<void>
 }
 
-async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
+async function bench(
+  rows: readonly SessionRow[] = [],
+  pinned: readonly string[] = [],
+): Promise<Harness> {
   const surface = sessionSources(rows)
+  const workspaces = workspaceSource([], pinned)
   const open = vi.fn()
   const ctx = new Context()
   ctx.provide('sessions', {
@@ -76,7 +82,7 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
   } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: open } as never)
-  ctx.provide('workspaces', { list: workspaceSource().source } as never)
+  ctx.provide('workspaces', { list: workspaces.source } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
@@ -112,6 +118,9 @@ async function bench(rows: readonly SessionRow[] = []): Promise<Harness> {
     stateDots: () => [...host.querySelectorAll<HTMLElement>('[data-test-state-dot]')]
       .map(node => node.dataset['testStateDot'] ?? ''),
     badge: () => host.querySelector<HTMLElement>('.sa-badge')?.textContent ?? null,
+    setPinned: async (...sessionIds): Promise<void> => {
+      await act(async () => { workspaces.setPinned(...sessionIds) })
+    },
     click: async (element: HTMLElement): Promise<void> => { await act(async () => { element.click() }) },
     escape: async (): Promise<void> => {
       await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
@@ -177,6 +186,29 @@ describe('AttentionOverlay', () => {
     const unreadOnly = await bench([sessionRow('done', { completed: true })])
     await unreadOnly.click(unreadOnly.trigger())
     expect(unreadOnly.headings()).toEqual([zh['section.unread']])
+  })
+
+  it('lists a pinned Session at rest without counting it or ringing the toggle', async () => {
+    const overlay = await bench([sessionRow('pinned'), sessionRow('idle')], ['pinned'])
+    // The pin asks for the row, not for a notification: nothing counts and the
+    // toggle keeps its plain surface.
+    expect(overlay.badge()).toBe('0')
+    expect(overlay.trigger().hasAttribute('data-attention')).toBe(false)
+
+    await overlay.click(overlay.trigger())
+    expect(overlay.headings()).toEqual([zh['section.running']])
+    expect(overlay.rowLabels()).toEqual(['pinned'])
+    // A container row holds no live run: no spinner and nothing to time.
+    const row = overlay.host.querySelector<HTMLElement>('.sa-row')
+    expect(row?.hasAttribute('data-container')).toBe(true)
+    expect(row?.querySelector('[data-test-state-dot]')).toBeNull()
+    expect(row?.querySelector('.sa-row-duration')).toBeNull()
+    expect(overlay.badge()).toBe('0')
+
+    // Releasing the pin empties the panel again.
+    await overlay.setPinned()
+    expect(overlay.rowLabels()).toEqual([])
+    expect(overlay.panel()?.textContent).toContain(zh['panel.empty'])
   })
 
   it('shows the empty state when there is nothing to attend to', async () => {

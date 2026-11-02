@@ -47,6 +47,12 @@
  * the status map cannot answer this on its own — the archive set is a third
  * input, and it also gates the descendants: a running one under an archived
  * Session would otherwise re-mount the row the user just filed away.
+ *
+ * A pinned Session lists at rest too, as a container row (no spinner, no
+ * duration). The pin alone never counts: `total` and every activity signal read
+ * {@link reportsActivity}, so a quiet pin costs no notification. A pinned
+ * Session that runs, carries running descendants, or finished unread is already
+ * listed by that fact and keeps the section and the count it earns there.
  */
 import type {
   SessionListState, SessionProjectionSnapshot, SessionSummary,
@@ -80,9 +86,9 @@ export interface AttentionRow {
    */
   readonly children?: readonly AttentionRow[]
   /**
-   * Marks a node listed only because running work hangs below it: a container
-   * row renders without the spinner and without a duration, since it holds no
-   * live run of its own to count from.
+   * Marks a node listed without a live run of its own: an idle parent whose
+   * running work hangs below it, or a pinned Session at rest. A container row
+   * renders without the spinner and without a duration.
    */
   readonly container?: boolean
   /**
@@ -272,11 +278,20 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
  *
  * `archived` is the registry-global archive set: its members never list, and a
  * running descendant under an archived Session never re-mounts that Session.
+ * `pinned` is the registry-global pin set: its members list even at rest, as
+ * container rows that leave `total` alone.
+ *
+ * @param list - Session list snapshot, in Host list order.
+ * @param status - per-Session status map.
+ * @param archived - archived Session ids, which never list.
+ * @param pinned - pinned Session ids, which list without live work.
+ * @returns both sections, the waiting subset, and the counted total.
  */
 export function deriveAttention(
   list: SessionListState,
   status: SessionStatusSnapshot,
   archived: ReadonlySet<SessionId>,
+  pinned: ReadonlySet<SessionId>,
 ): AttentionModel {
   const running: Candidate[] = []
   const unread: Candidate[] = []
@@ -305,17 +320,17 @@ export function deriveAttention(
     // The root's own id seeds `visited`: a forged `parentId` chain looping back
     // to it must not re-mount the row inside itself.
     const children = runningChildrenOf(id, ctx, new Set<SessionId>([id]))
-    if (isRunning(row, status) || children !== undefined) {
+    const live = isRunning(row, status)
+    if (live || children !== undefined) {
       const candidate: Candidate = {
         updatedAt: row.updatedAt,
         row: {
           id,
           title: row.displayTitle,
           ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
-          // A row whose only activity is running work below it is a container
-          // row: no spinner, no dot, and no duration. The descendants are the
-          // signal.
-          ...(isRunning(row, status) ? {} : { container: true }),
+          // An idle row here is a container: its running descendants are the
+          // signal, so it carries no spinner and no duration.
+          ...(live ? {} : { container: true }),
           ...(children === undefined ? {} : { children }),
         },
       }
@@ -327,6 +342,19 @@ export function deriveAttention(
       const candidate: Candidate = { updatedAt: row.updatedAt, row: { id, title: row.displayTitle } }
       unread.push(candidate)
       if (blocked) waiting.push(candidate)
+      return
+    }
+    // A pinned Session at rest: the row the user asked for, not a notification.
+    if (pinned.has(id)) {
+      running.push({
+        updatedAt: row.updatedAt,
+        row: {
+          id,
+          title: row.displayTitle,
+          ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
+          container: true,
+        },
+      })
     }
   })
   const runningRows = running.sort(byRecency).map(candidate => candidate.row)
@@ -335,7 +363,7 @@ export function deriveAttention(
     running: runningRows,
     unread: unreadRows,
     waiting: waiting.sort(byRecency).map(candidate => candidate.row),
-    total: runningRows.length + unreadRows.length,
+    total: runningRows.filter(reportsActivity).length + unreadRows.length,
   }
 }
 
@@ -383,7 +411,7 @@ export interface AttentionStore extends ObservableSnapshot<AttentionModel> {
   dispose(): void
 }
 
-/** Workspace snapshot source (`ctx.workspaces.list`); only its archive set is read. */
+/** Workspace snapshot source (`ctx.workspaces.list`); its archive and pin sets are read. */
 export type AttentionWorkspaceSource = ObservableSnapshot<WorkspaceSnapshot>
 
 /**
@@ -393,9 +421,10 @@ export type AttentionWorkspaceSource = ObservableSnapshot<WorkspaceSnapshot>
  * lazy window to preserve. The caller owns the lifetime through {@link
  * AttentionStore.dispose}.
  *
- * The archive set gets its own subscription rather than being read incidentally:
- * archiving moves neither the Session list nor the status, so without it a row
- * the user just filed away would stay listed until something unrelated changed.
+ * The archive and pin sets get their own subscription rather than being read
+ * incidentally: neither archiving nor pinning moves the Session list or the
+ * status, so without it a row the user just filed away or just pinned would
+ * stay as it was until something unrelated changed.
  */
 export function createAttentionStore(
   list: AttentionListSource,
@@ -403,19 +432,26 @@ export function createAttentionStore(
   workspaces: AttentionWorkspaceSource,
 ): AttentionStore {
   const listeners = new Set<() => void>()
-  // Rebuilt only when the controller hands over a new archive array, which it
-  // does on an archive mutation and not on unrelated snapshot churn.
-  let archivedCache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
-  const archivedSet = (): ReadonlySet<SessionId> => {
-    const ids = workspaces.getSnapshot().archivedSessionIds
-    if (archivedCache?.ids === ids) return archivedCache.set
-    const set: ReadonlySet<SessionId> = new Set(ids)
-    archivedCache = { ids, set }
-    return set
+  /**
+   * One read-only Set per handed-over array: the controller replaces its array
+   * on a mutation and keeps the identity otherwise, so the array is the whole
+   * cache key.
+   */
+  const cachedSet = (read: () => readonly SessionId[]): (() => ReadonlySet<SessionId>) => {
+    let cache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
+    return () => {
+      const ids = read()
+      if (cache?.ids === ids) return cache.set
+      const set: ReadonlySet<SessionId> = new Set(ids)
+      cache = { ids, set }
+      return set
+    }
   }
-  let model = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet())
+  const archivedSet = cachedSet(() => workspaces.getSnapshot().archivedSessionIds)
+  const pinnedSet = cachedSet(() => workspaces.getSnapshot().pinnedSessionIds)
+  let model = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet(), pinnedSet())
   const recompute = (): void => {
-    const next = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet())
+    const next = deriveAttention(list.getSnapshot(), status.getSnapshot(), archivedSet(), pinnedSet())
     if (sameModel(next, model)) return
     model = next
     // A listener may unsubscribe itself mid-loop, so iterate over a snapshot:
@@ -439,6 +475,28 @@ export function createAttentionStore(
       listeners.clear()
     },
   }
+}
+
+/**
+ * Whether one running-section row stands for work: its own run, or the runs
+ * mounted below it. A container row without children is a pinned Session at
+ * rest — the one listing that carries no activity — so the badge, the toggle
+ * outline and the taskbar pulse all skip it.
+ * @param row - one row of the running section.
+ * @returns true when the row reports a run of its own or one below it.
+ */
+export function reportsActivity(row: AttentionRow): boolean {
+  return row.container !== true || row.children !== undefined
+}
+
+/**
+ * Whether the running section holds real work, so the badge, the toggle outline
+ * and the taskbar pulse all answer "is something running" the same way.
+ * @param model - the current attention content.
+ * @returns true when at least one running-section row reports activity.
+ */
+export function hasRunningActivity(model: AttentionModel): boolean {
+  return model.running.some(reportsActivity)
 }
 
 /**

@@ -47,9 +47,12 @@ interface Bench {
  * Every source is wrapped so the spec can prove the store lets them go when the
  * fiber unloads; everything else is the real plugin code.
  */
-async function bench(rows: readonly SessionRow[] = []): Promise<Bench> {
+async function bench(
+  rows: readonly SessionRow[] = [],
+  pinned: readonly string[] = [],
+): Promise<Bench> {
   const surface = sessionSources(rows)
-  const workspaces = workspaceSource()
+  const workspaces = workspaceSource([], pinned)
   const counts = { list: 0, status: 0, workspaces: 0 }
   const counted = <T>(source: { getSnapshot: () => T; subscribe: (fn: () => void) => () => void }, key: keyof typeof counts) => ({
     getSnapshot: () => source.getSnapshot(),
@@ -321,6 +324,20 @@ describe('durable prompt-time reads', () => {
     // cell, so the child's version reads even though the host list does not
     // list the child.
     expect(refreshedIds(b)).toEqual(['child-1'])
+  })
+
+  it('never reads a pinned Session listing at rest, and reads only the work under one', async () => {
+    const idle = await bench([sessionRow('pinned-idle')], ['pinned-idle'])
+    await flushMicrotasks()
+    // The row is a container: its label and version already ride the list row.
+    expect(refreshedIds(idle)).toEqual([])
+
+    const pinnedParent = await bench(
+      parentWithChildren(sessionRow('pinned-parent'), [['child', { running: true }]]),
+      ['pinned-parent'],
+    )
+    await flushMicrotasks()
+    expect(refreshedIds(pinnedParent)).toEqual(['child'])
   })
 
   it('reads a running grandchild through the same path as a running child', async () => {

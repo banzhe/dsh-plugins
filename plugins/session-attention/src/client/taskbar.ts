@@ -7,7 +7,7 @@
  * `window.setProgressBar`, has no write at all; the presenter never throws.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { AttentionModel } from './attention.ts'
+import { hasRunningActivity, type AttentionModel } from './attention.ts'
 
 /**
  * The Desktop shell's window bridge, as the Web UI sees it. `dshDesktop` is
@@ -42,10 +42,13 @@ function desktopWindowProgress(): ((progress: number) => Promise<void>) | undefi
  * Whether the current content earns the taskbar pulse: work is in flight, and
  * nothing is blocked on the user or finished-unread. Stricter than the
  * toggle's `running` outline, which still sweeps when an unread row sits
- * beside a run.
+ * beside a run. A Session listed only because it is pinned reports no activity,
+ * so it never pulses on its own.
+ * @param model - the current attention content.
+ * @returns true when the Windows progress bar should run indeterminate.
  */
 export function shouldPulseTaskbar(model: AttentionModel): boolean {
-  return model.waiting.length === 0 && model.running.length > 0 && model.unread.length === 0
+  return model.waiting.length === 0 && hasRunningActivity(model) && model.unread.length === 0
 }
 
 /**
@@ -74,12 +77,9 @@ export class TaskbarProgressPresenter {
 
   /** Retract the pulse so a disposed plugin leaves no stale indicator. */
   clear(): void {
-    if (this.pulsing !== true) {
-      this.pulsing = undefined
-      return
-    }
+    const wasPulsing = this.pulsing === true
     this.pulsing = undefined
-    this.apply(CLEAR)
+    if (wasPulsing) this.apply(CLEAR)
   }
 
   private apply(progress: number): void {
