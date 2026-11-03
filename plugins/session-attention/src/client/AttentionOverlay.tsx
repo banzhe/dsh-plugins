@@ -15,7 +15,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import {
-  IconChecklistOutlineRegular, IconCloseOutlineRegular, StateDot,
+  IconChecklistOutlineRegular, IconCloseOutlineRegular, IconPinOutlineRegular, StateDot,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
@@ -99,17 +99,42 @@ function Duration({ row, now }: {
 }
 
 /**
+ * The lead slot of one row: the pin mark on a row listed only because its
+ * Session is pinned, the shipped state dot on a row with work to report, and
+ * nothing on an idle container whose running descendants carry the activity.
+ * The mark sits where the dot would, so a pinned row keeps the title indent of
+ * the rows around it. It is decorative: the row's own label already says the
+ * Session is pinned, and only the hover tooltip needs the text.
+ */
+function RowLead({ row, state, pinLabel }: {
+  readonly row: AttentionRow
+  readonly state: StateDotState
+  readonly pinLabel: string
+}): ReactNode {
+  if (row.pinned === true) {
+    return (
+      <span className="sa-row-pin" title={pinLabel} aria-hidden>
+        <IconPinOutlineRegular size={12} />
+      </span>
+    )
+  }
+  return row.container === true ? null : <StateDot state={state} size={10} />
+}
+
+/**
  * The indented block under one row: its mounted subagent descendants, each a
  * jump target of its own, nested one list per delegation hop. A container node
  * holds no turn of its own, so it draws no dot and no duration; the running
- * descendant below it carries both.
+ * descendant below it carries both. The lead slot and the row label follow the
+ * section's own rule, so a pinned row reads the same at any depth.
  */
-function Children({ rows, state, now, open, rowLabel }: {
+function Children({ rows, state, now, open, rowLabel, pinLabel }: {
   readonly rows: readonly AttentionRow[]
   readonly state: StateDotState
   readonly now: number
   readonly open: (id: SessionId) => void
-  readonly rowLabel: (title: string) => string
+  readonly rowLabel: (title: string, pinned: boolean) => string
+  readonly pinLabel: string
 }): ReactNode {
   return (
     <ul className="sa-list sa-children">
@@ -119,17 +144,24 @@ function Children({ rows, state, now, open, rowLabel }: {
             type="button"
             className="sa-row sa-child-row"
             data-container={row.container === true || undefined}
-            aria-label={rowLabel(row.title)}
+            aria-label={rowLabel(row.title, row.pinned === true)}
             onClick={() => { open(row.id) }}
           >
-            {row.container !== true && <StateDot state={state} size={10} />}
+            <RowLead row={row} state={state} pinLabel={pinLabel} />
             <span className="sa-row-title">{row.title}</span>
             {row.turnedAt !== undefined && row.container !== true && (
               <Duration row={row} now={now} />
             )}
           </button>
           {row.children !== undefined && (
-            <Children rows={row.children} state={state} now={now} open={open} rowLabel={rowLabel} />
+            <Children
+              rows={row.children}
+              state={state}
+              now={now}
+              open={open}
+              rowLabel={rowLabel}
+              pinLabel={pinLabel}
+            />
           )}
         </li>
       ))}
@@ -137,7 +169,7 @@ function Children({ rows, state, now, open, rowLabel }: {
   )
 }
 
-function Section({ title, rows, state, waiting, now, open, rowLabel }: {
+function Section({ title, rows, state, waiting, now, open, rowLabel, pinLabel }: {
   readonly title: string
   readonly rows: readonly AttentionRow[]
   /** The shipped indicator: the running spinner, or the finished-unread dot. */
@@ -150,7 +182,9 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
    */
   readonly now: number
   readonly open: (id: SessionId) => void
-  readonly rowLabel: (title: string) => string
+  readonly rowLabel: (title: string, pinned: boolean) => string
+  /** The pin mark's hover text, on a row listed only because it is pinned. */
+  readonly pinLabel: string
 }): ReactNode {
   return (
     <section className="sa-section">
@@ -162,7 +196,7 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
               type="button"
               className="sa-row"
               data-container={row.container === true || undefined}
-              aria-label={rowLabel(row.title)}
+              aria-label={rowLabel(row.title, row.pinned === true)}
               onClick={() => { open(row.id) }}
             >
               {/* Blocked on the user: the amber `warning` dot, the color the
@@ -170,10 +204,13 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
                   not activity, so the spinner would be a lie — and in the unread
                   section the same rule outranks the green completion dot. A
                   container row holds no turn of its own: its children carry the
-                  activity, so it draws no dot at all. */}
-              {row.container !== true && (
-                <StateDot state={waiting.has(row.id) ? 'warning' : state} size={10} />
-              )}
+                  activity, so it draws no dot at all — and a row listed only for
+                  its pin says so with the pin mark instead. */}
+              <RowLead
+                row={row}
+                state={waiting.has(row.id) ? 'warning' : state}
+                pinLabel={pinLabel}
+              />
               <span className="sa-row-title">{row.title}</span>
               {/* Counted from the latest human prompt the list projection
                   carries; absent until that projection has been read. The
@@ -191,7 +228,14 @@ function Section({ title, rows, state, waiting, now, open, rowLabel }: {
                 child's own duration counts from its open turn (`turnedAt`),
                 not its parent's prompt. */}
             {row.children !== undefined && (
-              <Children rows={row.children} state={state} now={now} open={open} rowLabel={rowLabel} />
+              <Children
+                rows={row.children}
+                state={state}
+                now={now}
+                open={open}
+                rowLabel={rowLabel}
+                pinLabel={pinLabel}
+              />
             )}
           </li>
         ))}
@@ -227,7 +271,11 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
     open(id)
     setShowing(false)
   }
-  const label = (title: string): string => t('row.open', { title })
+  // A pinned row is listed for the pin, not for work, so its own label says so:
+  // it is the accessible name of the row, and the mark inside it is decorative.
+  const label = (title: string, pinned: boolean): string =>
+    pinned ? t('row.openPinned', { title }) : t('row.open', { title })
+  const pinLabel = t('row.pinned')
   // Both derive from the model alone, so the open panel's one-second clock tick
   // repaints rows without recomputing them.
   const outline = useMemo(() => outlineFor(model), [model])
@@ -263,6 +311,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       now={now}
                       open={jump}
                       rowLabel={label}
+                      pinLabel={pinLabel}
                     />
                   )}
                   {model.unread.length > 0 && (
@@ -274,6 +323,7 @@ export function AttentionOverlay({ useAttention, open, t }: AttentionOverlayProp
                       now={now}
                       open={jump}
                       rowLabel={label}
+                      pinLabel={pinLabel}
                     />
                   )}
                 </div>

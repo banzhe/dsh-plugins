@@ -1,6 +1,6 @@
 # @banzhe/dsh-session-attention
 
-A `shell.overlay` panel listing the Sessions that need attention — running, waiting on you, or finished-unread — behind a toggle.
+A `shell.overlay` panel listing the Sessions that need attention — running, pinned, waiting on you, or finished-unread — behind a toggle.
 
 [中文版](./README.zh-CN.md)
 
@@ -13,11 +13,11 @@ A Web Client [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
   1. **waiting** — a listed Session holds a pending interaction (approval, question, plan review). Amber, and it holds still.
   2. **running** — work in flight. A 2px animated blue sweep around the edge.
   3. **unread** — finished while it was not the main view. Green, and it holds still.
-- **Panel** — two sections, newest first:
-  - **Running** (`进行中`) — the host reports the Session as running. Each row shows how long the current run has been going, counted from the Session's latest human prompt, so it survives a page reload; a new prompt restarts it.
+- **Panel** — two sections, newest first, under the title `Running, pinned and unread` (`进行中、置顶与未读`):
+  - **Running and pinned** (`进行中与置顶`) — the host reports the Session as running. Each row shows how long the current run has been going, counted from the Session's latest human prompt, so it survives a page reload; a new prompt restarts it.
     - **Running subagents** mount as an indented block under their parent row, one nesting level per delegation hop, each with its own duration counted from the start of its open turn.
     - A Session that is idle but has a running subagent — a child or a deeper descendant — is listed as a container row. Idle Sessions between it and the running work are container rows too, so the nesting stays intact and the running descendant sits at the bottom of it.
-  - **Pinned** Sessions list here too, even at rest: the pin asks for the row, so an idle one shows as a container row with no spinner and no duration. A pin is not activity — it never counts in the badge, never gives the toggle an outline, and never pulses the taskbar on its own.
+  - **Pinned** Sessions list here too, even at rest: the pin asks for the row, so an idle one shows as a container row with no spinner and no duration, and wears the pin mark in the slot its state dot would fill — that mark is what says an idle row is listed because it is pinned. A pin is not activity — it never counts in the badge, never gives the toggle an outline, and never pulses the taskbar on its own.
   - **Unread** (`未读`) — finished while it was not the main view, the same fact as the sidebar's green dot.
   - Each row wears the shipped `StateDot`: the running spinner, the green done dot, or the amber warning dot when that turn is blocked on you. Waiting for an answer is not activity, so no spinner.
 - **Windows taskbar** — while listed Sessions are running and none are waiting or finished-unread, the desktop app's taskbar button shows the native indeterminate progress pulse. Waiting, unread, or an idle list clears it. Browsers and older shells do nothing.

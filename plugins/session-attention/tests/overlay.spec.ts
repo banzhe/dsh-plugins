@@ -60,6 +60,8 @@ interface Harness {
   headings(): string[]
   rowLabels(): string[]
   stateDots(): string[]
+  /** Hover text of each pin mark, in row order. */
+  pinMarks(): string[]
   badge(): string | null
   /** Replace the registry-global pin set, as a pin mutation echoes it. */
   setPinned(...sessionIds: readonly string[]): Promise<void>
@@ -117,6 +119,8 @@ async function bench(
     rowLabels: () => [...host.querySelectorAll<HTMLElement>('.sa-row')].map(node => node.textContent ?? ''),
     stateDots: () => [...host.querySelectorAll<HTMLElement>('[data-test-state-dot]')]
       .map(node => node.dataset['testStateDot'] ?? ''),
+    pinMarks: () => [...host.querySelectorAll<HTMLElement>('.sa-row-pin')]
+      .map(node => node.getAttribute('title') ?? ''),
     badge: () => host.querySelector<HTMLElement>('.sa-badge')?.textContent ?? null,
     setPinned: async (...sessionIds): Promise<void> => {
       await act(async () => { workspaces.setPinned(...sessionIds) })
@@ -198,17 +202,64 @@ describe('AttentionOverlay', () => {
     await overlay.click(overlay.trigger())
     expect(overlay.headings()).toEqual([zh['section.running']])
     expect(overlay.rowLabels()).toEqual(['pinned'])
-    // A container row holds no live run: no spinner and nothing to time.
+    // A container row holds no live run: no spinner and nothing to time. Its
+    // lead slot holds the pin mark instead, and the row's own name says the same
+    // thing — the mark itself is decoration, so no screen reader announces it.
     const row = overlay.host.querySelector<HTMLElement>('.sa-row')
     expect(row?.hasAttribute('data-container')).toBe(true)
     expect(row?.querySelector('[data-test-state-dot]')).toBeNull()
     expect(row?.querySelector('.sa-row-duration')).toBeNull()
+    expect(overlay.pinMarks()).toEqual([zh['row.pinned']])
+    expect(row?.querySelector('.sa-row-pin [data-test-icon="pin"]')).not.toBeNull()
+    expect(row?.querySelector('.sa-row-pin')?.getAttribute('aria-hidden')).toBe('true')
+    expect(row?.getAttribute('aria-label')).toBe(zh['row.openPinned'].replace('{title}', 'pinned'))
     expect(overlay.badge()).toBe('0')
 
     // Releasing the pin empties the panel again.
     await overlay.setPinned()
     expect(overlay.rowLabels()).toEqual([])
+    expect(overlay.pinMarks()).toEqual([])
     expect(overlay.panel()?.textContent).toContain(zh['panel.empty'])
+  })
+
+  it('draws the pin mark only on a row the pin alone lists, beside the running rows', async () => {
+    const overlay = await bench([
+      sessionRow('run', { running: true, updatedAt: 2, displayTitle: 'Run' }),
+      sessionRow('pinned', { updatedAt: 1, displayTitle: 'Pinned' }),
+    ], ['pinned'])
+    await overlay.click(overlay.trigger())
+    expect(overlay.rowLabels()).toEqual(['Run', 'Pinned'])
+    // The two lead slots carry the two different facts: the running row its
+    // spinner, the pinned row the mark.
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+    expect(overlay.pinMarks()).toEqual([zh['row.pinned']])
+    const rows = [...overlay.host.querySelectorAll<HTMLElement>('.sa-row')]
+    expect(rows[0]?.querySelector('.sa-row-pin')).toBeNull()
+    expect(rows[1]?.getAttribute('aria-label')).toBe(zh['row.openPinned'].replace('{title}', 'Pinned'))
+    expect(rows[0]?.getAttribute('aria-label')).toBe(zh['row.open'].replace('{title}', 'Run'))
+
+    // The pinned Session starts running: the pin stops being the reason it is
+    // listed, so the mark becomes the spinner like any other running row.
+    await overlay.update((draft) => {
+      draft.byId['pinned' as SessionId] = sessionRow('pinned', {
+        running: true, updatedAt: 3, displayTitle: 'Pinned',
+      })
+    })
+    expect(overlay.rowLabels()).toEqual(['Pinned', 'Run'])
+    expect(overlay.stateDots()).toEqual(['ongoing', 'ongoing'])
+    expect(overlay.pinMarks()).toEqual([])
+    const relisted = [...overlay.host.querySelectorAll<HTMLElement>('.sa-row')]
+    expect(relisted[0]?.getAttribute('aria-label')).toBe(zh['row.open'].replace('{title}', 'Pinned'))
+  })
+
+  it('names both the running and the pinned scope in the panel and section titles', async () => {
+    const overlay = await bench([sessionRow('run', { running: true })])
+    await overlay.click(overlay.trigger())
+    // The running section holds pinned rows too, so both titles name that scope;
+    // the pinned word is the same one the mark's tooltip uses.
+    expect(overlay.panel()?.getAttribute('aria-label')).toContain(zh['row.pinned'])
+    expect(overlay.headings()).toEqual([zh['section.running']])
+    expect(overlay.headings()[0]).toContain(zh['row.pinned'])
   })
 
   it('shows the empty state when there is nothing to attend to', async () => {

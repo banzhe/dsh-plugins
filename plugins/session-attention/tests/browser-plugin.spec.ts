@@ -206,6 +206,16 @@ describe('session-attention browser half', () => {
       expect(en[key].length).toBeGreaterThan(0)
     }
   })
+
+  it('names running and pinned work in the panel and section titles', () => {
+    // The running section holds pinned rows as well as live runs, so both
+    // dictionaries say so in the panel title and in that section's heading.
+    for (const dict of [zh, en]) {
+      for (const key of ['panel.title', 'section.running'] as const) {
+        expect(dict[key].toLowerCase()).toContain(dict['row.pinned'].toLowerCase())
+      }
+    }
+  })
 })
 
 describe('taskbar pulse through the desktop bridge', () => {

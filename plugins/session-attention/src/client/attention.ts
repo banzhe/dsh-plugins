@@ -53,6 +53,11 @@
  * {@link reportsActivity}, so a quiet pin costs no notification. A pinned
  * Session that runs, carries running descendants, or finished unread is already
  * listed by that fact and keeps the section and the count it earns there.
+ *
+ * That rest listing is also the only one whose lead slot would be empty, so it
+ * is the only one marked `pinned`: the panel draws a pin there, which is what
+ * says an idle Session is listed because the user asked for it rather than
+ * because anything is happening.
  */
 import type {
   SessionListState, SessionProjectionSnapshot, SessionSummary,
@@ -91,6 +96,15 @@ export interface AttentionRow {
    * renders without the spinner and without a duration.
    */
   readonly container?: boolean
+  /**
+   * Marks a row listed only because its Session is pinned: no live run of its
+   * own and no running work below it, so the pin is the whole reason it is
+   * here. The panel draws the pin mark in the lead slot the state dot would
+   * occupy; a pinned Session that is running, carries running descendants, or
+   * finished unread is listed by that fact and keeps the indicator it earns
+   * there instead.
+   */
+  readonly pinned?: boolean
   /**
    * The open turn's start on a running child row (`subagentTiming.active.
    * since`): the child's work began with its current turn, not with a human
@@ -279,7 +293,8 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
  * `archived` is the registry-global archive set: its members never list, and a
  * running descendant under an archived Session never re-mounts that Session.
  * `pinned` is the registry-global pin set: its members list even at rest, as
- * container rows that leave `total` alone.
+ * container rows that leave `total` alone and carry {@link AttentionRow.pinned}
+ * so the panel can name the pin as their reason for being listed.
  *
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
@@ -345,6 +360,9 @@ export function deriveAttention(
       return
     }
     // A pinned Session at rest: the row the user asked for, not a notification.
+    // `pinned` is set here and only here, because the fact it records is
+    // exactly "listed for the pin, not for work": the branches above list a row
+    // that has something to report.
     if (pinned.has(id)) {
       running.push({
         updatedAt: row.updatedAt,
@@ -353,6 +371,7 @@ export function deriveAttention(
           title: row.displayTitle,
           ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
           container: true,
+          pinned: true,
         },
       })
     }
@@ -376,9 +395,10 @@ export function deriveAttention(
  *
  * The prompt time rides the same comparison: it moves only when the user
  * prompts again, which is exactly a new run and a new count. The key covers the
- * nesting to any depth — ids, labels, container flags and turned-at anchors —
- * because a subagent starting or finishing a few hops down, with every row
- * above it otherwise standing still, is a change the panel must repaint.
+ * nesting to any depth — ids, labels, container and pin flags, and turned-at
+ * anchors — because a subagent starting or finishing a few hops down, with
+ * every row above it otherwise standing still, is a change the panel must
+ * repaint.
  */
 function rowKey(row: AttentionRow): string {
   return [
@@ -386,6 +406,7 @@ function rowKey(row: AttentionRow): string {
     row.title,
     row.lastPromptAt ?? '',
     row.container ? 'c' : '',
+    row.pinned ? 'p' : '',
     // A child's open-turn start moves when a new turn opens: a re-key, not a
     // repaint of a standing number — the clock re-anchors in the same update.
     row.turnedAt ?? '',

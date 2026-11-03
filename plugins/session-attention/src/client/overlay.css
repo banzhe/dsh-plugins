@@ -226,6 +226,16 @@
   color: var(--dsw-alias-label-secondary);
 }
 .sa-row[data-container]:hover { background: none; }
+/* The pin mark on a row listed only because its Session is pinned: it fills the
+   lead slot the state dot occupies on a row with work to report, so the title
+   keeps the indent of its siblings. It inherits the row's own label tone — a
+   pinned Session at rest has no state to paint — and never shrinks, so a long
+   title ellipsizes before the mark does. */
+.sa-row-pin {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
 .sa-child-row {
   padding-top: 3px;
   padding-bottom: 3px;

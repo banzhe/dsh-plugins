@@ -9,9 +9,10 @@
  * module-table seed, which is exactly why the package needs no
  * `dsh.client.external`.
  *
- * Only the three members this plugin's entry imports are reproduced, and only
- * their contract: `StateDot` carries the state it was given on a
- * `data-test-state-dot` attribute, and the icons are inert current-color marks.
+ * Only the members this plugin's entry imports are reproduced, and only their
+ * contract: `StateDot` carries the state it was given on a
+ * `data-test-state-dot` attribute, and each icon is an inert current-color mark
+ * named on `data-test-icon`.
  * Styling is the real components' business and is deliberately not asserted here.
  */
 import type { ReactNode, SVGProps } from 'react'
@@ -37,4 +38,8 @@ export function IconChecklistOutlineRegular(props: IconProps): ReactNode {
 
 export function IconCloseOutlineRegular(props: IconProps): ReactNode {
   return <svg data-test-icon="close" {...props} />
+}
+
+export function IconPinOutlineRegular(props: IconProps): ReactNode {
+  return <svg data-test-icon="pin" {...props} />
 }

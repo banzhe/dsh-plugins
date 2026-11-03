@@ -485,14 +485,60 @@ describe('deriveAttention archive gating', () => {
 })
 
 describe('deriveAttention pins', () => {
-  it('lists an idle pinned Session as a container row that never counts', () => {
+  it('lists an idle pinned Session as a pinned container row that never counts', () => {
     const rows = [sessionRow('pinned-idle'), sessionRow('plain-idle')]
     const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-idle'))
-    expect(model.running).toEqual([{ id: 'pinned-idle', title: 'pinned-idle', container: true }])
+    // `pinned` is the row's whole reason for being listed: no live run, no work
+    // below it. It is what the panel draws the pin mark from.
+    expect(model.running).toEqual([
+      { id: 'pinned-idle', title: 'pinned-idle', container: true, pinned: true },
+    ])
     expect(model.unread).toEqual([])
     expect(model.waiting).toEqual([])
     // The pin asks for the row, not for a notification: nothing counts.
     expect(model.total).toBe(0)
+  })
+
+  it('keeps the prompt time on a pinned row while the panel still times nothing', () => {
+    const rows = [sessionRow('pinned-idle', { lastPromptAt: 42 })]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-idle'))
+    // The durable fact rides the row as it does on any other; `container` is what
+    // keeps the cell off it.
+    expect(model.running).toEqual([
+      { id: 'pinned-idle', title: 'pinned-idle', lastPromptAt: 42, container: true, pinned: true },
+    ])
+  })
+
+  it('never marks a pin as the reason when the row has work of its own or below it', () => {
+    // Each of these rows lists on a fact of its own — a live run, running work
+    // below it, an unread reminder — so the pin adds nothing the row was not
+    // already saying, and the row keeps the indicator that fact earns.
+    const rows = [
+      sessionRow('pinned-run', { running: true, updatedAt: 3 }),
+      sessionRow('pinned-unread', { completed: true, updatedAt: 2 }),
+      ...parentWithChildren(sessionRow('pinned-parent', { updatedAt: 1 }), [
+        ['live', { running: true }],
+      ]),
+    ]
+    const model = fold(
+      sessionListOf(rows),
+      sessionStatusOf(rows),
+      NONE,
+      pinnedIds('pinned-run', 'pinned-unread', 'pinned-parent'),
+    )
+    expect(model.running).toEqual([
+      { id: 'pinned-run', title: 'pinned-run' },
+      {
+        id: 'pinned-parent',
+        title: 'pinned-parent',
+        container: true,
+        children: [{ id: 'live', title: 'live' }],
+      },
+    ])
+    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread' }])
+    // Each still counts as the work it reports: the run, the reminder, and the
+    // container row whose child runs.
+    expect(model.total).toBe(3)
   })
 
   it('counts a pinned Session that is already running once', () => {
@@ -503,6 +549,8 @@ describe('deriveAttention pins', () => {
   })
 
   it('counts a pinned row carrying a running subagent and mounts only the running ones', () => {
+    // The row is a container, but the child is the activity: no pin mark, since
+    // the pin is not why it is listed.
     const rows = parentWithChildren(sessionRow('parent'), [
       ['live', { running: true }],
       ['settled', {}],

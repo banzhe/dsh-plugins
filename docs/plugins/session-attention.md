@@ -50,7 +50,7 @@ Moved out of the plugin's README, which now covers only features and installatio
   touching the window.
 - **Panel** — what the toggle opens (entry id `session-attention.panel`, order
   100). Two sections, newest first:
-  - **Running** (`进行中`) — the host reports the Session as running
+  - **Running and pinned** (`进行中与置顶`) — the host reports the Session as running
     (`running` on the Session status snapshot, falling back to the list row's
     own flag), or running work hangs anywhere below it. Each running row also
     shows how long the current run has been going, `m:ss` or `h:mm:ss`,
@@ -90,6 +90,17 @@ Moved out of the plugin's README, which now covers only features and installatio
       that is not held by this client reports running late (the row's
       `running` is only backed while the client holds the child); it appears
       when the host publishes its status through the shared list channel.
+    - **Pinned Sessions** list here as well, even at rest: the pin set
+      (`ctx.workspaces.list` → `pinnedSessionIds`) is a fourth store input with
+      its own subscription, because pinning moves neither the list nor the
+      status. An idle pinned Session is a container row with
+      `pinned: true` — no spinner, no duration, and the pin glyph
+      (`IconPinOutlineRegular`) in the slot the state dot would fill, which is
+      the whole reason the row is listed. The flag is set only on that branch: a
+      pinned Session that is running, carries running descendants, or finished
+      unread lists on that fact and keeps the indicator it earns. A pin counts
+      nothing in `total`, gives the toggle no outline, and never pulses the
+      taskbar on its own.
   - **Unread** (`未读`) — finished while it was not the main view
     (`completionUnread`, the same fact as the sidebar's green dot).
   - **Row indicator** — the shipped `StateDot`, so no color is hand-picked: the
@@ -97,7 +108,10 @@ Moved out of the plugin's README, which now covers only features and installatio
     reminder. A row whose turn is blocked on you wears the amber `warning` dot
     instead — `--dsw-alias-state-warn-primary`, the same color the toggle's
     `waiting` ring is drawn in, and it outranks the green in the unread section
-    too. Waiting for an answer is not activity, so no spinner.
+    too. Waiting for an answer is not activity, so no spinner. A row listed only
+    for its pin wears the pin mark instead of a dot, and its accessible name
+    comes from `row.openPinned` rather than `row.open`; the mark itself is
+    decorative and carries only the `row.pinned` hover text.
 - **Click a row** — `ctx.uiWorkspace.openSession(id)` shows that Session as the
   main view and the panel closes behind it. An unread reminder clears on its own
   because becoming the main view is what clears it on the host.
@@ -143,7 +157,8 @@ actionable fact.
   work repaints the ring in the same update that changes the rows.
 - The durations are formatted from client wall-clock time, never localized
   through the namespace: `m:ss` / `h:mm:ss` are read the same everywhere, and
-  the `row.open` key already carries the row's only locale text.
+  the `row.open` and `row.openPinned` keys already carry the row's only locale
+  text.
 - Archived Sessions never list, whatever the host still reports about them. The
   archive set is registry-global (`ctx.workspaces.list` →
   `archivedSessionIds`): a Session the user filed away is not work waiting for a
