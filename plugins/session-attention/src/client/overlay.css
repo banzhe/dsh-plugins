@@ -71,7 +71,8 @@
 .sa-trigger:hover { background: var(--dsw-alias-bg-layer-3); }
 .sa-trigger:focus-visible,
 .sa-close:focus-visible,
-.sa-row:focus-visible {
+.sa-row:focus-visible,
+.sa-unpin:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: 2px;
 }
@@ -226,16 +227,50 @@
   color: var(--dsw-alias-label-secondary);
 }
 .sa-row[data-container]:hover { background: none; }
-/* The pin mark on a row listed only because its Session is pinned: it fills the
-   lead slot the state dot occupies on a row with work to report, so the title
-   keeps the indent of its siblings. It inherits the row's own label tone — a
-   pinned Session at rest has no state to paint — and never shrinks, so a long
-   title ellipsizes before the mark does. */
-.sa-row-pin {
-  flex: none;
+/* One row and the release control that can sit over it. The wrapper is the
+   positioning context, so the control centers on the row's own line and not on
+   the descendants a container row mounts below it. The control is a SIBLING of
+   the row's own button, never a child: a button inside a button is invalid HTML,
+   and a browser splits the outer element while parsing, which would leave the
+   row's label reporting a hit target of its own. */
+.sa-row-wrap { position: relative; }
+/* The pin of a pinned row — the control that releases the pin — drawn from the
+   row's `data-pin` slot. A quiet tertiary mark, like the duration cell it sits
+   beside, lifting to the primary label over a layer-3 band under the pointer:
+   the same feedback the close button and each row's own hover already use. It
+   never shrinks, so a long title ellipsizes before it. */
+.sa-unpin {
+  position: absolute;
+  top: 50%;
   display: flex;
   align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  color: var(--dsw-alias-label-tertiary);
+  background: none;
+  border: none;
+  border-radius: var(--dsw-radius-md);
+  cursor: pointer;
+  transform: translateY(-50%);
 }
+/* The empty lead slot of a container row, where the state dot sits on every
+   other row. */
+.sa-unpin[data-slot='lead'] { left: 8px; }
+/* The trailing edge of a row that already carries its dot: the pin takes the
+   other end, beside the duration cell, so both facts stay readable. */
+.sa-unpin[data-slot='trail'] { right: 8px; }
+.sa-unpin:hover {
+  color: var(--dsw-alias-label-primary);
+  background: var(--dsw-alias-bg-layer-3);
+}
+/* The slot the control occupies, reserved by the row's own padding so no title
+   slides under it. Lead: the dot's width plus the row's own 8px gap, so a pinned
+   row's title starts exactly where its siblings' titles do. Trail: the same gap
+   and width at the other end. */
+.sa-row[data-pin='lead'] { padding-left: 32px; }
+.sa-row[data-pin='trail'] { padding-right: 32px; }
 .sa-child-row {
   padding-top: 3px;
   padding-bottom: 3px;

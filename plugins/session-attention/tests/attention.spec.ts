@@ -509,10 +509,11 @@ describe('deriveAttention pins', () => {
     ])
   })
 
-  it('never marks a pin as the reason when the row has work of its own or below it', () => {
+  it('marks the pin on a row that already has work of its own or below it', () => {
     // Each of these rows lists on a fact of its own — a live run, running work
-    // below it, an unread reminder — so the pin adds nothing the row was not
-    // already saying, and the row keeps the indicator that fact earns.
+    // below it, an unread reminder — and each still carries the pin: the flag
+    // says the Session is pinned, not that the pin is why the row is here. The
+    // panel needs it on exactly these rows to offer the release control.
     const rows = [
       sessionRow('pinned-run', { running: true, updatedAt: 3 }),
       sessionRow('pinned-unread', { completed: true, updatedAt: 2 }),
@@ -527,30 +528,35 @@ describe('deriveAttention pins', () => {
       pinnedIds('pinned-run', 'pinned-unread', 'pinned-parent'),
     )
     expect(model.running).toEqual([
-      { id: 'pinned-run', title: 'pinned-run' },
+      { id: 'pinned-run', title: 'pinned-run', pinned: true },
       {
         id: 'pinned-parent',
         title: 'pinned-parent',
         container: true,
         children: [{ id: 'live', title: 'live' }],
+        pinned: true,
       },
     ])
-    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread' }])
+    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread', pinned: true }])
     // Each still counts as the work it reports: the run, the reminder, and the
-    // container row whose child runs.
+    // container row whose child runs. The pin adds no count of its own.
     expect(model.total).toBe(3)
   })
 
   it('counts a pinned Session that is already running once', () => {
     const rows = [sessionRow('pinned-running', { running: true })]
     const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-running'))
-    expect(model.running).toEqual([{ id: 'pinned-running', title: 'pinned-running' }])
+    // The row is listed for its run and still counts as one: the pin neither
+    // adds a row nor a count, and the panel can release the pin from the very
+    // row that is running.
+    expect(model.running).toEqual([{ id: 'pinned-running', title: 'pinned-running', pinned: true }])
     expect(model.total).toBe(1)
   })
 
   it('counts a pinned row carrying a running subagent and mounts only the running ones', () => {
-    // The row is a container, but the child is the activity: no pin mark, since
-    // the pin is not why it is listed.
+    // The row is a container and the child is the activity; the pin rides the
+    // container as well, so an idle pinned parent can be released without
+    // touching the work it holds.
     const rows = parentWithChildren(sessionRow('parent'), [
       ['live', { running: true }],
       ['settled', {}],
@@ -561,15 +567,16 @@ describe('deriveAttention pins', () => {
       title: 'parent',
       container: true,
       children: [{ id: 'live', title: 'live' }],
+      pinned: true,
     }])
     expect(model.total).toBe(1)
   })
 
-  it('keeps an unread pinned Session in the unread section, counted', () => {
+  it('keeps an unread pinned Session in the unread section, counted, with its pin', () => {
     const rows = [sessionRow('pinned-unread', { completed: true })]
     const model = fold(sessionListOf(rows), sessionStatusOf(rows), NONE, pinnedIds('pinned-unread'))
     expect(model.running).toEqual([])
-    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread' }])
+    expect(model.unread).toEqual([{ id: 'pinned-unread', title: 'pinned-unread', pinned: true }])
     expect(model.total).toBe(1)
   })
 
@@ -585,17 +592,26 @@ describe('deriveAttention pins', () => {
     expect(model.total).toBe(0)
   })
 
-  it('does not repaint when a pin adds nothing the panel was not already showing', () => {
+  it('repaints a running row when the pin arrives or leaves, and counts it once either way', () => {
     const rows = [sessionRow('running', { running: true })]
     const sources = sessionSources(rows)
     const workspaces = workspaceSource()
     const store = createAttentionStore(sources.list, sources.status, workspaces.source)
-    const listener = vi.fn()
-    const unsubscribe = store.subscribe(listener)
+    const seen: boolean[] = []
+    const unsubscribe = store.subscribe(() => {
+      seen.push(store.getSnapshot().running[0]?.pinned === true)
+    })
     workspaces.setPinned('running')
-    // The row already sat in the running section as a live run: the pin adds no
-    // fact the snapshot carries, so the model keeps its identity.
-    expect(listener).not.toHaveBeenCalled()
+    // The row already sat in the running section, but the pin is a fact of its
+    // own now: the panel has to draw the release control, so the snapshot moves.
+    expect(seen).toEqual([true])
+    expect(store.getSnapshot().total).toBe(1)
+
+    workspaces.setPinned()
+    expect(seen).toEqual([true, false])
+    // A live run is listed and counted by its own fact: the pin changed only
+    // whether the row can be released from the panel.
+    expect(store.getSnapshot().total).toBe(1)
     unsubscribe()
     store.dispose()
   })

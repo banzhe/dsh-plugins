@@ -74,7 +74,10 @@ async function bench(
   } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: counted(surface.status, 'status') } as never)
   ctx.provide('uiWorkspace', { openSession } as never)
-  ctx.provide('workspaces', { list: counted(workspaces.source, 'workspaces') } as never)
+  ctx.provide('workspaces', {
+    list: counted(workspaces.source, 'workspaces'),
+    unpinSession: (id: SessionId) => workspaces.unpinSession(id),
+  } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
@@ -124,12 +127,33 @@ describe('session-attention browser half', () => {
     const face = b.slots.injection(ENTRY)
     expect(face.useAttention).toBeTypeOf('function')
     expect(face.open).toBeTypeOf('function')
+    expect(face.unpin).toBeTypeOf('function')
   })
 
   it('jumps through the Workspace owner', async () => {
     const b = await bench()
     b.slots.injection(ENTRY).open('sess-1' as never)
     expect(b.openSession).toHaveBeenCalledWith('sess-1')
+  })
+
+  it('releases a pin through the Workspace Controller, never through the navigator', async () => {
+    const b = await bench([sessionRow('pinned')], ['pinned'])
+    b.slots.injection(ENTRY).unpin('pinned' as never)
+    // The Host command the sidebar's own pin button issues; the panel adds no
+    // navigation of its own to it.
+    expect(b.workspaces.unpinned).toEqual(['pinned'])
+    expect(b.workspaces.source.getSnapshot().pinnedSessionIds).toEqual([])
+    expect(b.openSession).not.toHaveBeenCalled()
+  })
+
+  it('leaves a refused unpin to the Host, logging it instead of raising it', async () => {
+    const b = await bench([sessionRow('pinned')], ['pinned'])
+    b.workspaces.unpinSession = () => Promise.reject(new Error('host busy'))
+    // A refusal is the Host's business: the call returns nothing to the caller,
+    // the row stays as it stands, and no rejection escapes the plugin's fiber.
+    b.slots.injection(ENTRY).unpin('pinned' as never)
+    await flushMicrotasks()
+    expect(b.workspaces.source.getSnapshot().pinnedSessionIds).toEqual(['pinned'])
   })
 
   it('injects its stylesheet once and takes it back with the fiber', async () => {

@@ -20,7 +20,7 @@ import {
   type SessionRow, type SessionSources,
 } from './session-list-double.ts'
 import { SlotsDouble } from './slots-double.ts'
-import { workspaceSource } from './workspace-source-double.ts'
+import { workspaceSource, type WorkspaceSource } from './workspace-source-double.ts'
 
 const ENTRY = 'session-attention.panel'
 
@@ -54,13 +54,15 @@ let roots: Root[] = []
 interface Harness {
   readonly host: HTMLElement
   readonly open: ReturnType<typeof vi.fn>
+  /** The Workspace Controller double the panel's unpin command reaches. */
+  readonly workspaces: WorkspaceSource
   /** The toggle, always mounted. */
   trigger(): HTMLButtonElement
   panel(): HTMLElement | null
   headings(): string[]
   rowLabels(): string[]
   stateDots(): string[]
-  /** Hover text of each pin mark, in row order. */
+  /** Accessible name of each pinned row's release control, in row order. */
   pinMarks(): string[]
   badge(): string | null
   /** Replace the registry-global pin set, as a pin mutation echoes it. */
@@ -84,7 +86,10 @@ async function bench(
   } as unknown as ISessions)
   ctx.provide('uiSession', { sessionStatus: surface.status } as never)
   ctx.provide('uiWorkspace', { openSession: open } as never)
-  ctx.provide('workspaces', { list: workspaces.source } as never)
+  ctx.provide('workspaces', {
+    list: workspaces.source,
+    unpinSession: (id: SessionId) => workspaces.unpinSession(id),
+  } as never)
   ctx.provide('locale', new LocaleDouble() as never)
   // A cordis Service registers itself under its name in its own constructor.
   const slots = new SlotsDouble(ctx)
@@ -113,14 +118,15 @@ async function bench(
   return {
     host,
     open,
+    workspaces,
     trigger,
     panel: () => host.querySelector<HTMLElement>('.sa-panel'),
     headings: () => [...host.querySelectorAll<HTMLElement>('.sa-section-title')].map(node => node.textContent ?? ''),
     rowLabels: () => [...host.querySelectorAll<HTMLElement>('.sa-row')].map(node => node.textContent ?? ''),
     stateDots: () => [...host.querySelectorAll<HTMLElement>('[data-test-state-dot]')]
       .map(node => node.dataset['testStateDot'] ?? ''),
-    pinMarks: () => [...host.querySelectorAll<HTMLElement>('.sa-row-pin')]
-      .map(node => node.getAttribute('title') ?? ''),
+    pinMarks: () => [...host.querySelectorAll<HTMLElement>('.sa-unpin')]
+      .map(node => node.getAttribute('aria-label') ?? ''),
     badge: () => host.querySelector<HTMLElement>('.sa-badge')?.textContent ?? null,
     setPinned: async (...sessionIds): Promise<void> => {
       await act(async () => { workspaces.setPinned(...sessionIds) })
@@ -209,11 +215,26 @@ describe('AttentionOverlay', () => {
     expect(row?.hasAttribute('data-container')).toBe(true)
     expect(row?.querySelector('[data-test-state-dot]')).toBeNull()
     expect(row?.querySelector('.sa-row-duration')).toBeNull()
-    expect(overlay.pinMarks()).toEqual([zh['row.pinned']])
-    expect(row?.querySelector('.sa-row-pin [data-test-icon="pin"]')).not.toBeNull()
-    expect(row?.querySelector('.sa-row-pin')?.getAttribute('aria-hidden')).toBe('true')
+    // The pin slot holds a real control now: the mark that used to say why the
+    // row is here is the button that releases it, named for both reading and
+    // hovering.
+    expect(overlay.pinMarks()).toEqual([zh['row.unpin']])
+    // A sibling of the row, not a child of it — the row is the button it
+    // sits beside.
+    const control = overlay.host.querySelector<HTMLElement>('.sa-unpin')
+    expect(control?.querySelector('[data-test-icon="pin"]')).not.toBeNull()
+    expect(control?.getAttribute('title')).toBe(zh['row.unpin'])
+    // A button inside a button is invalid HTML: the control is the row's
+    // sibling, the nearest button being itself.
+    expect(control?.closest('button')).toBe(control)
     expect(row?.getAttribute('aria-label')).toBe(zh['row.openPinned'].replace('{title}', 'pinned'))
     expect(overlay.badge()).toBe('0')
+
+    // An idle pinned row has an empty lead slot, so the control takes it — the
+    // place the state dot fills on every other row — and the row reserves it, so
+    // its title keeps the indent of the rows around it.
+    expect(control?.dataset['slot']).toBe('lead')
+    expect(row?.dataset['pin']).toBe('lead')
 
     // Releasing the pin empties the panel again.
     await overlay.setPinned()
@@ -222,7 +243,29 @@ describe('AttentionOverlay', () => {
     expect(overlay.panel()?.textContent).toContain(zh['panel.empty'])
   })
 
-  it('draws the pin mark only on a row the pin alone lists, beside the running rows', async () => {
+  it('releases a pin from its own control without opening the Session', async () => {
+    const overlay = await bench([sessionRow('pinned', { displayTitle: 'Pinned' })], ['pinned'])
+    await overlay.click(overlay.trigger())
+    const control = overlay.host.querySelector<HTMLButtonElement>('.sa-unpin')
+    if (control === null) throw new Error('no release control is mounted')
+    // A real button: Enter and Space activate it, and focus reaches it in tab
+    // order without the row being opened first.
+    expect(control.type).toBe('button')
+
+    await overlay.click(control)
+    // The click reaches the Host command, never the row's own handler: the two
+    // are siblings, so no ancestor turns the release into a navigation.
+    expect(overlay.workspaces.unpinned).toEqual(['pinned'])
+    expect(overlay.open).not.toHaveBeenCalled()
+    // The pin was the whole reason the row was listed, and the echoed unpin is
+    // what takes it out. The panel itself stays open: releasing a pin is not
+    // navigation.
+    expect(overlay.rowLabels()).toEqual([])
+    expect(overlay.badge()).toBe('0')
+    expect(overlay.panel()).not.toBeNull()
+  })
+
+  it('draws the pin only on a pinned row, and moves it beside the dot when the row runs', async () => {
     const overlay = await bench([
       sessionRow('run', { running: true, updatedAt: 2, displayTitle: 'Run' }),
       sessionRow('pinned', { updatedAt: 1, displayTitle: 'Pinned' }),
@@ -230,16 +273,19 @@ describe('AttentionOverlay', () => {
     await overlay.click(overlay.trigger())
     expect(overlay.rowLabels()).toEqual(['Run', 'Pinned'])
     // The two lead slots carry the two different facts: the running row its
-    // spinner, the pinned row the mark.
+    // spinner, the idle pinned row the pin.
     expect(overlay.stateDots()).toEqual(['ongoing'])
-    expect(overlay.pinMarks()).toEqual([zh['row.pinned']])
+    expect(overlay.pinMarks()).toEqual([zh['row.unpin']])
     const rows = [...overlay.host.querySelectorAll<HTMLElement>('.sa-row')]
-    expect(rows[0]?.querySelector('.sa-row-pin')).toBeNull()
+    expect(rows[0]?.querySelector('.sa-unpin')).toBeNull()
+    expect(rows[0]?.dataset['pin']).toBeUndefined()
+    expect(rows[1]?.dataset['pin']).toBe('lead')
     expect(rows[1]?.getAttribute('aria-label')).toBe(zh['row.openPinned'].replace('{title}', 'Pinned'))
     expect(rows[0]?.getAttribute('aria-label')).toBe(zh['row.open'].replace('{title}', 'Run'))
 
-    // The pinned Session starts running: the pin stops being the reason it is
-    // listed, so the mark becomes the spinner like any other running row.
+    // The pinned Session starts running: the run lists it now, and the pin
+    // stays — a pin the user can no longer see is a pin they cannot lift. It
+    // leaves the lead slot to the spinner and moves to the row's other end.
     await overlay.update((draft) => {
       draft.byId['pinned' as SessionId] = sessionRow('pinned', {
         running: true, updatedAt: 3, displayTitle: 'Pinned',
@@ -247,9 +293,62 @@ describe('AttentionOverlay', () => {
     })
     expect(overlay.rowLabels()).toEqual(['Pinned', 'Run'])
     expect(overlay.stateDots()).toEqual(['ongoing', 'ongoing'])
-    expect(overlay.pinMarks()).toEqual([])
+    expect(overlay.pinMarks()).toEqual([zh['row.unpin']])
     const relisted = [...overlay.host.querySelectorAll<HTMLElement>('.sa-row')]
-    expect(relisted[0]?.getAttribute('aria-label')).toBe(zh['row.open'].replace('{title}', 'Pinned'))
+    expect(relisted[0]?.dataset['pin']).toBe('trail')
+    expect(relisted[0]?.querySelector('[data-test-state-dot]')).not.toBeNull()
+    // Same wrapper, so the control is the row's sibling and not one of the
+    // rows below it.
+    const control = relisted[0]?.parentElement?.querySelector<HTMLElement>('.sa-unpin')
+    expect(control?.dataset['slot']).toBe('trail')
+    expect(relisted[0]?.getAttribute('aria-label')).toBe(zh['row.openPinned'].replace('{title}', 'Pinned'))
+  })
+
+  it('releases the pin of a running row without opening it, and the run stays listed', async () => {
+    const overlay = await bench([sessionRow('run', { running: true, displayTitle: 'Run' })], ['run'])
+    await overlay.click(overlay.trigger())
+    // The row carries both facts at once: its spinner and the pin beside it.
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+    expect(overlay.pinMarks()).toEqual([zh['row.unpin']])
+    expect(overlay.badge()).toBe('1')
+
+    const control = overlay.host.querySelector<HTMLButtonElement>('.sa-unpin')
+    if (control === null) throw new Error('no release control is mounted')
+    expect(control.type).toBe('button')
+    await overlay.click(control)
+
+    // The Host command ran, the Session was never opened, and the panel stays
+    // up: lifting a pin is not navigation.
+    expect(overlay.workspaces.unpinned).toEqual(['run'])
+    expect(overlay.open).not.toHaveBeenCalled()
+    expect(overlay.panel()).not.toBeNull()
+    // The run is its own reason for being listed, so the row survives the pin
+    // and keeps the indicator; only the pin goes.
+    expect(overlay.rowLabels()).toEqual(['Run'])
+    expect(overlay.stateDots()).toEqual(['ongoing'])
+    expect(overlay.pinMarks()).toEqual([])
+    expect(overlay.badge()).toBe('1')
+  })
+
+  it('releases the pin of an unread row and keeps it while the reminder stands', async () => {
+    const overlay = await bench([sessionRow('done', { completed: true, displayTitle: 'Done' })], ['done'])
+    await overlay.click(overlay.trigger())
+    expect(overlay.headings()).toEqual([zh['section.unread']])
+    expect(overlay.stateDots()).toEqual(['done'])
+    expect(overlay.pinMarks()).toEqual([zh['row.unpin']])
+    const row = overlay.host.querySelector<HTMLElement>('.sa-row')
+    expect(row?.dataset['pin']).toBe('trail')
+
+    const control = overlay.host.querySelector<HTMLButtonElement>('.sa-unpin')
+    if (control === null) throw new Error('no release control is mounted')
+    await overlay.click(control)
+    expect(overlay.workspaces.unpinned).toEqual(['done'])
+    expect(overlay.open).not.toHaveBeenCalled()
+    // The reminder still lists the row and still counts it; the pin is gone.
+    expect(overlay.headings()).toEqual([zh['section.unread']])
+    expect(overlay.stateDots()).toEqual(['done'])
+    expect(overlay.pinMarks()).toEqual([])
+    expect(overlay.badge()).toBe('1')
   })
 
   it('names both the running and the pinned scope in the panel and section titles', async () => {

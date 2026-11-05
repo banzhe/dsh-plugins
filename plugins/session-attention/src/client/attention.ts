@@ -2,62 +2,26 @@
  * The attention projection: which Sessions deserve a look right now, and the
  * store that keeps one stable snapshot of them for the overlay entry.
  *
- * Two facts are read, both owned by other plugins:
+ * Two facts are read, both owned by other plugins: `ctx.sessions.list` (row order
+ * and labels) and `ctx.uiSession.sessionStatus` (running, completionUnread,
+ * pendingInteraction). The status wins over the row's own `running`, which is
+ * only a display fallback for a Session whose baseline never arrived, and
+ * "still working" outranks a finish reminder.
  *
- * - `ctx.sessions.list` — the row order and the labels. Iterating `ids` is what
- *   keeps subagent children out: only Host-list members live there, while a
- *   child exists solely in `byId` with `origin: 'subagent'`. The check is kept
- *   anyway, because that flag is the same rule the shipped sidebar and
- *   app-notification filter on.
- * - `ctx.uiSession.sessionStatus` — `running`, `completionUnread` and
- *   `pendingInteraction` per Session. The status wins over the row's own
- *   `running` (the row value is only a display fallback for a Session whose
- *   baseline never arrived), which is exactly the fold `ui-workspace` uses for
- *   its rows. Subagent children read the same status map: a child the fold
- *   mounts under its parent is running by the same rule the panel applies to
- *   main-view rows.
+ * `waiting` is not a third bucket competing with the two sections: it is the
+ * subset of the listed rows whose work is blocked on the user, so the outline can
+ * never report a state with no row behind it.
  *
- * `running` and `completionUnread` are mutually exclusive in practice (the host
- * deletes the reminder when work starts again); a row carrying both is reported
- * as running, because "still working" is the more actionable fact.
+ * Rows that never list: subagent children (they mount under their parent, one
+ * nesting level per delegation hop), the blank New-Session placeholder, and
+ * archived Sessions. Archiving does not clear `completionUnread`, so the archive
+ * set is a third input; it gates the descendants too, or a running child under an
+ * archived Session would re-mount the row the user just filed away.
  *
- * `pendingInteraction` cuts across both: a Session is usually running while an
- * approval, a question or a plan review holds its turn, and the host still
- * reports it running. So `waiting` is not a third bucket competing with the two
- * sections — it is the subset of the listed rows whose work is blocked on the
- * user, and the outline reads it first.
- *
- * Blank rows are skipped too: `blank` is the reusable New-Session placeholder,
- * and the host clears it the moment the Session runs or is prompted — so no
- * running and no finished session is ever hidden by this filter.
- *
- * Subagent children are not panel rows of their own: they mount under their
- * parent's running row, one nesting level per delegation hop. A row is listed
- * when it is running itself or when any descendant is running — an idle parent
- * whose only activity is a running child, or a running grandchild below an
- * idle one, is a container row in the running section, and the idle
- * intermediates between it and the running work are container rows too. Neither
- * carries a prompt time: a child's work started with the delegation, not with a
- * human prompt the child owns.
- *
- * Archived Sessions never list, whatever their status says. The archive set is
- * registry-global and the sidebar files those rows away: a Session the user put
- * away is not work waiting for a look, even while the host still reports it
- * running or finished-unread. Archiving does not clear `completionUnread`, so
- * the status map cannot answer this on its own — the archive set is a third
- * input, and it also gates the descendants: a running one under an archived
- * Session would otherwise re-mount the row the user just filed away.
- *
- * A pinned Session lists at rest too, as a container row (no spinner, no
- * duration). The pin alone never counts: `total` and every activity signal read
- * {@link reportsActivity}, so a quiet pin costs no notification. A pinned
- * Session that runs, carries running descendants, or finished unread is already
- * listed by that fact and keeps the section and the count it earns there.
- *
- * That rest listing is also the only one whose lead slot would be empty, so it
- * is the only one marked `pinned`: the panel draws a pin there, which is what
- * says an idle Session is listed because the user asked for it rather than
- * because anything is happening.
+ * A pinned Session lists at rest as a container row and never counts — `total`
+ * reads {@link reportsActivity}, so a quiet pin costs no notification. `pinned`
+ * is a fact about the Session, not about why its row is here: every listed row a
+ * member holds carries it, so the release control is visible on all of them.
  */
 import type {
   SessionListState, SessionProjectionSnapshot, SessionSummary,
@@ -67,49 +31,37 @@ import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/c
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
-/**
- * One listed Session: enough to label a row, jump to it, and time its run.
- */
+/** One listed Session: enough to label a row, jump to it, and time its run. */
 export interface AttentionRow {
   readonly id: SessionId
   /** Human-facing label, straight from the list row (`displayTitle`). */
   readonly title: string
   /**
    * Durable wall-clock ms of the latest human prompt (`sessionListMetadata.
-   * lastPromptAt`): the run the row is in started with that prompt, so the
-   * panel counts from it. Absent until the projection has been read, for the
-   * `unread` rows, whose work has already stopped, and for a container row.
+   * lastPromptAt`): the start of the row's run. Absent until the projection is
+   * read, and always absent on `unread` and container rows.
    */
   readonly lastPromptAt?: number
   /**
-   * The listed subagent descendants of the row, one nesting level per
-   * delegation hop: catalog order first (the node's own `subagentCatalog`
-   * projection array, which the Host folds in catalog event order),
-   * retain-backed rows last in list order. A child mounts when it is running or
-   * when running work hangs below it; a settled branch under a listed node
-   * never mounts.
+   * Listed subagent descendants, one nesting level per delegation hop: catalog
+   * order first, `byId` order after. A child mounts when it runs or when running
+   * work hangs below it; a settled branch never mounts.
    */
   readonly children?: readonly AttentionRow[]
   /**
-   * Marks a node listed without a live run of its own: an idle parent whose
-   * running work hangs below it, or a pinned Session at rest. A container row
-   * renders without the spinner and without a duration.
+   * Listed without a live run of its own: an idle parent over running work, or a
+   * pinned Session at rest. Renders without the spinner and without a duration.
    */
   readonly container?: boolean
   /**
-   * Marks a row listed only because its Session is pinned: no live run of its
-   * own and no running work below it, so the pin is the whole reason it is
-   * here. The panel draws the pin mark in the lead slot the state dot would
-   * occupy; a pinned Session that is running, carries running descendants, or
-   * finished unread is listed by that fact and keeps the indicator it earns
-   * there instead.
+   * Marks a row whose Session is pinned, whatever else lists it; the panel draws
+   * the control that releases the pin from this flag alone.
    */
   readonly pinned?: boolean
   /**
-   * The open turn's start on a running child row (`subagentTiming.active.
-   * since`): the child's work began with its current turn, not with a human
-   * prompt of its own, so this is what a child's duration counts from.
-   * Absent until the child's projection read has landed.
+   * The open turn's start on a running child row (`subagentTiming.active.since`):
+   * a child's work began with its current turn, not with a human prompt of its
+   * own. Absent until the child's projection read has landed.
    */
   readonly turnedAt?: number
 }
@@ -120,13 +72,9 @@ export interface AttentionModel {
   /** Ordinary Sessions that finished while they were not the main view. */
   readonly unread: readonly AttentionRow[]
   /**
-   * Listed Sessions whose work is blocked on the user: an approval, a question
-   * or a plan review is waiting for an answer.
-   *
-   * Always a subset of `running` and `unread` together, and never part of
-   * {@link AttentionModel.total}: the outline reads it as its highest-priority
-   * fact, so a state the panel cannot show would be a signal with nothing
-   * behind it. Newest first, like the sections.
+   * Listed Sessions whose work is blocked on the user: an approval, a question or
+   * a plan review is waiting for an answer. Always a subset of `running` and
+   * `unread` together, never part of {@link AttentionModel.total}, newest first.
    */
   readonly waiting: readonly AttentionRow[]
   readonly total: number
@@ -142,18 +90,12 @@ interface Candidate {
   readonly row: AttentionRow
 }
 
-/**
- * The row's `projectionValues` is a `Partial`, so absence is the normal
- * pre-read state, not an error.
- */
+/** The row's `projectionValues` is a `Partial`, so absence is the normal pre-read state. */
 function lastPromptAtOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
   return projections?.values.sessionListMetadata?.lastPromptAt ?? undefined
 }
 
-/**
- * The sort is stable, so equal timestamps keep Host list order —
- * candidates are pushed in `list.ids` order.
- */
+/** The sort is stable, so equal timestamps keep Host list order (candidates are pushed in that order). */
 function byRecency(left: Candidate, right: Candidate): number {
   return right.updatedAt - left.updatedAt
 }
@@ -163,10 +105,8 @@ function isRunning(row: SessionSummary, status: SessionStatusSnapshot): boolean 
 }
 
 /**
- * One fold's row lookups: `byId`, plus the same rows grouped under their
- * parent in `byId` enumeration order. Grouping once per fold is what keeps a
- * fold linear: a parent's children used to be found by scanning every row,
- * once per listed row, which turned a fold into a quadratic walk.
+ * One fold's row lookups: `byId`, plus the same rows grouped under their parent in
+ * `byId` enumeration order. Grouping once per fold is what keeps a fold linear.
  */
 interface ChildIndex {
   readonly byId: SessionListState['byId']
@@ -185,9 +125,7 @@ function childIndexOf(byId: SessionListState['byId']): ChildIndex {
   return { byId, byParent }
 }
 
-/**
- * One fold's inputs to a subtree expansion, fixed for the whole fold.
- */
+/** One fold's inputs to a subtree expansion, fixed for the whole fold. */
 interface SubtreeContext {
   readonly list: SessionListState
   readonly index: ChildIndex
@@ -196,14 +134,11 @@ interface SubtreeContext {
 
 /**
  * The direct subagent children of one node, labeled from the child row's
- * `displayTitle` (the controller already derives it from the title projection,
- * then the catalog label, then the id). Two sources, because either can lag:
- * the node's own `subagentCatalog` projection (the fact the sidebar counts, and
- * the Host's own child order) and the indexed `byId` rows, which already know a
- * child whose catalog projection has not arrived. Catalog order comes first;
- * rows the catalog does not name follow in `byId` order. A catalog entry with
- * no row here, another `parentId`, or a non-subagent origin is ignored, exactly
- * like a foreign row in the index.
+ * `displayTitle`. Two sources, because either can lag: the node's own
+ * `subagentCatalog` projection (the Host's child order) and the indexed `byId`
+ * rows, which already know a child whose catalog projection has not arrived. A
+ * catalog entry with no row here, another `parentId`, or a non-subagent origin is
+ * ignored, exactly like a foreign row in the index.
  */
 function directChildrenOf(parent: SessionId, ctx: SubtreeContext): readonly SessionSummary[] {
   const seen = new Set<SessionId>()
@@ -223,11 +158,11 @@ function directChildrenOf(parent: SessionId, ctx: SubtreeContext): readonly Sess
 }
 
 /**
- * The mounted descendants of one node in direct-child order: every child that
- * is running or that itself carries running work below it.
+ * The mounted descendants of one node in direct-child order: every child that is
+ * running or that carries running work below it.
  *
- * `visited` is shared by one root's whole expansion, so a forged `parentId`
- * cycle terminates and no id lands in the tree twice.
+ * `visited` is shared by one root's whole expansion, so a forged `parentId` cycle
+ * terminates and no id lands in the tree twice.
  */
 function runningChildrenOf(
   parent: SessionId,
@@ -246,9 +181,8 @@ function runningChildrenOf(
 
 /**
  * One descendant node, or `undefined` when neither it nor anything below it is
- * running. A running node keeps the spinner and counts from its own open turn;
- * an idle one listed only for the work below it is a container and nests that
- * work one level deeper.
+ * running. An idle one listed only for the work below it is a container and nests
+ * that work one level deeper.
  */
 function runningNodeOf(
   row: SessionSummary,
@@ -271,11 +205,7 @@ function runningNodeOf(
   }
 }
 
-/**
- * `undefined` before the child's own projection read has landed —
- * the child row renders without a duration until the number exists, exactly
- * like a parent row before `lastPromptAt` is read.
- */
+/** `undefined` until the child's own projection read lands, exactly like `lastPromptAt`. */
 function activeSinceOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
   return projections?.values.subagentTiming?.active?.since
 }
@@ -285,16 +215,9 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
 }
 
 /**
- * Fold one list snapshot, one status snapshot, and the archive set into the
- * panel's content: the running and finished-unread sections, each newest first,
- * plus the listed subset of them whose work is blocked on the user. Running
- * subagent descendants mount under their row, nested one level per hop.
- *
- * `archived` is the registry-global archive set: its members never list, and a
- * running descendant under an archived Session never re-mounts that Session.
- * `pinned` is the registry-global pin set: its members list even at rest, as
- * container rows that leave `total` alone and carry {@link AttentionRow.pinned}
- * so the panel can name the pin as their reason for being listed.
+ * Fold one list snapshot, one status snapshot, and the archive and pin sets into
+ * the panel's content: the running and finished-unread sections, each newest
+ * first, plus the listed subset of them whose work is blocked on the user.
  *
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
@@ -316,21 +239,15 @@ export function deriveAttention(
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
     if (row === undefined) return
-    // Subagent children never appear as panel rows of their own; the
-    // New-Session placeholder is not task work. An archived Session is filed
-    // away, so it lists nothing either — whatever its running or unread status
-    // still says.
+    // Subagent children never list as rows of their own, the New-Session
+    // placeholder is not task work, and an archived Session is filed away.
     if (row.origin === 'subagent' || row.blank || archived.has(id)) return
     const entry = status.get(id)
-    // A pending interaction is a live Host request holding the turn open, so a
-    // blocked Session is running and has already joined the running section; a
-    // reminder it never cleared lands here the same way. Each branch records the
-    // row in `waiting` beside that section, which is what keeps the outline from
-    // ever reporting a state the panel has no row for.
+    const isPinned = pinned.has(id)
+    // A pending interaction holds the turn open, so the row already joined a
+    // section; recording it in `waiting` beside that section is what keeps the
+    // outline from reporting a state with no row behind it.
     const blocked = entry?.pendingInteraction !== undefined
-    // The run the row is in started with the latest human prompt, a durable
-    // fact the list projection already carries: counting from it needs no
-    // client-side timer of the plugin's own.
     const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
     // The root's own id seeds `visited`: a forged `parentId` chain looping back
     // to it must not re-mount the row inside itself.
@@ -343,10 +260,9 @@ export function deriveAttention(
           id,
           title: row.displayTitle,
           ...(lastPromptAt === undefined ? {} : { lastPromptAt }),
-          // An idle row here is a container: its running descendants are the
-          // signal, so it carries no spinner and no duration.
           ...(live ? {} : { container: true }),
           ...(children === undefined ? {} : { children }),
+          ...(isPinned ? { pinned: true } : {}),
         },
       }
       running.push(candidate)
@@ -354,16 +270,21 @@ export function deriveAttention(
       return
     }
     if (entry?.completionUnread === true) {
-      const candidate: Candidate = { updatedAt: row.updatedAt, row: { id, title: row.displayTitle } }
+      const candidate: Candidate = {
+        updatedAt: row.updatedAt,
+        row: {
+          id,
+          title: row.displayTitle,
+          ...(isPinned ? { pinned: true } : {}),
+        },
+      }
       unread.push(candidate)
       if (blocked) waiting.push(candidate)
       return
     }
     // A pinned Session at rest: the row the user asked for, not a notification.
-    // `pinned` is set here and only here, because the fact it records is
-    // exactly "listed for the pin, not for work": the branches above list a row
-    // that has something to report.
-    if (pinned.has(id)) {
+    // It is a container, so `reportsActivity` keeps it out of the count.
+    if (isPinned) {
       running.push({
         updatedAt: row.updatedAt,
         row: {
@@ -387,18 +308,11 @@ export function deriveAttention(
 }
 
 /**
- * Comparable form of one row and everything mounted below it. Equality is
- * decided on content, never on object identity, so a source notification that
- * does not actually change the panel keeps the previous snapshot object —
- * `useSyncExternalStore` re-renders on identity, and an unrelated list update
- * must not cost a render.
- *
- * The prompt time rides the same comparison: it moves only when the user
- * prompts again, which is exactly a new run and a new count. The key covers the
- * nesting to any depth — ids, labels, container and pin flags, and turned-at
- * anchors — because a subagent starting or finishing a few hops down, with
- * every row above it otherwise standing still, is a change the panel must
- * repaint.
+ * Comparable form of one row and everything mounted below it. Equality is decided
+ * on content, never on object identity: `useSyncExternalStore` re-renders on
+ * identity, so an unrelated list update must not cost a render. The key covers the
+ * nesting to any depth, because a subagent starting or finishing a few hops down
+ * is a change the panel must repaint.
  */
 function rowKey(row: AttentionRow): string {
   return [
@@ -436,16 +350,11 @@ export interface AttentionStore extends ObservableSnapshot<AttentionModel> {
 export type AttentionWorkspaceSource = ObservableSnapshot<WorkspaceSnapshot>
 
 /**
- * Keep the attention model in step with all three sources.
- *
- * Subscribes eagerly: the entry is registered unconditionally, so there is no
- * lazy window to preserve. The caller owns the lifetime through {@link
+ * Keep the attention model in step with all three sources. The archive and pin
+ * sets get their own subscription: neither archiving nor pinning moves the Session
+ * list or the status, so a row the user just filed away or just pinned would
+ * otherwise stay as it was. The caller owns the lifetime through {@link
  * AttentionStore.dispose}.
- *
- * The archive and pin sets get their own subscription rather than being read
- * incidentally: neither archiving nor pinning moves the Session list or the
- * status, so without it a row the user just filed away or just pinned would
- * stay as it was until something unrelated changed.
  */
 export function createAttentionStore(
   list: AttentionListSource,
@@ -454,9 +363,8 @@ export function createAttentionStore(
 ): AttentionStore {
   const listeners = new Set<() => void>()
   /**
-   * One read-only Set per handed-over array: the controller replaces its array
-   * on a mutation and keeps the identity otherwise, so the array is the whole
-   * cache key.
+   * One read-only Set per handed-over array: the controller replaces the array on
+   * a mutation and keeps its identity otherwise, so the array is the whole cache key.
    */
   const cachedSet = (read: () => readonly SessionId[]): (() => ReadonlySet<SessionId>) => {
     let cache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
@@ -500,32 +408,23 @@ export function createAttentionStore(
 
 /**
  * Whether one running-section row stands for work: its own run, or the runs
- * mounted below it. A container row without children is a pinned Session at
- * rest — the one listing that carries no activity — so the badge, the toggle
- * outline and the taskbar pulse all skip it.
- * @param row - one row of the running section.
- * @returns true when the row reports a run of its own or one below it.
+ * mounted below it. A container row without children is a pinned Session at rest,
+ * which the badge, the toggle outline and the taskbar pulse all skip.
  */
 export function reportsActivity(row: AttentionRow): boolean {
   return row.container !== true || row.children !== undefined
 }
 
-/**
- * Whether the running section holds real work, so the badge, the toggle outline
- * and the taskbar pulse all answer "is something running" the same way.
- * @param model - the current attention content.
- * @returns true when at least one running-section row reports activity.
- */
+/** Whether the running section holds real work, the one answer all three surfaces read. */
 export function hasRunningActivity(model: AttentionModel): boolean {
   return model.running.some(reportsActivity)
 }
 
 /**
- * The wall-clock time one listed run has been going, in ms, counted from the
- * row's own anchor to `now`: a parent row's anchor is the latest human prompt
- * (`lastPromptAt`), a child row's is the start of its open turn (`turnedAt`).
- * `undefined` before the anchor projection has been read — the row renders
- * without a duration until the number exists.
+ * The wall-clock time one listed run has been going, in ms, from the row's own
+ * anchor to `now`: a parent counts from its latest human prompt (`lastPromptAt`),
+ * a child from the start of its open turn (`turnedAt`). `undefined` before the
+ * anchor projection has been read.
  */
 export function runElapsed(row: AttentionRow, now: number): number | undefined {
   const anchor = row.lastPromptAt ?? row.turnedAt
@@ -534,9 +433,8 @@ export function runElapsed(row: AttentionRow, now: number): number | undefined {
 }
 
 /**
- * `m:ss` before an hour, `h:mm:ss` from there — compact, and the same digit
- * count within one magnitude so the column does not jitter as it counts. A run
- * shorter than a second reads `0:00`, like a timer that has just started.
+ * `m:ss` before an hour, `h:mm:ss` from there: the same digit count within one
+ * magnitude, so the column does not jitter as it counts.
  */
 export function formatDuration(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)

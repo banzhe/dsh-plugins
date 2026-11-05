@@ -165,6 +165,16 @@ export function apply(ctx: ClientContext): void {
     // Bound to the plugin's store during render; the plugin owns the lifetime.
     useAttention: () => useSyncExternalStore(subscribeAttention, snapshotAttention),
     open: (id) => { ctx.uiWorkspace.openSession(id) },
+    // The Workspace Controller's own Host command, the one the sidebar's pin
+    // button issues: on success the pin set loses the id and the store re-derives
+    // the row out of the panel. A refusal leaves the row exactly as it stands —
+    // there is no notice channel here to open a dialog in — so the reason is
+    // logged and the next Workspace publication redraws the truth.
+    unpin: (id) => {
+      ctx.workspaces.unpinSession(id).catch((reason: unknown) => {
+        ctx.logger.warn('session-attention: the Host refused the unpin', reason)
+      })
+    },
   })
 
   // Slot registration waits for ui-layout's declaration; the entry leaves with it.

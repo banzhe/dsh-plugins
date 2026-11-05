@@ -25,10 +25,18 @@ export function workspaceSnapshot(
 
 export interface WorkspaceSource {
   readonly source: ReturnType<typeof createSnapshotStore<WorkspaceSnapshot>>
+  /** Session ids the panel asked the Host to unpin, in call order. */
+  readonly unpinned: SessionId[]
   /** Replace the registry-global archive set, as an archive mutation echoes it. */
   setArchived(...sessionIds: readonly string[]): void
   /** Replace the registry-global pin set, as a pin mutation echoes it. */
   setPinned(...sessionIds: readonly string[]): void
+  /**
+   * One Host unpin command, recorded and echoed: the id leaves the pin set the
+   * way the controller's own publication does, so the panel can be shown
+   * redrawing the row out.
+   */
+  unpinSession(sessionId: SessionId): Promise<void>
 }
 
 export function workspaceSource(
@@ -36,8 +44,10 @@ export function workspaceSource(
   pinned: readonly string[] = [],
 ): WorkspaceSource {
   const source = createSnapshotStore<WorkspaceSnapshot>(workspaceSnapshot(archived, pinned))
+  const unpinned: SessionId[] = []
   return {
     source,
+    unpinned,
     setArchived(...sessionIds) {
       // `set`, not `update`: the snapshot's fields are readonly, so an immer
       // draft cannot assign them.
@@ -45,6 +55,13 @@ export function workspaceSource(
     },
     setPinned(...sessionIds) {
       source.set({ ...source.getSnapshot(), pinnedSessionIds: sessionIds as SessionId[] })
+    },
+    async unpinSession(sessionId) {
+      unpinned.push(sessionId)
+      source.set({
+        ...source.getSnapshot(),
+        pinnedSessionIds: source.getSnapshot().pinnedSessionIds.filter(id => id !== sessionId),
+      })
     },
   }
 }

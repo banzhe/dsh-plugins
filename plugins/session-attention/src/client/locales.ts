@@ -10,6 +10,7 @@ export const zh = {
   'row.open': '打开会话 {title}',
   'row.openPinned': '打开置顶会话 {title}',
   'row.pinned': '置顶',
+  'row.unpin': '取消置顶',
 } as const
 
 export type AttentionKey = keyof typeof zh
@@ -24,4 +25,5 @@ export const en: Record<AttentionKey, string> = {
   'row.open': 'Open session {title}',
   'row.openPinned': 'Open pinned session {title}',
   'row.pinned': 'Pinned',
+  'row.unpin': 'Unpin session',
 }
