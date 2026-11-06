@@ -33,6 +33,14 @@ declare module '@deepseek-ai/dsh-llm' {
   }
 }
 
+// An auxiliary purpose is declared by its producer, like `compaction` in
+// `@deepseek-ai/dsh-compaction-basic`, so `GenerateOptions.purpose` accepts it.
+declare module '@deepseek-ai/dsh-llm/types' {
+  interface LlmRequestPurposeMap {
+    'session-title': true
+  }
+}
+
 /**
  * The module's one capability: the model stream. Production passes `ctx.llm`
  * (which satisfies this structurally); a test passes an async iterable of
