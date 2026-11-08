@@ -169,7 +169,9 @@ async function setup(): Promise<Fixture> {
   }
 }
 
-describe('a (sbx) Session over a Windows workspace', () => {
+// The fixture's host directory is a Windows drive path and one assertion resolves
+// it with win32, so this block only runs where that spelling is absolute.
+describe.skipIf(process.platform !== 'win32')('a (sbx) Session over a Windows workspace', () => {
   it('records the host directory as the Session directory', async () => {
     const f = await setup()
     await expect(f.workingDirectory.set(f.agent, HOST)).resolves.toBe(HOST)

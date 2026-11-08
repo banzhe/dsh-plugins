@@ -221,7 +221,20 @@ function toAbsolute(value, base) {
 }
 
 /**
- * Resolve a path to its stable identity, keeping a missing suffix under the nearest existing ancestor.
+ * Whether one filesystem failure means the path is not a directory that exists.
+ *
+ * A file used as a directory is ENOTDIR on POSIX and ENOENT on Windows, so both
+ * read as "absent" here; whichever operation follows reports the entry itself.
+ * @param {unknown} error - the failure of one realpath, stat, or lstat call.
+ * @returns true when the path is absent rather than unreadable.
+ */
+function isAbsent(error) {
+  return error !== null && typeof error === 'object'
+    && (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+}
+
+/**
+ * Resolve a path to its stable identity, keeping an absent suffix under the nearest existing ancestor.
  * @param {string} absolute - the absolute path to identify.
  * @returns {Promise<string>} the realpath-based identity.
  */
@@ -229,10 +242,7 @@ async function identityOf(absolute) {
   try {
     return toPosixPath(await realpath(absolute))
   } catch (error) {
-    if (error.code === 'ENOTDIR') {
-      throw fsError('cannot resolve "' + absolute + '": a parent path segment is not a directory', 'FS_NOT_FOUND')
-    }
-    if (error.code !== 'ENOENT') throw translateError(error)
+    if (!isAbsent(error)) throw translateError(error)
   }
   const missing = [posix.basename(absolute)]
   let ancestor = posix.dirname(absolute)
@@ -241,7 +251,7 @@ async function identityOf(absolute) {
       const real = toPosixPath(await realpath(ancestor))
       return posix.join(real, ...missing)
     } catch (error) {
-      if (error.code !== 'ENOENT') throw translateError(error)
+      if (!isAbsent(error)) throw translateError(error)
       const parent = posix.dirname(ancestor)
       if (parent === ancestor) return absolute
       missing.unshift(posix.basename(ancestor))
@@ -268,7 +278,7 @@ async function probe(absolute, follow = true) {
   try {
     return await (follow ? stat : lstat)(absolute, { bigint: true })
   } catch (error) {
-    if (error.code === 'ENOENT' || error.code === 'ENOTDIR') return null
+    if (isAbsent(error)) return null
     throw translateError(error)
   }
 }

@@ -15,10 +15,11 @@
  */
 
 import { readFileSync, statSync } from 'node:fs'
-import { dirname, join, posix } from 'node:path'
+import { posix, win32 } from 'node:path'
 import { parseJsonc } from './jsonc.ts'
 import {
   defaultContainerWorkspaceFolder,
+  hostPathStyle,
   isPathInsideContainer,
   isWindowsPath,
   normalizeHostRoot,
@@ -162,14 +163,18 @@ export function buildSpec(input: {
  * @returns the found file and its repository root, or undefined when no ancestor declares one.
  */
 export function findConfigFile(startDir: string, read: ReadTextFile = readTextFile): FoundConfig | undefined {
+  // One path module owns the whole walk: a Windows-shaped start normalized by
+  // win32 and then split by the platform module (or the reverse) builds ancestor
+  // paths no reader answers for, and the declaration above them is never found.
+  const paths = hostPathStyle(startDir) === 'win32' ? win32 : posix
   let current = normalizeHostRoot(startDir)
   for (let depth = 0; depth < MAX_ANCESTOR_DEPTH; depth += 1) {
     for (const candidate of CONFIG_CANDIDATES) {
-      const configPath = join(current, ...candidate.relativePath.split('/'))
+      const configPath = paths.join(current, ...candidate.relativePath.split('/'))
       if (read(configPath) === undefined) continue
       return { configPath, hostRoot: current }
     }
-    const parent = dirname(current)
+    const parent = paths.dirname(current)
     if (parent === current) break
     current = parent
   }

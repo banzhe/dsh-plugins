@@ -159,7 +159,9 @@ describe('RepoContainerRegistry', () => {
   })
 
   it('discovers through an injected reader instead of the filesystem', () => {
-    const root = join('F:', 'injected-repo')
+    // The reader answers for the keys this test builds, so the root is absolute in
+    // the running platform's own spelling; a drive root only walks on Windows.
+    const root = process.platform === 'win32' ? join('F:', 'injected-repo') : join('/', 'injected-repo')
     const files = new Map<string, string>([
       [join(root, '.dsh', 'devcontainer.json'), '{ "container": "injected" }'],
     ])
