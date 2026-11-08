@@ -1,0 +1,71 @@
+# This layer swaps BOTH execution capabilities for container-aware ones.
+#
+# Loader patch semantics: a non-insert entry targets a row by `id` and can only
+# change `config`/`disabled`; a supplied `name` must equal the target's. Rows the
+# bundles own are disabled here on purpose — each of these services holds exactly
+# one slot, so the built-in provider must not register at all.
+#
+#   bash-sandbox / pwsh-sandbox  provide the local `ctx.shell`; the devcontainer
+#                                executor replaces them (it subclasses
+#                                `SandboxBashExecutor`, so the process mechanics
+#                                AND the host-side confinement are the same; a
+#                                container-bound command changes only the argv and
+#                                cwd, and reports itself unconfined on the host
+#                                because the container confines it). Outside a Dev
+#                                Container repository it reproduces the local
+#                                provider of THIS platform: bash on POSIX,
+#                                PowerShell on Windows. Basing on the sandboxed
+#                                executor is what keeps `ctx.shell.sandboxMode`
+#                                available for permission presets.
+#   fs-sandbox                   provides `ctx.fs`; the bridged filesystem
+#                                subclasses the SAME `SandboxedFileSystem`, so the
+#                                per-call write fence is unchanged.
+#
+# `subprocess` keeps its row: the Host row below decorates the mounted seam's
+# `spawn` (one decision — a container-side working directory becomes the host
+# repository root, because no host process can start in `/workspaces/…`) instead
+# of providing a second implementation, which Cordis would refuse.
+#
+# This file deliberately says NOTHING about `tool-bash` / `tool-pwsh`.
+# `packages/bundle/web-app/cordis.patch.yml:493-497` disables both at the host
+# level on purpose: which shell tool an agent gets is decided by its PRESET, not
+# by the deployment. Re-enabling `tool-bash` here would hand `bash` to every
+# agent, including the delegate main agent whose preset mounts no shell tool at
+# all. The shell-tool flip lives in the derived `… (devContainer)` presets
+# instead (docs/plugins/devcontainer.md, "Windows shell tools").
+#
+# The browser half — the settings page that chooses which presets get a
+# `… (devContainer)` variant — is the `dsh.client` entry of the SAME package, added
+# by the client module scanner rather than by a row here. Nothing is derived until
+# someone checks a box on that page: `sources` starts empty. The second track,
+# `… (sbx)` variants derived from `sbxSources`, needs no page and no declaration:
+# the Host row derives it from the profile config, and the executor reaches a
+# Docker Sandbox through the same `ctx.shell` / `ctx.fs` rows below.
+#
+# Rollback: remove this Bundle from the Profile; the disabled rows re-enable
+# themselves and each replaced service goes back to its local provider.
+- id: bash-sandbox
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+- id: fs-sandbox
+  disabled: true
+
+- insert:
+    - id: devcontainer
+      name: '@banzhe/dsh-devcontainer'
+
+    # The container executor: registers `ctx.shell` and runs every command
+    # through `docker exec` / `devcontainer exec` when the workdir's repository
+    # declares a Dev Container, and through the platform's own local executor
+    # otherwise.
+    - id: devcontainer-shell
+      name: '@banzhe/dsh-devcontainer/shell'
+
+    # The path bridge: registers `ctx.fs` and maps `/workspaces/<repo>/…` (and the
+    # `F:\workspaces\<repo>\…` a Windows model mangles it into) onto the host path
+    # before delegating to the sandboxed local backend.
+    - id: devcontainer-fs
+      name: '@banzhe/dsh-devcontainer/fs'

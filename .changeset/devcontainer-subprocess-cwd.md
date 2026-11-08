@@ -1,0 +1,5 @@
+---
+"@banzhe/dsh-devcontainer": patch
+---
+
+Start host processes in a directory the host can enter. In a `(devContainer)` session every seam speaks container paths — `ctx.shell` reports `/workspaces/<repo>/…` and the filesystem row reports the same spelling as the session working directory — so `run_code` handed the PTC runtime a directory that exists only on the container side, and the worker was spawned into it: `spawn … ENOENT` before its first `tools.read`. `ctx.subprocess.spawn` is decorated for that one decision: a working directory that belongs to a discovered repository is translated back onto that repository's host root with the POSIX remainder arithmetic and the host separator style the path module already owns, so Windows, Linux, and macOS hosts take one code path and no drive letter is constructed. An ordinary session, a host path, a relative path, and a container path no declaration owns reach the provider exactly as written, the caller's spec is otherwise untouched, and unloading the Bundle gives the provider its own method back. What the worker then does with files is unchanged: those calls are `ctx.fs`, which is the container RPC pipe.

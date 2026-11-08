@@ -1,0 +1,132 @@
+/*
+ * The Dev Container variants page's token sheet, imported as text
+ * (`./styles.css?inline`) and inlined into `lib/client.js` at build time: the
+ * ModuleLoader fetches one artifact, so a plain `.css` import has nowhere to
+ * land. See `tsdown.config.ts`.
+ *
+ * Class names are prefixed `dcv-` so the sheet cannot collide with the shell's.
+ * The values mirror the shipped settings sections: a section heading, a tertiary
+ * intro line, and one card per derivative track holding one row per preset over
+ * the card tokens.
+ */
+.dcv-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 720px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.dcv-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.dcv-intro,
+.dcv-count,
+.dcv-notice,
+.dcv-description,
+.dcv-group-description {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dcv-notice[data-failed='true'] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+/* One derivative track: (devContainer) or (sbx). */
+.dcv-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 0.5px solid var(--dsw-alias-settings-card-stroke);
+  border-radius: var(--dsw-radius-xl);
+  background: var(--dsw-alias-settings-card-fill);
+}
+
+.dcv-group-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.dcv-suffix {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.dcv-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.dcv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.dcv-row + .dcv-row {
+  border-top: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.dcv-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dcv-description {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 420px;
+}
+
+/* A checked row is the one that costs something: it is the one registered. */
+.dcv-row[data-checked='true'] .dcv-tail {
+  color: var(--dsw-alias-label-primary);
+}
+
+.dcv-tail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: none;
+}
+
+.dcv-id {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+
+.dcv-state {
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+  min-width: 56px;
+  text-align: right;
+}
+
+.dcv-state[data-checked='true'] {
+  color: var(--dsw-alias-label-secondary, var(--dsw-alias-label-tertiary));
+}
