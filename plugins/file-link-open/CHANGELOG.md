@@ -1,5 +1,11 @@
 # @banzhe/dsh-file-link-open
 
+## 0.2.3
+
+### Patch Changes
+
+- 97414ec: 重构右键菜单为常驻挂载并由内部 state 驱动，消除每次右键重复调用 contextRoot.render 与 Portal 重建的性能开销。
+
 ## 0.2.2
 
 ### Patch Changes
