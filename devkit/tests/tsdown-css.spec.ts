@@ -68,6 +68,12 @@ function classMapOf(source: string): Record<string, string> {
   return JSON.parse(declaration.slice('export default '.length, -1)) as Record<string, string>
 }
 
+function cssUnescape(value: string): string {
+  return value.replace(/\\([0-9a-fA-F]{1,6})\s?/g, (_: string, hex: string) =>
+    String.fromCodePoint(parseInt(hex, 16)),
+  )
+}
+
 describe('cssPlugins', () => {
   it('offers one loader per import form', () => {
     expect((cssPlugins(ID) as unknown as Loader[]).map(plugin => plugin.name))
@@ -107,7 +113,7 @@ describe('CSS Modules sheets', () => {
 
     const classMap = classMapOf(source)
     expect(Object.keys(classMap)).toEqual(['spin'])
-    expect(source).toContain(`@keyframes ${classMap['spin']}`)
+    expect(cssUnescape(source)).toContain(`@keyframes ${classMap['spin']}`)
   })
 
   it('records the sheet on the global registry only when asked', async () => {
