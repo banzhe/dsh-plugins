@@ -19,11 +19,16 @@ Moved out of the plugin's README, which now covers only features and installatio
   archived is never announced, and archiving a finished row retracts it from the
   badge. Restoring one re-counts it without a second announcement, because
   archiving does not clear the host's completion reminder.
-- A Session still waiting on a running subagent descendant is skipped by both
-  surfaces too, and announces once the last descendant settles (see Delegation
-  gating).
+- A Session that delegated to a subagent is skipped by both surfaces while the
+  descendant runs, and skipped again the moment the last descendant settles: that
+  only hands the reports back. It announces once its own turn has been woken,
+  run, and stopped again since (see Delegation gating).
 - First observation is state-only: a reload shows the current count and does
   not re-announce Sessions that finished while no page was watching.
+- A tick's worth of source updates lands as one projection. The status, list,
+  and archive notifications that arrive in the same microtask are folded into a
+  single read, so the state a completion is judged on is the one the host
+  settled on rather than whatever the first notification happened to show.
 - A page with neither badging nor a `Notification` constructor still registers
   dictionaries and the settings row, so the readout can explain the silence.
 
@@ -79,14 +84,33 @@ host data, and a forged cycle must not keep the walk alive. Depth is bounded by
 the delegation depth the runtime enforces, so the explicit frontier is a few
 levels deep at most.
 
+The settlement of the last descendant is not a completion either. It hands the
+reports back: the host wakes the parent, which reads them and answers in a turn
+of its own, and *that* turn's end is what the user is being told about. Two
+bookmarks in `CompletionObserver` span the handover:
+
+- `awaitingParentCompletion` — Sessions seen with a running descendant. They owe
+  a turn of their own, and the bookmark is reset whenever a new descendant starts
+  running, because the turn that dispatches again ends unread again.
+- `parentTurnObserved` — those of them seen running after their last descendant
+  stopped, i.e. woken. Only a Session carrying this bookmark may be announced when
+  it stops; one that stops without it merely closed the turn that dispatched the
+  wave.
+
+The fold therefore walks **every listed Session, not only the completion-unread
+ones**: starting a turn clears the host's unread flag
+(`sessionStatusService.observeRunning`), so the wake-up is visible only as a
+running Session, and an unread-only walk would never see it — the announcement
+would then be withheld forever instead of early.
+
 The skip happens while the finished set is built, *before* the previous
 observation set is recorded — deliberately, and unlike the archive filter. A
-waiting Session is therefore absent from that set, so the first observation in
-which it is finished-unread **and** has no running descendant reports it as newly
-completed: the announcement is deferred until the whole delegation wave goes
-quiet rather than dropped. Filtering the notification list instead would record
-the Session as already told while the badge counted it, losing the real
-completion and announcing nothing.
+waiting Session is therefore absent from that set, so the observation in which it
+is finished-unread, has no running descendant **and** carries the wake-up
+bookmark reports it as newly completed: the announcement is deferred until the
+parent has answered rather than dropped. Filtering the notification list instead
+would record the Session as already told while the badge counted it, losing the
+real completion and announcing nothing.
 
 ## Surfaces
 

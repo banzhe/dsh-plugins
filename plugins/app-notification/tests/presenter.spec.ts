@@ -10,11 +10,11 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import {
-  AppBadgePresenter, CompletionPresenter, notificationPermission, pickWorkspaceDemoTarget,
-  probeCapabilities, requestNotificationPermission,
+  AppBadgePresenter, CompletionPresenter, createMicrotaskBatchScheduler, notificationPermission,
+  pickWorkspaceDemoTarget, probeCapabilities, requestNotificationPermission,
   type CompletionPresenterOptions,
 } from '../src/client/presenter.ts'
-import { sessionRow, sessionSources, type SessionRow } from './session-list-double.ts'
+import { sessionRow, sessionSources, sessionStatusOf, type SessionRow } from './session-list-double.ts'
 import { workspaceSource, workspaceView } from './workspace-source-double.ts'
 import { CompletionObserver } from '../src/client/completion.ts'
 
@@ -202,6 +202,41 @@ describe('AppBadgePresenter', () => {
     vi.stubGlobal('navigator', {})
     expect(() => { new AppBadgePresenter(logger).project(1) }).not.toThrow()
     expect(logger.warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('createMicrotaskBatchScheduler', () => {
+  it('runs the batch once per microtask, however many requests join it', async () => {
+    const schedule = createMicrotaskBatchScheduler()
+    const seen: string[] = []
+    schedule(() => { seen.push('first') })
+    schedule(() => { seen.push('second') })
+    schedule(() => { seen.push('third') })
+    // Nothing runs before the queue reaches the microtask.
+    expect(seen).toEqual([])
+    await Promise.resolve()
+    // The first request owns the pending run; the later ones only join it.
+    expect(seen).toEqual(['first'])
+
+    // The batch is closed, so a fresh request schedules a fresh run.
+    schedule(() => { seen.push('fourth') })
+    await Promise.resolve()
+    expect(seen).toEqual(['first', 'fourth'])
+  })
+
+  it('skips a batch cancelled before its microtask', async () => {
+    const schedule = createMicrotaskBatchScheduler()
+    const run = vi.fn()
+    schedule(run)()
+    await Promise.resolve()
+    expect(run).not.toHaveBeenCalled()
+
+    // Cancelling a batch that already ran is a no-op.
+    const settled = vi.fn()
+    const cancelSettled = schedule(settled)
+    await Promise.resolve()
+    cancelSettled()
+    expect(settled).toHaveBeenCalledOnce()
   })
 })
 
@@ -438,6 +473,69 @@ describe('CompletionPresenter', () => {
     const rebuilt = setsSeen().at(-1)
     expect(rebuilt).not.toBe(first)
     expect(rebuilt?.has('a' as SessionId)).toBe(true)
+    observe.mockRestore()
+    detach()
+  })
+
+  it('coalesces a tick of status and list updates into one apply over the merged state', async () => {
+    const badge = stubCapabilities()
+    const sessions = sessionSources([summary('a', { running: true })])
+    const presenter = new CompletionPresenter({
+      ...options(), schedule: createMicrotaskBatchScheduler(),
+    })
+    const observe = vi.spyOn(CompletionObserver.prototype, 'observe')
+    const detach = presenter.attach(sessions.status, sessions.list)
+    // The baseline apply is not part of any batch.
+    observe.mockClear()
+
+    // The parent's turn ends, then the subagent row it started lands on the list
+    // a microtask later. Applying the status change alone would read a Session
+    // with no descendant and announce it as finished while it is still working.
+    sessions.status.set(sessionStatusOf([summary('a', { completed: true })]))
+    sessions.list.update((state) => {
+      state.ids.push('child' as SessionId)
+      state.byId['child' as SessionId] = summary('child', {
+        origin: 'subagent', parentId: 'a' as SessionId, running: true,
+      })
+    })
+    expect(observe).not.toHaveBeenCalled()
+    expect(FakeNotification.instances).toEqual([])
+
+    await Promise.resolve()
+    // One apply, and its snapshots are the merged ones: the finished parent and
+    // the child row that keeps it delegating.
+    expect(observe).toHaveBeenCalledOnce()
+    const [statusSeen, listSeen] = observe.mock.calls[0] ?? []
+    expect(statusSeen?.get('a' as SessionId)?.completionUnread).toBe(true)
+    expect(listSeen?.byId['child' as SessionId]?.running).toBe(true)
+    expect(FakeNotification.instances).toEqual([])
+    expect(badge.setAppBadge).not.toHaveBeenCalled()
+
+    // The last descendant settling still is not the completion: it only wakes the
+    // parent, which has yet to answer.
+    sessions.list.update((state) => {
+      state.byId['child' as SessionId] = summary('child', {
+        origin: 'subagent', parentId: 'a' as SessionId, running: false,
+      })
+    })
+    await Promise.resolve()
+    expect(FakeNotification.instances).toEqual([])
+    expect(badge.setAppBadge).not.toHaveBeenCalled()
+
+    // The wake-up reads as a parent that runs again with no unread flag.
+    sessions.list.update((state) => {
+      state.byId['a' as SessionId] = summary('a', { running: true })
+    })
+    await Promise.resolve()
+    expect(FakeNotification.instances).toEqual([])
+
+    // That turn ends: coalescing deferred the announcement, it did not drop it.
+    sessions.list.update((state) => {
+      state.byId['a' as SessionId] = summary('a', { completed: true, updatedAt: 2 })
+    })
+    await Promise.resolve()
+    expect(FakeNotification.instances).toHaveLength(1)
+    expect(badge.setAppBadge).toHaveBeenCalledWith(1)
     observe.mockRestore()
     detach()
   })

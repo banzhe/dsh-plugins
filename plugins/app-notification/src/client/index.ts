@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: the `settings.general.item` slot declaration this plugin registers into.
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import { CompletionPresenter } from './presenter.ts'
+import { CompletionPresenter, createMicrotaskBatchScheduler } from './presenter.ts'
 import { CompletionSettingsRow, type CompletionSettingsInjected } from './SettingsRow.tsx'
 import { en, NS, zh, type AppBadgeKey } from './locales.ts'
 // Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
@@ -88,6 +88,10 @@ export function apply(ctx: ClientContext): void {
     tag: TAG,
     testTag: TEST_TAG,
     demoTag: DEMO_TAG,
+    // The host publishes a status change and the list change behind it as
+    // separate notifications; the microtask batch turns a tick's worth of them
+    // into one `apply` over the settled state.
+    schedule: createMicrotaskBatchScheduler(),
   })
 
   // One subscription for the plugin's lifetime; installed lazily and only for a

@@ -84,6 +84,41 @@ function desktopWindowReveal(): (() => Promise<void>) | undefined {
   return typeof reveal === 'function' ? reveal : undefined
 }
 
+/**
+ * A batch scheduler that folds everything a caller requests inside one `run`
+ * of the microtask queue into a single execution.
+ *
+ * The host publishes a status change and the list change it derives from as
+ * separate notifications, so a presenter reading both on each one can see a
+ * half-applied state. Coalescing them means one read of the merged result.
+ *
+ * Only the first caller in a batch gets its closure executed: later requests
+ * join the pending run instead of replacing it, and every caller receives a
+ * cancellation for its own request. The closure is expected to read its inputs
+ * at run time (a snapshot getter, not a captured value) so the surviving run
+ * observes the merged state rather than the state the first caller saw.
+ */
+export function createMicrotaskBatchScheduler(): (run: () => void) => () => void {
+  let scheduled = false
+  let cancelled = false
+  return (run: () => void) => {
+    cancelled = false
+    if (scheduled) {
+      return () => { cancelled = true }
+    }
+    scheduled = true
+    queueMicrotask(() => {
+      scheduled = false
+      if (!cancelled) {
+        run()
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }
+}
+
 /** Locale-resolved strings one notification carries. */
 export interface NotificationCopy {
   readonly title: string
@@ -122,6 +157,11 @@ export interface CompletionPresenterOptions {
   readonly testTag: string
   /** Demo-notification tag; distinct so a demo never displaces a real announcement either. */
   readonly demoTag: string
+  /**
+   * Schedules batch sync runs. Returns a cancellation function.
+   * Defaults to synchronous execution so unit tests run deterministically.
+   */
+  readonly schedule?: (run: () => void) => () => void
 }
 
 /**
@@ -259,8 +299,13 @@ export class CompletionPresenter {
   private readonly pendingClicks = new Map<string, () => void>()
   private readonly disposeActivation: (() => void) | undefined
   private archivedCache: { readonly ids: readonly SessionId[]; readonly set: ReadonlySet<SessionId> } | undefined
+  private readonly schedule: (run: () => void) => () => void
+  private cancelPendingSync: (() => void) | undefined
 
   constructor(private readonly options: CompletionPresenterOptions) {
+    // Synchronous unless the host passes a batcher, which keeps every spec that
+    // updates a source and asserts in the same tick deterministic.
+    this.schedule = options.schedule ?? ((run) => { run(); return () => {} })
     // Only badging is probed once: the API's presence cannot change during a
     // page's life. Notification permission CAN, so it is read per use.
     this.badge = this.capabilities.badge ? new AppBadgePresenter(options.logger) : undefined
@@ -307,22 +352,42 @@ export class CompletionPresenter {
    * @param list - Session catalog source (`ctx.sessions.list`).
    */
   attach(status: ObservableSnapshot<SessionStatusSnapshot>, list: ObservableSnapshot<SessionListState>): () => void {
-    const sync = (): void => {
-      this.apply(status.getSnapshot(), list.getSnapshot(), this.options.workspaces.getSnapshot())
-    }
+    const sync = (): void => { this.requestSync(status, list) }
     const unsubscribeStatus = status.subscribe(sync)
     const unsubscribeList = list.subscribe(sync)
     // Archiving a finished Session moves neither the status nor the list, so
     // without this subscription the badge would keep counting a row the user
     // just filed away.
     const unsubscribeWorkspaces = this.options.workspaces.subscribe(sync)
-    sync()
+    // The baseline applies directly, not through the scheduler: the badge and a
+    // Session already finished at load belong on screen before the first tick.
+    this.apply(status.getSnapshot(), list.getSnapshot(), this.options.workspaces.getSnapshot())
     return () => {
+      this.cancelPendingSync?.()
+      this.cancelPendingSync = undefined
       unsubscribeStatus()
       unsubscribeList()
       unsubscribeWorkspaces()
       this.badge?.clear()
     }
+  }
+
+  /**
+   * Fold one source change into the pending sync. The three sources publish
+   * non-atomically — a parent's turn end and the subagent row it spawns can
+   * arrive a microtask apart — so applying on the first change would read a
+   * state the host never settled on. `apply` reads both snapshots when it runs,
+   * which is what makes the coalesced run see the merged result.
+   */
+  private requestSync(
+    status: ObservableSnapshot<SessionStatusSnapshot>,
+    list: ObservableSnapshot<SessionListState>,
+  ): void {
+    this.cancelPendingSync?.()
+    this.cancelPendingSync = this.schedule(() => {
+      this.cancelPendingSync = undefined
+      this.apply(status.getSnapshot(), list.getSnapshot(), this.options.workspaces.getSnapshot())
+    })
   }
 
   /**
@@ -459,6 +524,8 @@ export class CompletionPresenter {
   }
 
   detach(): void {
+    this.cancelPendingSync?.()
+    this.cancelPendingSync = undefined
     this.disposeActivation?.()
     this.pendingClicks.clear()
   }

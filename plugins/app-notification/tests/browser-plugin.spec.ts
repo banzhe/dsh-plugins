@@ -64,6 +64,12 @@ async function bench(surface: SessionSources & {
   return { ctx, fiber, slots, workspaces }
 }
 
+/**
+ * The browser half coalesces a tick's source updates into one microtask batch,
+ * so a surface lands one microtask after the store write that caused it.
+ */
+const flush = (): Promise<void> => Promise.resolve()
+
 afterEach(() => {
   FakeNotification.instances = []
   FakeNotification.permission = 'granted'
@@ -84,6 +90,7 @@ describe('app-badge browser half', () => {
     surface.update((state) => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
     expect(FakeNotification.instances[0]?.options).toMatchObject({
@@ -109,6 +116,7 @@ describe('app-badge browser half', () => {
     surface.update((state) => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     FakeNotification.instances[0]?.onclick?.()
     expect(surface.openSession).toHaveBeenCalledWith('a')
   })
@@ -123,10 +131,13 @@ describe('app-badge browser half', () => {
     surface.update((state) => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     expect(FakeNotification.instances).toHaveLength(1)
 
     workspaces.archive('a' as SessionId)
+    await flush()
     workspaces.unarchive()
+    await flush()
     // Restored, the row is announced again only if it finishes again.
     expect(FakeNotification.instances).toHaveLength(1)
   })
@@ -142,10 +153,11 @@ describe('app-badge browser half', () => {
     surface.update((state) => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     expect(FakeNotification.instances).toEqual([])
   })
 
-  it('holds both surfaces until the running subagent stops', async () => {
+  it('holds both surfaces until the parent answers after its subagent stops', async () => {
     const surface = stubCapabilities()
     await bench(surface)
     const badge = navigator as unknown as { setAppBadge: { mock: { calls: (number | undefined)[][] } } }
@@ -163,12 +175,30 @@ describe('app-badge browser half', () => {
       state.byId['parent' as SessionId] = parent({ completed: true, updatedAt: 2 })
     })
     // The parent stopped, but its subagent is still working: nothing to tell the user yet.
+    await flush()
     expect(FakeNotification.instances).toEqual([])
     expect(badgeCounts()).not.toContain(1)
 
+    // The subagent settling only wakes the parent, which has yet to answer.
     surface.update((state) => {
       state.byId['child' as SessionId] = child({ running: false })
     })
+    await flush()
+    expect(FakeNotification.instances).toEqual([])
+    expect(badgeCounts()).not.toContain(1)
+
+    // The wake-up: the parent is working again, still nothing to tell the user.
+    surface.update((state) => {
+      state.byId['parent' as SessionId] = parent({ running: true, updatedAt: 3 })
+    })
+    await flush()
+    expect(FakeNotification.instances).toEqual([])
+
+    // Its turn ended with the subagent's report in hand — that is the completion.
+    surface.update((state) => {
+      state.byId['parent' as SessionId] = parent({ completed: true, updatedAt: 4 })
+    })
+    await flush()
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
     expect(FakeNotification.instances[0]?.options).toMatchObject({
@@ -271,6 +301,7 @@ describe('app-badge browser half', () => {
     surface.update((state) => {
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     expect(FakeNotification.instances).toEqual([])
 
     const result = await slots.injection('app-badge').request()
@@ -280,6 +311,7 @@ describe('app-badge browser half', () => {
       state.ids = ['a' as SessionId, 'b' as SessionId]
       state.byId['b' as SessionId] = sessionRow('b', { displayTitle: 'Beta', completed: true, updatedAt: 3 })
     })
+    await flush()
     expect(FakeNotification.instances).toHaveLength(1)
     expect(FakeNotification.instances[0]?.title).toBe(en['notify.title'])
   })
@@ -291,6 +323,7 @@ describe('app-badge browser half', () => {
       state.ids = ['a' as SessionId]
       state.byId['a' as SessionId] = sessionRow('a', { displayTitle: 'Alpha', completed: true, updatedAt: 2 })
     })
+    await flush()
     expect(FakeNotification.instances).toEqual([])
     // The row is the only surface that can explain the silence, so it stays.
     expect(slots.entry('app-badge')).toBeDefined()

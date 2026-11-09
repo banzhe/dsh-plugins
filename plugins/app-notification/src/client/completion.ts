@@ -12,11 +12,15 @@
  * sidebar hides `origin: 'subagent'` rows, and counting them would let one
  * delegation fan-out inflate the icon past anything the sidebar shows.
  *
- * A Session still delegating to a running subagent does not count either: it is
- * idle while its descendants work, so the host marks it completion-unread the
- * moment the turn that started them ends. Suppressing it here, before the
- * previous-observation set is recorded, is what defers the announcement to the
- * moment the last descendant settles rather than dropping it.
+ * A Session that delegated to a subagent does not count at either of the two
+ * moments the host marks it completion-unread: it is idle while its descendants
+ * work, so the turn that started them ends unread, and the settlement of the
+ * last descendant unreads it again. Neither is a completion the user should be
+ * told about. The settlement only hands the reports back — the parent is then
+ * woken to read them and answer, which is a turn of its own, and that turn's end
+ * is the completion the notification is about. So a delegating Session is
+ * announced only once its own turn has been observed running after the wave
+ * settled *and* has stopped again since.
  *
  * Archived Sessions never count either: the archive set is registry-global and
  * the sidebar files those rows away, so a Session the user put away is not work
@@ -111,6 +115,21 @@ function hasRunningDescendant(
 export class CompletionObserver {
   private seen: ReadonlySet<SessionId> | undefined
 
+  /**
+   * Sessions that delegated to a descendant and therefore still owe a turn of
+   * their own before their finish may be announced: the wave that ends only
+   * hands the reports back, and the parent answers afterwards.
+   */
+  private readonly awaitingParentCompletion = new Set<SessionId>()
+
+  /**
+   * The subset of {@link awaitingParentCompletion} whose own turn was seen
+   * running once its last descendant had settled — the wake-up happened. The
+   * next stop is the completion worth a notification; without this bookmark a
+   * stop is still the parent waiting to be woken.
+   */
+  private readonly parentTurnObserved = new Set<SessionId>()
+
   observe(
     status: SessionStatusSnapshot,
     list: SessionListState,
@@ -118,13 +137,17 @@ export class CompletionObserver {
   ): CompletionObservation {
     const children = childIndex(list.byId)
     const finished: SessionSummary[] = []
-    for (const [id, entry] of status) {
-      if (!entry.completionUnread) continue
+    // Every listed Session is folded, not just the completion-unread ones:
+    // starting a turn clears the host's unread flag, so the wake-up this fold
+    // has to see is exactly the observation an unread-only walk would skip.
+    for (const id of list.ids) {
       const row = list.byId[id]
       if (row === undefined || row.origin === 'subagent') continue
-      if (hasRunningDescendant(id, list, status, children)) continue
+      if (!this.settled(id, status, list, children)) continue
+      if (status.get(id)?.completionUnread !== true) continue
       finished.push(row)
     }
+    this.prune(status, list, archived)
     const previous = this.seen
     this.seen = new Set(finished.map(row => row.id))
     // Filtered after `seen` is recorded: an archived Session is still told
@@ -136,6 +159,60 @@ export class CompletionObserver {
       newlyCompleted: previous === undefined
         ? []
         : completed.filter(row => !previous.has(row.id)),
+    }
+  }
+
+  /**
+   * Whether `id` has reached a completion worth counting on this observation,
+   * advancing the delegation bookmarks on the way.
+   *
+   * A Session with any running descendant is delegating: it owes a turn of its
+   * own, and a turn observed for an earlier wave no longer counts, because the
+   * parent ends that turn unread the moment it dispatches again.
+   *
+   * Once the wave has settled, the parent's own state is the only thing left to
+   * read. Running: the settlement woke it up and it is working on the answer, so
+   * the handover is under way and nothing may be announced yet. Not running: only
+   * a Session whose wake-up was observed earlier has finished that turn — without
+   * that observation the last descendant only just stopped, and the notification
+   * would arrive before the parent has said anything.
+   */
+  private settled(
+    id: SessionId,
+    status: SessionStatusSnapshot,
+    list: SessionListState,
+    children: ReadonlyMap<SessionId, readonly SessionId[]>,
+  ): boolean {
+    if (hasRunningDescendant(id, list, status, children)) {
+      this.awaitingParentCompletion.add(id)
+      this.parentTurnObserved.delete(id)
+      return false
+    }
+    if (!this.awaitingParentCompletion.has(id)) return !isRunning(id, list, status)
+    if (isRunning(id, list, status)) {
+      this.parentTurnObserved.add(id)
+      return false
+    }
+    if (!this.parentTurnObserved.has(id)) return false
+    this.awaitingParentCompletion.delete(id)
+    this.parentTurnObserved.delete(id)
+    return true
+  }
+
+  /**
+   * Drop bookmarks for a Session the controller no longer publishes anywhere, or
+   * that the user filed away: neither can still be woken or settled, and holding
+   * them would only grow the sets.
+   */
+  private prune(
+    status: SessionStatusSnapshot,
+    list: SessionListState,
+    archived: ReadonlySet<SessionId>,
+  ): void {
+    for (const id of this.awaitingParentCompletion) {
+      if (!archived.has(id) && (status.has(id) || list.byId[id] !== undefined)) continue
+      this.awaitingParentCompletion.delete(id)
+      this.parentTurnObserved.delete(id)
     }
   }
 }
