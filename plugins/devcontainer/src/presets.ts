@@ -342,10 +342,8 @@ const DEFAULT_VARIANT_DEPTH = 4
  */
 export function variantDescription(source: PresetDeclaration, kind: VariantKind = 'devcontainer'): string {
   const note = kind === 'sbx'
-    ? "Every command runs inside the Docker Sandbox mounted on this workspace; "
-      + 'the shell tool is bash, and file paths are the same absolute Linux paths they have on the host.'
-    : "Every command runs inside the repository's Linux Dev Container when it declares one; "
-      + 'the shell tool is bash and file paths accept the container form /workspaces/<repo>/... .'
+    ? 'Every command runs inside the Docker Sandbox mounted on this workspace.'
+    : "Every command runs inside the repository's Linux Dev Container."
   return source.description === undefined ? note : `${source.description} ${note}`
 }
 
