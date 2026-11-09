@@ -304,19 +304,64 @@ interface ContextState {
   cwd: string | null
 }
 
+/** Everything the mounted menu draws from: the interaction state and the two app probes. */
+interface ContextMenuSnapshot {
+  readonly menu: ContextState
+  readonly apps: AppState
+}
+
+const closedContext = (): ContextState => ({ open: false, x: 0, y: 0, path: null, line: null, cwd: null })
+
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'file-link-open: dictionaries')
   const t = ctx.locale.bind(NS) as Translator
 
-  /** Shared plugin state; read at render time, refreshed after the initial fetches. */
-  const state: AppState = { officialApps: null, info: null }
+  /**
+   * The menu's whole state, written only through `commit` below. The controller
+   * mounted at activation mirrors this snapshot into React state, so the root
+   * tree is built ONCE: opening, closing, the cursor, the target link, a CWD
+   * change and an app probe landing later are all state updates, never another
+   * `render`. `cwd` is published by the recorder cell further down.
+   */
+  let snapshot: ContextMenuSnapshot = {
+    menu: closedContext(),
+    apps: { officialApps: null, info: null },
+  }
+  const listeners = new Set<() => void>()
+
+  function commit(next: ContextMenuSnapshot) {
+    if (next === snapshot) return
+    snapshot = next
+    for (const listener of listeners) listener()
+  }
 
   /**
-   * `cwd` is published by the recorder cell below. The whole object is replaced
-   * on every open, and the render closures always read the variable, never a
-   * stale copy.
+   * Functional updates, so a probe resolving mid-interaction cannot overwrite
+   * the open it raced with — and an unchanged state notifies nobody.
    */
-  let contextState: ContextState = { open: false, x: 0, y: 0, path: null, line: null, cwd: null }
+  function updateMenu(updater: (prev: ContextState) => ContextState) {
+    const menu = updater(snapshot.menu)
+    if (menu !== snapshot.menu) commit({ menu, apps: snapshot.apps })
+  }
+
+  function updateApps(updater: (prev: AppState) => AppState) {
+    const apps = updater(snapshot.apps)
+    if (apps !== snapshot.apps) commit({ menu: snapshot.menu, apps })
+  }
+
+  function openContextMenu(x: number, y: number, link: LinkTarget) {
+    updateMenu(prev => ({ ...prev, open: true, x, y, path: link.path, line: link.line }))
+  }
+
+  /** Idempotent: `Menu`'s own onClose and every selection both land here. */
+  function closeContextMenu() {
+    updateMenu(prev => (prev.open ? { ...prev, open: false } : prev))
+  }
+
+  function setCwd(cwd: string | null) {
+    updateMenu(prev => (prev.cwd === cwd ? prev : { ...prev, cwd }))
+  }
+
   const contextContainer = document.createElement('div')
   contextContainer.setAttribute('data-flo-context', '1')
   // An in-flow body child puts the Menu anchor's ~21px line box under the
@@ -333,15 +378,27 @@ export function apply(ctx: ClientContext) {
   const contextRoot = ReactDOMClient.createRoot(contextContainer)
 
   /**
-   * The right-click menu over one message file link, anchored at the cursor
-   * through Menu's getAnchorRect (portal mode; the viewport clamp keeps the
-   * panel on screen).
+   * The always-mounted right-click menu over one message file link, anchored at
+   * the cursor through Menu's getAnchorRect (portal mode; the viewport clamp
+   * keeps the panel on screen). Every input it draws from is state: the open
+   * flag, the cursor, the target link, the CWD and the app probe results.
    */
-  function LinkMenu(props: { menu: ContextState, t: Translator }) {
-    const menu = props.menu
+  function ContextMenuController() {
+    const [view, setView] = React.useState<ContextMenuSnapshot>(snapshot)
+
+    React.useEffect(() => {
+      // The snapshot is the single writer of this state; a probe that landed
+      // between the first render and this effect is caught up by `notify`.
+      const notify = () => { setView(snapshot) }
+      listeners.add(notify)
+      notify()
+      return () => { listeners.delete(notify) }
+    }, [])
+
+    const menu = view.menu
     const open = menu.open && menu.path !== null
     const items = open
-      ? buildItems(state, props.t, menu.line)
+      ? buildItems(view.apps, t, menu.line)
       : []
     return (
       <Menu
@@ -353,11 +410,9 @@ export function apply(ctx: ClientContext) {
         items={items}
         onSelect={(id: string) => {
           if (menu.path === null) return
-          dispatchSelection(id, menu.path, menu.line, menu.cwd, {
-            close: () => { contextState.open = false; renderContextMenu() },
-          })
+          dispatchSelection(id, menu.path, menu.line, menu.cwd, { close: closeContextMenu })
         }}
-        onClose={() => { contextState.open = false; renderContextMenu() }}
+        onClose={closeContextMenu}
         getAnchorRect={() => {
           const rect = { left: menu.x, right: menu.x, top: menu.y, bottom: menu.y }
           return { ...rect, width: 0, height: 0, x: menu.x, y: menu.y, toJSON: () => ({}) }
@@ -367,21 +422,8 @@ export function apply(ctx: ClientContext) {
     )
   }
 
-  function renderContextMenu() {
-    contextRoot.render(<LinkMenu menu={contextState} t={t} />)
-  }
-
-  function openContextMenu(x: number, y: number, link: LinkTarget) {
-    contextState = {
-      open: true,
-      x,
-      y,
-      path: link.path,
-      line: link.line,
-      cwd: contextState.cwd,
-    }
-    renderContextMenu()
-  }
+  // The ONE build of the root tree. Everything afterwards is state.
+  contextRoot.render(<ContextMenuController />)
 
   function onContextMenu(event: MouseEvent) {
     const link = classifyContextTarget(event.target)
@@ -402,8 +444,7 @@ export function apply(ctx: ClientContext) {
   function SessionCwdRecorder(props: { sessionId: string, useSessions: (selector: (sessionState: { byId: Record<string, { cwd?: string }> }) => string | undefined) => string | undefined }) {
     const cwd = props.useSessions((sessionState) => sessionState.byId[props.sessionId]?.cwd)
     React.useEffect(() => {
-      contextState.cwd = cwd === undefined || cwd === '' ? null : cwd
-      renderContextMenu()
+      setCwd(cwd === undefined || cwd === '' ? null : cwd)
     }, [cwd])
     return null
   }
@@ -422,18 +463,17 @@ export function apply(ctx: ClientContext) {
   void fetchJson(OPEN_IN_APP_APPS_ROUTE).then((result) => {
     const apps = result.ok ? appsOf(result.data) : null
     if (apps === null) return
-    state.officialApps = apps
-    renderContextMenu()
+    updateApps(prev => ({ ...prev, officialApps: apps }))
   })
   void fetchJson(INFO_ROUTE).then((result) => {
     const info = result.ok ? infoOf(result.data) : null
     if (info === null) return
-    state.info = info
-    renderContextMenu()
+    updateApps(prev => ({ ...prev, info }))
   })
 
   return function dispose() {
     document.removeEventListener('contextmenu', onContextMenu)
+    listeners.clear()
     contextRoot.unmount()
     contextContainer.remove()
   }
