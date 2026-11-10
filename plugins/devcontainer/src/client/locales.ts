@@ -7,6 +7,7 @@ export type DevcontainerVariantsKey =
   | 'noneChecked' | 'checkedCount' | 'sbxNoneChecked' | 'sbxCheckedCount'
   | 'loading' | 'failed' | 'retry' | 'unavailable' | 'readOnly'
   | 'writeFailed' | 'refreshHint' | 'empty' | 'sbxEmpty'
+  | 'imageTitle' | 'imageDescription' | 'imagePlaceholder' | 'imageInvalid'
 
 export const en: Record<DevcontainerVariantsKey, string> = {
   nav: 'Dev Container presets',
@@ -34,6 +35,10 @@ export const en: Record<DevcontainerVariantsKey, string> = {
   refreshHint: 'Preset pickers re-read the roster the next time one opens.',
   empty: 'This deployment declares no preset to derive from.',
   sbxEmpty: 'This deployment declares no preset to derive a Docker Sandbox copy from.',
+  imageTitle: 'Sandbox template image',
+  imageDescription: 'Leave it empty to use the shell template\'s own image. It reaches sbx create --template only when a Docker Sandbox is created, so an existing sandbox of the same name is reused rather than rebuilt. The image must provide /bin/sh, cat, mkdir, and Node.js 18 or newer.',
+  imagePlaceholder: 'docker.io/org/img:tag',
+  imageInvalid: 'Only one image name is accepted: no whitespace, and no leading “-”.',
 }
 
 export const zh: Record<DevcontainerVariantsKey, string> = {
@@ -62,4 +67,8 @@ export const zh: Record<DevcontainerVariantsKey, string> = {
   refreshHint: '预设选择器下次打开时会重新读取清单。',
   empty: '本部署没有可派生的预设。',
   sbxEmpty: '本部署没有可派生 Docker Sandbox 副本的预设。',
+  imageTitle: '沙盒模板镜像',
+  imageDescription: '留空则使用 shell 的默认镜像。仅在新建沙盒时传给 sbx create --template，已存在的同名沙盒不会重建。镜像需提供 /bin/sh、cat、mkdir 和 node 18 或更高版本。',
+  imagePlaceholder: 'docker.io/org/img:tag',
+  imageInvalid: '只接受单个镜像名：不能含空白，也不能以「-」开头。',
 }

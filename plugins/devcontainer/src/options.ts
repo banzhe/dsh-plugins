@@ -7,6 +7,7 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { SANDBOX_TEMPLATE_PATTERN } from './sbx-template.ts'
 import type { ContainerOptions } from './types.ts'
 
 /** Defaults for {@link ContainerOptions}. */
@@ -79,5 +80,31 @@ export function presetSourceFields() {
   return {
     sources: z.array(z.string()).default([]).volatile(),
     sbxSources: z.array(z.string()).default([]).volatile(),
+  }
+}
+
+/** Defaults for {@link SandboxTemplateOptions}: no image, so the CLI template stands. */
+export const SANDBOX_TEMPLATE_DEFAULTS: SandboxTemplateOptions = {
+  sbxTemplate: '',
+}
+
+/** The sandbox image a created Docker Sandbox runs, owned by the Host row. */
+export interface SandboxTemplateOptions {
+  /** Image `sbx create --template` takes; blank keeps Docker's `shell` template. */
+  sbxTemplate: string
+}
+
+/**
+ * The image field as the Loader validates it.
+ *
+ * It is `volatile`, so the settings page writes it into the live reference the
+ * rows read on their next command instead of needing a reload, and it is a default
+ * of the Host row only: the shell and filesystem rows have no settings page, and
+ * two more copies would be two more values to keep in step.
+ * @returns schemastery fields for {@link SandboxTemplateOptions}.
+ */
+export function sandboxTemplateFields() {
+  return {
+    sbxTemplate: z.string().default(SANDBOX_TEMPLATE_DEFAULTS.sbxTemplate).pattern(SANDBOX_TEMPLATE_PATTERN).volatile(),
   }
 }

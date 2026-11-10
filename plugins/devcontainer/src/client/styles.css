@@ -130,3 +130,12 @@
 .dcv-state[data-checked='true'] {
   color: var(--dsw-alias-label-secondary, var(--dsw-alias-label-tertiary));
 }
+
+/* The image a created sandbox runs: one field wide enough to read a reference in. */
+.dcv-image-input {
+  max-width: 420px;
+}
+
+.dcv-group[data-image='true'] .dcv-group-title {
+  display: block;
+}

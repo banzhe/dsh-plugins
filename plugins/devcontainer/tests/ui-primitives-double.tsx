@@ -13,7 +13,7 @@
  * next state, a native button forwarding `disabled`/`onClick`, and a tag carrying
  * its tone. Styling is the real components' business and is not asserted here.
  */
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { forwardRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react'
 
 /** Props, mirroring the shipped `Button`. */
 export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -50,6 +50,14 @@ export function Checkbox({ checked, onChange, label, disabled, title, className 
     </label>
   )
 }
+
+/** Props, mirroring the shipped `Input`: a native text input forwarding its attributes. */
+export const Input = forwardRef<HTMLInputElement, { icon?: ReactNode } & InputHTMLAttributes<HTMLInputElement>>(
+  function Input({ icon, className, ...rest }, ref): ReactNode {
+    void icon
+    return <input ref={ref} className={className} {...rest} />
+  },
+)
 
 /** Props, mirroring the shipped `Tag`: the tone is the only behaviour it carries. */
 export interface TagProps {

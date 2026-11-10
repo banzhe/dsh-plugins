@@ -4,6 +4,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { SandboxProvider, type ConfinedArgv, type SandboxMode as PolicyMode, type SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
 import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import { apply, Config } from '../src/index.ts'
 import { DevcontainerShellExecutor } from '../src/shell.ts'
 import { repoRegistry } from '../src/registry.ts'
 import { BASE_CONTAINER_ENV } from '../src/argv.ts'
@@ -415,6 +416,23 @@ describe('DevcontainerShellExecutor under an (sbx) preset', () => {
     expect(spawn?.argv.slice(0, 6)).toEqual(['sbx', 'exec', name, '--', '/bin/sh', '-c'])
     expect(spawn?.argv.at(-1)).toContain("cd -- ")
     expect(spawn?.argv.at(-1)).toContain("'/bin/bash' -c 'pwd'")
+  })
+
+  it('creates a missing sandbox with the image the Host row published', async () => {
+    const root = makeRepo({ 'README.md': '# demo\n' })
+    repoRegistry().reset()
+    const { ctx } = await contextWith()
+    apply(ctx, Config({ sbxTemplate: 'docker.io/org/img:1.2', presets: { win32Only: false } }))
+    await ctx.plugin(DevcontainerShellExecutor, { cwd: root })
+    const shell = ctx.shell as DevcontainerShellExecutor
+    const ran = fakeRunner({ sbx: { stdout: '[]', stderr: '' } })
+    shell.internals.run = ran.run
+
+    const spec = shell.resolve({ command: 'true', workdir: root, dshEnv: SANDBOX_MARKED })
+    expect((await (await shell.execute(spec)).result()).exitCode).toBe(0)
+    expect(ran.calls.map(call => call.argv)).toContainEqual([
+      'sbx', 'create', '--name', sandboxNameFor(root), '--template', 'docker.io/org/img:1.2', 'shell', root,
+    ])
   })
 
   it('reports the mount point a sandbox declaration names', async () => {

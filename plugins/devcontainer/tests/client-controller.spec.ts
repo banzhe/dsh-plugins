@@ -30,12 +30,13 @@ interface Harness {
 
 /** The field values one mutation carries, flattening it to what the Host would store. */
 function carried(ops: readonly SettingsPathOpView[]): DevcontainerVariantsSettings {
-  const value: { sources?: readonly string[], sbxSources?: readonly string[] } = {}
+  const value: { sources?: readonly string[], sbxSources?: readonly string[], sbxTemplate?: string } = {}
   for (const op of ops) {
     if (op.op !== 'set' || op.path.length !== 1) continue
     const ids = Array.isArray(op.value) ? op.value.filter((id): id is string => typeof id === 'string') : []
     if (op.path[0] === 'sources') value.sources = ids
     if (op.path[0] === 'sbxSources') value.sbxSources = ids
+    if (op.path[0] === 'sbxTemplate') value.sbxTemplate = typeof op.value === 'string' ? op.value : ''
   }
   return value
 }
@@ -43,6 +44,7 @@ function carried(ops: readonly SettingsPathOpView[]): DevcontainerVariantsSettin
 function harness(options: {
   sources?: readonly string[]
   sbxSources?: readonly string[]
+  image?: string
   status?: 'loading' | 'ready' | 'unavailable'
   writable?: boolean
   accepted?: boolean
@@ -50,7 +52,7 @@ function harness(options: {
 } = {}): Harness {
   let snapshot: ConfigFormSnapshot<DevcontainerVariantsSettings> = {
     status: options.status ?? 'ready',
-    value: { sources: options.sources ?? [], sbxSources: options.sbxSources ?? [] },
+    value: { sources: options.sources ?? [], sbxSources: options.sbxSources ?? [], sbxTemplate: options.image ?? '' },
     base: undefined,
     user: undefined,
     revision: 1,
@@ -69,7 +71,7 @@ function harness(options: {
       if (accepted) {
         snapshot = {
           ...snapshot,
-          value: carried(ops),
+          value: { ...snapshot.value, ...carried(ops) },
           revision: (snapshot.revision ?? 0) + 1,
         }
         emit()
@@ -376,5 +378,61 @@ describe('a roster answer without a body', () => {
     expect(rosterRows({})).toEqual([])
     expect(rosterRows({ presets: 'nope' })).toEqual([])
     expect(rosterRows({ presets: [{ id: 'a', isDefault: false }] })).toHaveLength(1)
+  })
+})
+describe('the sandbox template image', () => {
+  it('reads the stored image and publishes it', async () => {
+    const page = harness({ image: 'docker.io/org/img:1.2' })
+    await page.controller.load()
+    expect(page.state().sbxTemplate).toBe('docker.io/org/img:1.2')
+  })
+
+  it('writes the image on its own path and leaves both lists alone', async () => {
+    const page = harness({ sources: ['standard'], sbxSources: ['delegate-only'], image: 'my-template:v1' })
+    await page.controller.load()
+    page.listing.mockClear()
+    page.controller.inject().setSbxTemplate('docker.io/org/img:1.2')
+    await settle()
+    expect(page.writes).toEqual([{ sbxTemplate: 'docker.io/org/img:1.2' }])
+    expect(page.state().sbxTemplate).toBe('docker.io/org/img:1.2')
+    expect(page.form.getSnapshot().value?.sources).toEqual(['standard'])
+    expect(page.form.getSnapshot().value?.sbxSources).toEqual(['delegate-only'])
+  })
+
+  it('trims what it stores, and stores an empty box as no image', async () => {
+    const page = harness()
+    await page.controller.load()
+    page.controller.inject().setSbxTemplate('  my-template:v1  ')
+    await settle()
+    expect(page.writes).toEqual([{ sbxTemplate: 'my-template:v1' }])
+    page.controller.inject().setSbxTemplate('   ')
+    await settle()
+    expect(page.writes.at(-1)).toEqual({ sbxTemplate: '' })
+  })
+
+  it('refuses a value that is not one argv token instead of writing it', async () => {
+    for (const value of ['--rm', 'org/img latest', 'org/\timg']) {
+      const page = harness()
+      await page.controller.load()
+      page.controller.inject().setSbxTemplate(value)
+      await settle()
+      expect(page.writes).toEqual([])
+      expect(page.state().failure).toBe('template')
+    }
+  })
+
+  it('keeps a refused value from blocking the lists, and a list write from clearing it', async () => {
+    const page = harness()
+    await page.controller.load()
+    page.controller.inject().setSbxTemplate('--rm')
+    await settle()
+    expect(page.state().failure).toBe('template')
+    page.controller.inject().setChecked('standard', true)
+    await settle()
+    expect(page.writes).toEqual([{ sources: ['standard'], sbxSources: [] }])
+    page.controller.inject().setSbxTemplate('my-template:v1')
+    await settle()
+    expect(page.state().failure).toBeNull()
+    expect(page.state().sbxTemplate).toBe('my-template:v1')
   })
 })

@@ -39,6 +39,7 @@ const READY: VariantsState = {
   sbxRows: [],
   checkedCount: 2,
   sbxCheckedCount: 0,
+  sbxTemplate: '',
 }
 
 /** Both tracks populated: the layout the page shows on a real deployment. */
@@ -56,6 +57,9 @@ interface Harness {
   readonly load: ReturnType<typeof vi.fn>
   readonly setChecked: ReturnType<typeof vi.fn>
   readonly toggleSbxSource: ReturnType<typeof vi.fn>
+  readonly setSbxTemplate: ReturnType<typeof vi.fn>
+  image(): HTMLInputElement
+  typeImage(value: string): Promise<void>
   show(state: VariantsState): Promise<void>
   boxes(): HTMLInputElement[]
   row(index: number): HTMLElement
@@ -75,6 +79,7 @@ async function mount(state: VariantsState): Promise<Harness> {
   const load = vi.fn(async () => {})
   const setChecked = vi.fn()
   const toggleSbxSource = vi.fn()
+  const setSbxTemplate = vi.fn()
   let current = state
   const host = document.createElement('div')
   document.body.append(host)
@@ -86,6 +91,7 @@ async function mount(state: VariantsState): Promise<Harness> {
     load,
     setChecked,
     toggleSbxSource,
+    setSbxTemplate,
     close: () => {},
   } as unknown as DevcontainerVariantsSectionProps
   const show = async (next: VariantsState): Promise<void> => {
@@ -104,6 +110,18 @@ async function mount(state: VariantsState): Promise<Harness> {
     load,
     setChecked,
     toggleSbxSource,
+    setSbxTemplate,
+    image: () => host.querySelector<HTMLInputElement>('#dcv-sbx-template') as HTMLInputElement,
+    typeImage: async (value: string) => {
+      const input = host.querySelector<HTMLInputElement>('#dcv-sbx-template') as HTMLInputElement
+      await act(async () => {
+        // React reads the DOM value through its own tracker, which a plain
+        // assignment updates without reporting a change.
+        const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        descriptor?.set?.call(input, value)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+    },
     show,
     boxes,
     row: index => host.querySelectorAll<HTMLElement>('li')[index] as HTMLElement,
@@ -271,6 +289,7 @@ describe('a preset the registry could not mount', () => {
     sbxRows: [],
     checkedCount: 1,
     sbxCheckedCount: 0,
+    sbxTemplate: '',
   }
 
   it('refuses to check it and says why', async () => {
@@ -293,5 +312,55 @@ describe('a preset the registry could not mount', () => {
     expect(page.boxes()[0]?.disabled).toBe(false)
     expect(page.row(0).querySelector('[data-tone="danger"]')).toBeNull()
     expect(page.row(0).getAttribute('data-broken')).toBeNull()
+  })
+})
+describe('the sandbox template image field', () => {
+  it('shows the stored image and saves a typed one on Enter', async () => {
+    const page = await mount({ ...READY, sbxTemplate: 'my-template:v1' })
+    expect(page.image().value).toBe('my-template:v1')
+    await page.typeImage('docker.io/org/img:1.2')
+    expect(page.image().value).toBe('docker.io/org/img:1.2')
+    await act(async () => {
+      page.image().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(page.setSbxTemplate).toHaveBeenCalledWith('docker.io/org/img:1.2')
+  })
+
+  it('saves on blur too, and writes nothing when the box was not touched', async () => {
+    const page = await mount(READY)
+    await act(async () => {
+      page.image().focus()
+      page.image().blur()
+    })
+    expect(page.setSbxTemplate).not.toHaveBeenCalled()
+    await page.typeImage('   ')
+    await act(async () => {
+      page.image().focus()
+      page.image().blur()
+    })
+    expect(page.setSbxTemplate).toHaveBeenCalledWith('   ')
+  })
+
+  it('carries the five facts the setting has to state', async () => {
+    const page = await mount(READY)
+    const field = page.host.querySelector('[data-image="true"]') as HTMLElement
+    expect(field.textContent).toContain(zh.imageTitle)
+    expect(field.textContent).toContain(zh.imageDescription)
+    expect(zh.imageDescription).toContain('留空则使用 shell 的默认镜像')
+    expect(zh.imageDescription).toContain('sbx create --template')
+    expect(zh.imageDescription).toContain('/bin/sh')
+    expect(zh.imageDescription).toContain('node 18')
+    expect(zh.imageDescription).toContain('不会重建')
+  })
+
+  it('explains a value it could not send instead of writing it', async () => {
+    const page = await mount({ ...READY, failure: 'template' })
+    const field = page.host.querySelector('[data-image="true"]') as HTMLElement
+    expect(field.querySelector('[data-failed="true"]')?.textContent).toBe(zh.imageInvalid)
+  })
+
+  it('refuses typing while the deployment stores settings read-only', async () => {
+    const page = await mount({ ...READY, writable: false })
+    expect(page.image().disabled).toBe(true)
   })
 })

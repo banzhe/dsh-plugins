@@ -11,8 +11,8 @@
  * not mount says so too (`brokenBadge`) — its variant could not mount either, so
  * it is offered read-only rather than stranding the person with a pending row.
  */
-import { useEffect, type ReactNode } from 'react'
-import { Button, Checkbox, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Button, Checkbox, Input, Tag } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import { variantNameSuffixOf, type VariantKind } from '../ids.ts'
 import type { VariantRow, VariantsFace, VariantsState } from './controller.ts'
@@ -113,11 +113,67 @@ export function DevcontainerVariantsSection(props: DevcontainerVariantsSectionPr
               // whole intent: the controller derives the target state itself.
               onToggle: (id) => { props.toggleSbxSource(id) },
             })}
+            <SandboxImageField
+              t={t}
+              value={state.sbxTemplate}
+              invalid={state.failure === 'template'}
+              disabled={disabled}
+              onSave={props.setSbxTemplate}
+            />
             <p className="dcv-notice">{t('refreshHint')}</p>
           </>
         )
         : null}
     </section>
+  )
+}
+
+/**
+ * The image a created Docker Sandbox runs (`sbxTemplate`), as one text field.
+ *
+ * The box holds a local draft and writes on blur or Enter, so an unfinished value —
+ * a leading `-`, a half-typed registry — is never sent; the value it shows reverts to
+ * the stored one whenever no draft is in progress, which keeps a write from another
+ * editor visible without an effect mirroring state.
+ */
+function SandboxImageField(props: {
+  readonly t: Translate
+  readonly value: string
+  readonly invalid: boolean
+  readonly disabled: boolean
+  readonly onSave: (next: string) => void
+}): ReactNode {
+  const { t, value, invalid, disabled, onSave } = props
+  const [draft, setDraft] = useState<string | null>(null)
+  const commit = (): void => {
+    if (draft === null) return
+    onSave(draft)
+    setDraft(null)
+  }
+  return (
+    <div className="dcv-group" data-image="true">
+      <label className="dcv-group-title" htmlFor="dcv-sbx-template">{t('imageTitle')}</label>
+      <Input
+        id="dcv-sbx-template"
+        className="dcv-image-input"
+        value={draft ?? value}
+        disabled={disabled}
+        placeholder={t('imagePlaceholder')}
+        spellCheck={false}
+        autoComplete="off"
+        onChange={(event) => { setDraft(event.target.value) }}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return
+          event.preventDefault()
+          commit()
+        }}
+      />
+      <p className="dcv-group-description">{t('imageDescription')}</p>
+      {invalid
+        ? <p className="dcv-notice" data-failed="true" role="alert">{t('imageInvalid')}</p>
+        : null}
+    </div>
   )
 }
 

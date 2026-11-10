@@ -45,6 +45,19 @@
 
 字段全表、驱动回退顺序与预设机制见实现说明文档。
 
+## Docker Sandbox 镜像
+
+新建 Docker Sandbox 时默认运行 Docker 自带的、不带 agent 的 `shell` 模板。若想换成指定镜像，在**设置 → Dev Container 预设**页的“沙盒模板镜像”一栏填写：该值存为 `sbxTemplate`，并以 `sbx create --template <镜像>` 传入，插在位置参数 agent 与工作区目录之前。这一栏和两份预设列表一样是设置页写入的，会一并落进 profile。
+
+```text
+sbx create --name <沙箱> shell <仓库根>                          # 未设置 sbxTemplate
+sbx create --name <沙箱> --template <镜像> shell <仓库根>          # 已设置 sbxTemplate
+```
+
+默认值是 `""`，只含空白的值同样视为未设置，因此没配置过的行发出的 argv 与以前完全一致。镜像必须是单独一个 argv：自身不含空白、不以 `-` 开头；因此 `docker.io/org/img:tag`、带 digest 的引用（如 `docker.io/org/img@sha256:…`）以及本地模板名（如 `my-template:v1`）都可用，不要求写 registry 域名。其他取值会被该行的 schema 拒绝，也不会带着无法作为单个参数的值去调用 `sbx create`。这里用的是 CLI 的镜像标志，不是位置参数 agent：`shell` 仍然是沙箱启动的 agent，且不提供 `--kit`、CPU、内存之类的设置。
+
+该设置只在由本插件创建沙箱时生效。同名沙箱已经存在时直接复用，已停止则启动，不会因为改了镜像就删除并重建；要换镜像需自行 `sbx rm` 该沙箱。无论用哪个镜像，都必须提供 `/bin/sh`、`cat`、`mkdir`，以及 Node.js 18 或更新版本（文件系统 helper 和经由它的工具调用需要）。
+
 ## 安装
 
 ### 从 npm

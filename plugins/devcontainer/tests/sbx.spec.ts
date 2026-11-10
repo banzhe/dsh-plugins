@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
 import type { ContainerTarget } from '../src/container.ts'
 import type { ContainerRun } from '../src/exec.ts'
+import type { RepoContainerSpec } from '../src/types.ts'
 import {
   asSbxSpec,
   assertSandboxNode,
@@ -12,11 +14,13 @@ import {
   sandboxHostPathFor,
   sandboxMountFor,
   sandboxNameFor,
+  sandboxTemplateArgs,
   sandboxWorkspacePath,
   sbxSpecFor,
   sbxTargetOf,
   sbxWorkspaceRootFor,
 } from '../src/sbx.ts'
+import { liveSandboxTemplate, registerSandboxTemplate } from '../src/registry.ts'
 import { DEFAULT_OPTIONS, fakeRunner, repoSpec } from './support.ts'
 
 describe('sandboxNameFor', () => {
@@ -236,6 +240,146 @@ describe('resolveSbxTarget', () => {
     const cli = sandboxCli(JSON.stringify([{ name, status: 'stopped' }]), { stdout: '/usr/bin/node\n' })
     await expect(resolveSbxTarget(spec, cli.run)).rejects.toThrow('is not running')
     expect(cli.calls).toHaveLength(1)
+  })
+})
+
+describe('the image a created sandbox runs', () => {
+  const root = 'F:\\personal\\my-repo'
+  const name = sandboxNameFor(root)
+
+  /**
+   * The specification a row builds for this workspace, carrying the image the
+   * composition's Host row published — the path every row takes in production.
+   */
+  function specification(ctx: Context): RepoContainerSpec {
+    return sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, undefined)
+  }
+
+  it('passes no --template when the composition published none', async () => {
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(new Context()), cli.run)
+    expect(cli.calls[1]).toEqual(['sbx', 'create', '--name', name, 'shell', root])
+  })
+
+  it('passes the published image before the agent and the workspace', async () => {
+    const ctx = new Context()
+    registerSandboxTemplate(ctx, () => 'docker.io/org/img:1.2')
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(ctx), cli.run)
+    expect(cli.calls[1]).toEqual([
+      'sbx', 'create', '--name', name, '--template', 'docker.io/org/img:1.2', 'shell', root,
+    ])
+  })
+
+  it('trims the published image and reads a whitespace-only one as unset', async () => {
+    const trimmed = new Context()
+    registerSandboxTemplate(trimmed, () => '  my-template:v1\t')
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(trimmed), cli.run)
+    expect(cli.calls[1]).toEqual(['sbx', 'create', '--name', name, '--template', 'my-template:v1', 'shell', root])
+
+    const blank = new Context()
+    registerSandboxTemplate(blank, () => '   ')
+    const bare = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(blank), bare.run)
+    expect(bare.calls[1]).toEqual(['sbx', 'create', '--name', name, 'shell', root])
+    expect(specification(blank).sbxTemplate).toBeUndefined()
+  })
+
+  it('carries a digest reference and a local template name as they are', () => {
+    const digest = 'docker.io/org/img@sha256:6f9e3f0c0d0f4f0e8f7a1b2c3d4e5f60718293a4b5c6d7e8f90102130405060'
+    expect(sandboxTemplateArgs({ ...repoSpec(root), sbxTemplate: digest })).toEqual(['--template', digest])
+    expect(sandboxTemplateArgs({ ...repoSpec(root), sbxTemplate: 'my-template:v1' })).toEqual(['--template', 'my-template:v1'])
+    expect(sandboxTemplateArgs(repoSpec(root))).toEqual([])
+    expect(sandboxTemplateArgs({ ...repoSpec(root), sbxTemplate: '' })).toEqual([])
+  })
+
+  it('refuses a value it cannot pass as one argv token, without creating anything', async () => {
+    for (const value of ['--rm', 'org/img latest', 'org/\timg']) {
+      const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+      await expect(resolveSbxTarget({ ...specification(new Context()), sbxTemplate: value }, cli.run))
+        .rejects.toThrow(/sbxTemplate .* cannot be passed as one image name/u)
+      expect(cli.calls.map(call => call[1])).toEqual(['ls'])
+    }
+  })
+
+
+  it('never keeps an image a declaration carried when the Host row configured none', async () => {
+    const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(
+      sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(new Context()) }, declared),
+      cli.run,
+    )
+    expect(cli.calls[1]).toEqual(['sbx', 'create', '--name', name, 'shell', root])
+    expect('sbxTemplate' in sbxSpecFor(root, DEFAULT_OPTIONS, declared)).toBe(false)
+  })
+
+  it('runs the image the Host row configured instead of one a declaration carried', async () => {
+    const ctx = new Context()
+    registerSandboxTemplate(ctx, () => 'docker.io/org/img:1.2')
+    const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(
+      sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared),
+      cli.run,
+    )
+    expect(cli.calls[1]).toEqual([
+      'sbx', 'create', '--name', name, '--template', 'docker.io/org/img:1.2', 'shell', root,
+    ])
+    expect(sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared).sbxTemplate)
+      .toBe('docker.io/org/img:1.2')
+  })
+
+  it('reads a blank Host value as no image and still drops the declared one', () => {
+    const blank = new Context()
+    registerSandboxTemplate(blank, () => '   ')
+    const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
+    const spec = sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(blank) }, declared)
+    expect('sbxTemplate' in spec).toBe(false)
+  })
+
+  it('keeps an existing sandbox and never recreates it for another image', async () => {
+    const ctx = new Context()
+    registerSandboxTemplate(ctx, () => 'docker.io/org/img:1.2')
+    const running = sandboxCli(JSON.stringify([{ name, status: 'running' }]), { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(ctx), running.run)
+    expect(running.calls.map(call => call[1])).toEqual(['ls', 'exec'])
+
+    const stopped = sandboxCli(JSON.stringify([{ name, status: 'stopped' }]), { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(ctx), stopped.run)
+    expect(stopped.calls.map(call => call[1])).toEqual(['ls', 'run', 'exec'])
+  })
+
+  it('names the image in the command it suggests when creating is disabled', async () => {
+    const ctx = new Context()
+    registerSandboxTemplate(ctx, () => 'docker.io/org/img:1.2')
+    const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await expect(resolveSbxTarget({ ...specification(ctx), ensureUp: false }, cli.run))
+      .rejects.toThrow('sbx create --name ' + name + ' --template docker.io/org/img:1.2 shell ' + root)
+
+    const bare = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
+    await expect(resolveSbxTarget({ ...specification(new Context()), ensureUp: false }, bare.run))
+      .rejects.toThrow('sbx create --name ' + name + ' shell ' + root)
+  })
+})
+
+describe('the live sandbox image a composition publishes', () => {
+  it('answers with the reader the Host row registered, and forgets it when withdrawn', () => {
+    const ctx = new Context()
+    expect(liveSandboxTemplate(ctx)).toBeUndefined()
+    const withdraw = registerSandboxTemplate(ctx, () => 'my-template:v1')
+    expect(liveSandboxTemplate(ctx)).toBe('my-template:v1')
+    withdraw()
+    expect(liveSandboxTemplate(ctx)).toBeUndefined()
+  })
+
+  it('keeps two compositions apart', () => {
+    const one = new Context()
+    const other = new Context()
+    registerSandboxTemplate(one, () => 'docker.io/org/img:1.2')
+    expect(liveSandboxTemplate(other)).toBeUndefined()
+    expect(liveSandboxTemplate(one)).toBe('docker.io/org/img:1.2')
   })
 })
 

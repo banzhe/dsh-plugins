@@ -14,9 +14,10 @@
  * nothing about the workspace keeps the host path as its fallback.
  *
  * The CLI surface used here is the documented one: `sbx ls --json` lists
- * sandboxes, `sbx create --name <name> shell <path>` creates one around a host
- * directory without attaching, and `sbx run -d --name <name>` starts an existing
- * sandbox detached. `sbx exec` reports a missing sandbox with exit code 125.
+ * sandboxes, `sbx create --name <name> [--template <image>] shell <path>` creates
+ * one around a host directory without attaching, and `sbx run -d --name <name>`
+ * starts an existing sandbox detached. `sbx exec` reports a missing sandbox with
+ * exit code 125.
  * @module @banzhe/dsh-devcontainer/sbx
  */
 
@@ -34,13 +35,42 @@ import {
   relativeWithinHostRoot,
   toPosixSlashes,
 } from './paths.ts'
+import { sandboxTemplateOf } from './sbx-template.ts'
 import type { ContainerOptions, RepoContainerSpec } from './types.ts'
 
 /** Prefix every sandbox this Bundle creates carries, so it is recognizable on a host. */
 export const SANDBOX_NAME_PREFIX = 'dsh-'
 
-/** The template a created sandbox runs: Docker's agent-less shell template. */
+/** The positional agent a created sandbox runs: Docker's agent-less shell agent. */
 export const SANDBOX_TEMPLATE = 'shell'
+
+/**
+ * The flag that picks the IMAGE a created sandbox runs, as opposed to
+ * {@link SANDBOX_TEMPLATE}, which is the agent it starts.
+ */
+export const SANDBOX_TEMPLATE_FLAG = '--template'
+
+/**
+ * The `--template` arguments one specification adds to `sbx create`.
+ * @param spec - the sandbox specification.
+ * @returns `['--template', image]`, or nothing when the row configured no image.
+ * @throws Error when the configured value cannot travel as one argv token.
+ */
+export function sandboxTemplateArgs(spec: RepoContainerSpec): string[] {
+  const image = spec.sbxTemplate === undefined ? undefined : sandboxTemplateOf(spec.sbxTemplate)
+  return image === undefined ? [] : [SANDBOX_TEMPLATE_FLAG, image]
+}
+
+/**
+ * The tail of the `sbx create` argv one specification issues: the image flags,
+ * the agent, and the host directory to mount.
+ * @param spec - the sandbox specification.
+ * @returns the flags and positionals that follow `--name`.
+ * @throws Error when the configured image cannot travel as one argv token.
+ */
+function createTailOf(spec: RepoContainerSpec): string[] {
+  return [...sandboxTemplateArgs(spec), SANDBOX_TEMPLATE, spec.hostWorkspaceRoot]
+}
 
 /**
  * What a missing `sbx` CLI means for the person reading the diagnostic.
@@ -446,31 +476,43 @@ export function asSbxSpec(spec: RepoContainerSpec, mounts?: readonly SandboxMoun
 
 /**
  * The sandbox specification of one host directory, declared or not.
+ *
+ * The image a created sandbox runs is the Host row's `sbxTemplate` and nothing
+ * else's: a declaration cannot choose the image of the host that mounts it. The
+ * caller passes the value the Host row configures at this moment
+ * (`liveSandboxTemplate`) on `options.sbxTemplate`, so a settings write is
+ * answered by the next command, and it is carried on the specification so
+ * `createSandbox` and the diagnostic that names the command both read the same one.
  * @param hostWorkspaceRoot - absolute host path of the workspace.
- * @param options - the row's container defaults.
+ * @param options - the row's container defaults, plus the image configured right now.
  * @param declared - the specification a declaration produced, when one exists.
  * @param mounts - the mounts of a fresh listing; when absent, the mounts the last one reported are used.
  * @returns the specification a `(sbx)` session runs under.
  */
 export function sbxSpecFor(
   hostWorkspaceRoot: string,
-  options: ContainerOptions,
+  options: ContainerOptions & { readonly sbxTemplate?: string | undefined },
   declared?: RepoContainerSpec,
   mounts?: readonly SandboxMount[],
 ): RepoContainerSpec {
   const root = normalizeHostRoot(hostWorkspaceRoot)
-  if (declared !== undefined && normalizeHostRoot(declared.hostWorkspaceRoot) === root) {
-    return asSbxSpec(declared, mounts)
-  }
-  return asSbxSpec({
-    hostWorkspaceRoot: root,
-    containerWorkspaceFolder: sandboxWorkspacePath(root) ?? root,
-    configPath: '',
-    shell: options.shell,
-    cli: 'sbx',
-    ensureUp: options.ensureUp,
-    containerTimeoutMs: options.containerTimeoutMs,
-  }, mounts)
+  const spec = declared !== undefined && normalizeHostRoot(declared.hostWorkspaceRoot) === root
+    ? asSbxSpec(declared, mounts)
+    : asSbxSpec({
+      hostWorkspaceRoot: root,
+      containerWorkspaceFolder: sandboxWorkspacePath(root) ?? root,
+      configPath: '',
+      shell: options.shell,
+      cli: 'sbx',
+      ensureUp: options.ensureUp,
+      containerTimeoutMs: options.containerTimeoutMs,
+    }, mounts)
+  // The image is the row's, never a declaration's: a repository cannot choose
+  // the sandbox image of the host that mounts it, so the specification is rebuilt
+  // without whatever a declaration carried and the live value decides alone.
+  const image = options.sbxTemplate?.trim() ?? ''
+  const { sbxTemplate: _declared, ...rest } = spec
+  return image === '' ? rest : { ...rest, sbxTemplate: image }
 }
 
 /**
@@ -509,10 +551,11 @@ export async function createSandbox(
   signal?: AbortSignal,
 ): Promise<void> {
   const result = await run(
-    // The documented core form: the template (an agent-less shell) then the host
-    // directory to mount. Progress output goes to the captured stream and is not
-    // shown, so no suppression flag is needed — and no flag this CLI may not have.
-    ['sbx', 'create', '--name', sandboxName, SANDBOX_TEMPLATE, spec.hostWorkspaceRoot],
+    // The documented core form: an optional image, then the agent (an agent-less
+    // shell), then the host directory to mount. Progress output goes to the
+    // captured stream and is not shown, so no suppression flag is needed — and no
+    // flag this CLI may not have.
+    ['sbx', 'create', '--name', sandboxName, ...createTailOf(spec)],
     { ...signal === undefined ? {} : { signal }, timeoutMs: spec.containerTimeoutMs },
   )
   if (result.exitCode === null) throw new Error(`sbx: the CLI could not be started. ${SBX_INSTALL_HINT}`)
@@ -617,7 +660,7 @@ export async function resolveSbxTarget(
   }
   if (!spec.ensureUp) {
     throw new Error(listed === undefined
-      ? `sbx: no Docker Sandbox named "${name}" exists for "${spec.hostWorkspaceRoot}"; create it with "sbx create --name ${name} ${SANDBOX_TEMPLATE} ${spec.hostWorkspaceRoot}", or set ensureUp: true`
+      ? `sbx: no Docker Sandbox named "${name}" exists for "${spec.hostWorkspaceRoot}"; create it with "sbx create --name ${name} ${createTailOf(spec).join(' ')}", or set ensureUp: true`
       : `sbx: Docker Sandbox "${name}" for "${spec.hostWorkspaceRoot}" is not running; start it with "sbx run --detach --name ${name}", or set ensureUp: true`)
   }
   if (listed === undefined) await createSandbox(spec, name, run, signal)

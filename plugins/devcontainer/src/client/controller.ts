@@ -16,6 +16,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { AgentPresetRoster } from '@deepseek-ai/dsh-agent-preset-registry/types'
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsPathOpView } from '@deepseek-ai/dsh-api-remotes/client'
+import { SANDBOX_TEMPLATE_PATTERN } from '../sbx-template.ts'
 import {
   nextSources, selectable, selectablePresets, SOURCE_FIELDS, sbxSourcesOf, sourcesOf, type SelectablePreset,
 } from './variants.ts'
@@ -29,13 +30,29 @@ export interface DevcontainerVariantsSettings {
   sources?: readonly string[]
   /** Source preset ids whose `(sbx)` variants are wanted; absent before the first Host read. */
   sbxSources?: readonly string[]
+  /** Image a created Docker Sandbox runs (`sbx create --template`); empty keeps the CLI template. */
+  sbxTemplate?: string
+}
+
+/** The stored field the page's text input writes: the Host row's own image setting. */
+const IMAGE_FIELD = 'sbxTemplate'
+
+/**
+ * The image one stored namespace section carries.
+ * @param section - the namespace's stored value.
+ * @returns the image, or an empty string when none is stored.
+ */
+function imageOf(section: unknown): string {
+  if (typeof section !== 'object' || section === null) return ''
+  const value: unknown = Reflect.get(section, IMAGE_FIELD)
+  return typeof value === 'string' ? value : ''
 }
 
 /** One row as the page renders it. */
 export type VariantRow = SelectablePreset
 
 /** What a failed read or write means for the page's own copy. */
-export type VariantsFailure = 'load' | 'write'
+export type VariantsFailure = 'load' | 'write' | 'template'
 
 /** Page snapshot the renderer subscribes to. */
 export interface VariantsState {
@@ -55,6 +72,8 @@ export interface VariantsState {
   readonly checkedCount: number
   /** How many rows have an `(sbx)` variant derived right now. */
   readonly sbxCheckedCount: number
+  /** The image a created sandbox runs, as stored or as staged for the next write. */
+  readonly sbxTemplate: string
 }
 
 /** Business face the page receives (the framework binds `hooks` to a selector hook). */
@@ -66,6 +85,8 @@ export interface VariantsFace {
   setChecked: (id: string, checked: boolean) => void
   /** Flip one preset's `(sbx)` variant; queues behind a write already in flight. */
   toggleSbxSource: (sourceId: string) => void
+  /** Store the image a created sandbox runs; refuses one that is not a single argv token. */
+  setSbxTemplate: (value: string) => void
 }
 
 /** The pair of stored lists one write carries. */
@@ -83,6 +104,7 @@ const INITIAL: VariantsState = {
   sbxRows: [],
   checkedCount: 0,
   sbxCheckedCount: 0,
+  sbxTemplate: '',
 }
 
 /**
@@ -131,6 +153,8 @@ export class VariantsController {
   private loading = true
   /** The lists the queue will send next; undefined when every toggle has landed. */
   private intent: SourcesIntent | undefined
+  /** The image the queue will send next; undefined when every image save has landed. */
+  private image: string | undefined
   private writing = false
   /** Invalidates every read that a newer load, or a dispose, supersedes. */
   private generation = 0
@@ -163,6 +187,7 @@ export class VariantsController {
       load: () => this.load(),
       setChecked: (id, checked) => { this.setChecked(id, checked) },
       toggleSbxSource: (sourceId) => { this.toggleSbxSource(sourceId) },
+      setSbxTemplate: (value) => { this.setSbxTemplate(value) },
     }
   }
 
@@ -249,6 +274,29 @@ export class VariantsController {
   }
 
   /**
+   * Store the image a created sandbox runs.
+   *
+   * The value is validated here instead of being written and refused by the Host:
+   * an image that is not one argv token would otherwise reach the row's schema as
+   * a rejected write with no way to say which field was at fault.
+   * @param value - the text the person typed.
+   */
+  setSbxTemplate(value: string): void {
+    if (this.disposed) return
+    const image = value.trim()
+    if (!SANDBOX_TEMPLATE_PATTERN.test(image)) {
+      this.failure = 'template'
+      this.publish()
+      return
+    }
+    if (!this.form.getSnapshot().writable) return
+    this.failure = null
+    this.image = image
+    this.publish()
+    void this.flush()
+  }
+
+  /**
    * The lists a toggle starts from, or undefined when this page must ignore it.
    * @returns the queued lists when a write is still pending, otherwise the stored ones.
    */
@@ -293,19 +341,32 @@ export class VariantsController {
     this.publish()
     let landed = false
     try {
-      while (this.intent !== undefined) {
-        const next = this.intent
-        const accepted = await this.form.mutate(opsFor(next))
+      while (true) {
+        const lists = this.intent
+        const image = this.image
+        // One field per mutation: the lists travel together because one track's
+        // toggle must never drop the other's, while the image is a field of its
+        // own and rewriting it from a list save would restate a value the person
+        // did not touch.
+        let accepted: boolean
+        if (lists !== undefined) accepted = await this.form.mutate(opsFor(lists))
+        else if (image !== undefined) accepted = await this.form.set(IMAGE_FIELD, image)
+        else break
         this.failure = accepted ? null : 'write'
         if (!accepted) break
         landed = true
-        if (this.intent === next) this.intent = undefined
+        if (lists !== undefined) {
+          if (this.intent === lists) this.intent = undefined
+        } else if (this.image === image) {
+          this.image = undefined
+        }
         this.publish()
       }
     } catch {
       this.failure = 'write'
     } finally {
       this.intent = undefined
+      this.image = undefined
       this.writing = false
       this.publish()
     }
@@ -329,11 +390,12 @@ export class VariantsController {
           : this.loading || snapshot.status === 'loading' ? 'loading' : 'ready',
       failure: this.failure,
       writable: snapshot.writable,
-      saving: this.writing || this.intent !== undefined,
+      saving: this.writing || this.intent !== undefined || this.image !== undefined,
       rows,
       sbxRows,
       checkedCount: rows.filter(row => row.checked).length,
       sbxCheckedCount: sbxRows.filter(row => row.checked).length,
+      sbxTemplate: this.image ?? imageOf(snapshot.value),
     })
   }
 }

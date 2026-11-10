@@ -67,7 +67,7 @@ import {
   toPosixSlashes,
 } from './paths.ts'
 import { callingContainerPreset, fsEscapeRefusalText, fsRefusalText, presetKindOf } from './refusal.ts'
-import { repoRegistry } from './registry.ts'
+import { liveSandboxTemplate, repoRegistry } from './registry.ts'
 import { asSbxSpec, bindSbxMount, sandboxHostPathFor, sandboxWorkspacePath, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import { ContainerRpcChannel, DEFAULT_RPC_TIMEOUT_MS, spawnContainerChild } from './rpc/client.ts'
 import type { ChannelTarget, ContainerChildSpawn, RequestOptions } from './rpc/client.ts'
@@ -898,7 +898,9 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const attributed = this.specForSandboxPath(path, adopt)
     if (attributed !== undefined) return attributed
     const root = sbxWorkspaceRootFor(path, base, undefined)
-    return root === undefined ? undefined : sbxSpecFor(root, this.options)
+    return root === undefined
+      ? undefined
+      : sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, undefined)
   }
 
   /**
@@ -924,7 +926,11 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const declared = repoRegistry(this.ctx).locate(attributed.host, { ...this.options, cwd: attributed.host })
     if (declared !== undefined) return adopt(declared)
     if (attributed.workspaceRoot === undefined) return undefined
-    return sbxSpecFor(attributed.workspaceRoot, this.options)
+    return sbxSpecFor(
+      attributed.workspaceRoot,
+      { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) },
+      undefined,
+    )
   }
 
   /**
@@ -972,7 +978,8 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const declared = registry.locate(base, { ...this.options, cwd: this.config.cwd })
     const root = declared?.hostWorkspaceRoot ?? base
     if (root === '') return
-    await this.runtimeTarget(sbxSpecFor(root, this.options, declared)).catch(() => {})
+    const spec = sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, declared)
+    await this.runtimeTarget(spec).catch(() => {})
   }
 
   /**

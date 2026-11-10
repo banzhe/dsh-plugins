@@ -45,6 +45,19 @@ A repository opts in with any one of the three shapes, for example:
 
 Every field, the driver fallbacks, and the preset mechanics are documented in the implementation notes.
 
+## Docker Sandbox image
+
+A created Docker Sandbox runs Docker's agent-less `shell` template. To give it an image instead, fill in **Sandbox template image** on the **Settings → Dev Container presets** page: the value is stored as `sbxTemplate` and travels as `sbx create --template <image>`, in front of the agent and the workspace directory. The field is a settings-page write, so it lands in the profile patch like the two preset lists do.
+
+```text
+sbx create --name <sandbox> shell <hostWorkspaceRoot>                       # sbxTemplate unset
+sbx create --name <sandbox> --template <image> shell <hostWorkspaceRoot>    # sbxTemplate set
+```
+
+The default is `""`, and a blank value is unset too, so an unconfigured row issues exactly the argv it always did. The image must be one argv token — no whitespace of its own, no leading `-` — which admits `docker.io/org/img:tag`, a digest reference such as `docker.io/org/img@sha256:…`, and a local template name such as `my-template:v1`; a registry host is not required. The row's schema refuses anything else, and `sbx create` is never issued with a value it cannot pass. This is the CLI's image flag, not the positional agent: `shell` stays what the sandbox starts, and there is no `--kit`, CPU, or memory setting.
+
+The image applies only when this Bundle creates the sandbox. A sandbox that already exists under the same name is reused, or started if it is stopped: it is never removed and recreated because the setting changed, so switching images takes an explicit `sbx rm` of that sandbox. Whatever the image is, it must provide `/bin/sh`, `cat`, and `mkdir`, plus Node.js 18 or newer for the filesystem helper and the tool calls that run through it.
+
 ## Install
 
 ### From npm

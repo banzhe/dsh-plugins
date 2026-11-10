@@ -23,7 +23,9 @@ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 // Type-only: the `settings/document-updated` event this row follows.
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-working-directory'
-import { containerOptionFields, containerOptions, presetSourceFields } from './options.ts'
+import {
+  containerOptionFields, containerOptions, presetSourceFields, sandboxTemplateFields,
+} from './options.ts'
 import { toContainerPath } from './paths.ts'
 import {
   applyContainerContext, containerContextText, hostDirectoryFromContext, missingContainerContextText, sbxContextText,
@@ -42,7 +44,7 @@ import {
   SBX_PRESET_ENV_KEY,
 } from './refusal.ts'
 import type { PresetLookup } from './refusal.ts'
-import { repoRegistry } from './registry.ts'
+import { liveSandboxTemplate, registerSandboxTemplate, repoRegistry } from './registry.ts'
 import { installSpawnCwdMapping, repositoryOfPath } from './subprocess.ts'
 import { sandboxNameFor, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import { VariantSync } from './variants.ts'
@@ -101,6 +103,12 @@ export interface Config extends ContainerOptions {
   sources: Volatile<readonly string[]>
   /** Source preset ids the profile asked to derive a `… (sbx)` variant from; empty derives nothing. */
   sbxSources: Volatile<readonly string[]>
+  /**
+   * Image a created Docker Sandbox runs (`sbx create --template`); blank keeps
+   * Docker's `shell` template. Written by the settings page, read by the shell,
+   * filesystem, and subprocess rows through `liveSandboxTemplate`.
+   */
+  sbxTemplate: Volatile<string>
   presets: PresetVariantConfig
 }
 
@@ -114,6 +122,7 @@ export interface Config extends ContainerOptions {
 export const Config = z.object({
   ...containerOptionFields(),
   ...presetSourceFields(),
+  ...sandboxTemplateFields(),
   presets: z.object({
     enabled: z.boolean().default(true),
     win32Only: z.boolean().default(true),
@@ -181,7 +190,7 @@ export function apply(ctx: Context, configured?: Config): void {
         // below cannot apply: the workspace is the session's own directory.
         const root = sbxWorkspaceRootFor(hostWorkdir, hostWorkdir, repository)
         if (root === undefined) return result
-        const spec = sbxSpecFor(root, options, repository)
+        const spec = sbxSpecFor(root, { ...options, sbxTemplate: liveSandboxTemplate(child) }, repository)
         applyContainerContext(result, sbxContextText(
           toContainerPath(hostWorkdir, spec),
           spec.sandbox ?? sandboxNameFor(root),
@@ -234,7 +243,38 @@ export function apply(ctx: Context, configured?: Config): void {
     markContainerPresets(ctx)
     return () => { cache.reset() }
   })
+  // The image belongs to this row (the settings page writes this namespace) while
+  // the rows that create a sandbox are the shell, filesystem, and subprocess ones:
+  // they ask this reader at the moment they build a specification, so a write is
+  // answered by the next command rather than by the next reload.
+  ctx.effect(
+    () => registerSandboxTemplate(ctx, () => configuredSbxTemplate(ctx, config)),
+    'devcontainer.sbx-template',
+  )
   registerVariants(ctx, config)
+}
+
+/**
+ * The sandbox image this row configures right now, trimmed, or undefined when it
+ * configures none.
+ *
+ * The live reference is read on every call rather than copied at mount time: a
+ * settings write commits into the fiber's effective config (the same path
+ * `storedList` follows), and the profile patch may land after this row mounted.
+ * @param ctx - this row's context.
+ * @param config - the resolved config this row was mounted with.
+ * @returns the image to pass as `--template`, or undefined for the CLI's own template.
+ */
+function configuredSbxTemplate(ctx: Context, config: Config): string | undefined {
+  const live = (ctx as unknown as { fiber?: { effectiveConfig?: Record<string, unknown> } })
+    .fiber?.effectiveConfig?.['sbxTemplate']
+  const value: unknown = live ?? config.sbxTemplate
+  if (value === undefined || value === null) return undefined
+  const text: unknown = typeof (value as { get?: unknown }).get === 'function'
+    ? (value as { get(): unknown }).get()
+    : value
+  const image = typeof text === 'string' ? text.trim() : ''
+  return image === '' ? undefined : image
 }
 
 /** The `ctx.shellEnv` slice this row registers into. */

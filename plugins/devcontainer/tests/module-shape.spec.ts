@@ -77,3 +77,26 @@ describe('the host row loads without a config', () => {
     expect(() => { hostModule.apply(ctx, resolved) }).not.toThrow()
   })
 })
+
+describe('the sandbox image field', () => {
+  it('defaults to no image, so a created sandbox keeps the CLI template', () => {
+    expect(HostConfig({}).sbxTemplate.get()).toBe('')
+  })
+
+  it('accepts a registry reference, a digest, and a local template name', () => {
+    for (const value of [
+      'docker.io/org/img:tag',
+      'docker.io/org/img@sha256:6f9e3f0c0d0f4f0e8f7a1b2c3d4e5f60718293a4b5c6d7e8f90102130405060',
+      'my-template:v1',
+      'img',
+    ]) {
+      expect(HostConfig({ sbxTemplate: value }).sbxTemplate.get()).toBe(value)
+    }
+  })
+
+  it('refuses a value it could not pass as one argv token', () => {
+    for (const value of ['--rm', 'org/img latest', 'img\t2']) {
+      expect(() => HostConfig({ sbxTemplate: value })).toThrow()
+    }
+  })
+})

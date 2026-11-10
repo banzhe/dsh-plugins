@@ -8,7 +8,7 @@ import {
   SBX_ENV_KEY, SBX_ENV_VALUE, SBX_PRESET_ENV_KEY,
 } from '../src/refusal.ts'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import { repoRegistry } from '../src/registry.ts'
+import { liveSandboxTemplate, repoRegistry } from '../src/registry.ts'
 import { cleanupTemporaryDirectories, makeRepo } from './support.ts'
 
 const BASH = '@deepseek-ai/dsh-tool-bash'
@@ -381,5 +381,33 @@ describe('the marker registration', () => {
     await expect.poll(() => disposed).toBe(0)
     await root.fiber.dispose()
     await expect.poll(() => disposed).toBe(1)
+  })
+})
+describe('the sandbox image the Host row publishes', () => {
+  /**
+   * Mount the Host row with a movable image reference, the shape the settings page
+   * writes: the page stores a value, and the row's reader answers with it.
+   */
+  function publishing(initial: string): { root: Context, store(next: string): void } {
+    const root = new Context()
+    const image = mutableRef(initial)
+    const config = {
+      ...Config({ presets: { win32Only: false } }),
+      sbxTemplate: image,
+    } as unknown as PluginConfig
+    apply(root, config)
+    return { root, store: (next) => { storeSources(image, next) } }
+  }
+
+  it('publishes the image a write stored, and follows the next write', () => {
+    const page = publishing('')
+    expect(liveSandboxTemplate(page.root)).toBeUndefined()
+    page.store('docker.io/org/img:1.2')
+    expect(liveSandboxTemplate(page.root)).toBe('docker.io/org/img:1.2')
+  })
+
+  it('publishes nothing for a blank value', () => {
+    const page = publishing('   ')
+    expect(liveSandboxTemplate(page.root)).toBeUndefined()
   })
 })

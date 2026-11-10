@@ -57,7 +57,7 @@ import {
   markedContainerOnly, markedPreset, markedVariantKind, refusalText, refusedExecution, sbxRefusalText,
 } from './refusal.ts'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { repoRegistry } from './registry.ts'
+import { liveSandboxTemplate, repoRegistry } from './registry.ts'
 import { bindSbxMount, sandboxHostPathFor, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import type { SandboxHostAttribution } from './sbx.ts'
 import type { ContainerOptions, RepoContainerSpec } from './types.ts'
@@ -326,7 +326,9 @@ export class DevcontainerShellExecutor extends SandboxBashExecutor {
     const declared = registry.locate(attributed?.host ?? workdir, options)
     if (kind !== 'sbx') return declared
     const root = this.sbxHostRootOf(workdir, cwd, declared, attributed)
-    return root === undefined ? undefined : sbxSpecFor(root, this.options, declared)
+    return root === undefined
+      ? undefined
+      : sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, declared)
   }
 
   /**

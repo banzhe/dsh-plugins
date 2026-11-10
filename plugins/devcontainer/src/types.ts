@@ -46,6 +46,15 @@ export interface RepoContainerSpec {
   remoteEnv?: Readonly<Record<string, string>>
   /** Explicit Docker Sandbox name (`sandbox` / `sandboxName`), when declared. */
   sandbox?: string
+  /**
+   * Image a `sbx create` this Bundle issues runs, from the row's `sbxTemplate`.
+   *
+   * Absent when the row configured none, which leaves the CLI's own shell
+   * template in place. Only a sandbox specification a row built carries it: a
+   * declaration has no say in the image, and a sandbox that already exists is
+   * never recreated for it.
+   */
+  sbxTemplate?: string
   /** Shell the command runs under inside the container (default `/bin/bash`). */
   shell: string
   /** Execution driver (default `auto`). */
