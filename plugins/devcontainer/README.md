@@ -45,6 +45,34 @@ A repository opts in with any one of the three shapes, for example:
 
 Every field, the driver fallbacks, and the preset mechanics are documented in the implementation notes.
 
+## Host skills in sandboxed sessions
+
+A `… (devContainer)` or `… (sbx)` preset runs under the filesystem safety policy of its sandbox: a path outside the workspace repository that the container or the sandbox mounts is refused, so a session cannot escape into the rest of the host filesystem. A global skill on the host — `~/.agents/skills`, for example — lives outside that mount, so the session does not see it.
+
+To read host skills from inside a sandboxed session without copying them into the workspace repository, set two variables on the host: `DSH_BUNDLED_SKILL_DIR` points at the global skill directory, and `DSH_AGENTS_HOME` points at a directory that holds no `skills` subdirectory. Create that directory first; it may stay empty:
+
+```powershell
+# Windows (PowerShell): persists for the current user
+[Environment]::SetEnvironmentVariable("DSH_BUNDLED_SKILL_DIR", "$env:USERPROFILE\.agents\skills", "User")
+[Environment]::SetEnvironmentVariable("DSH_AGENTS_HOME", "$env:USERPROFILE\.dsh\agents", "User")
+```
+
+```sh
+# Linux / macOS (bash, zsh)
+export DSH_BUNDLED_SKILL_DIR="$HOME/.agents/skills"
+export DSH_AGENTS_HOME="$HOME/.dsh/agents"
+```
+
+On POSIX systems, `export` only takes effect for the current shell; to persist the variables, write them to `~/.bashrc` or `~/.zshrc`, and likewise start DSH from a newly opened terminal.
+
+The skill directory becomes DSH's bundled skill root, which is a trusted host root: discovery and file reads for it run in the host Node.js process instead of the session's `ctx.fs`, so the sandbox path fence is never asked about those paths. The skills appear in the session catalog as any other root does, and nothing is copied into the workspace repository or into the container.
+
+DSH reads both variables once, when the host process starts. On Windows the user-level assignments above reach only processes started after them, so quit DSH completely and start it again from a **new** terminal: a DSH that is already running keeps the skill roots it resolved at startup, and setting the variables has no effect on it.
+
+`DSH_AGENTS_HOME` is not optional: `~/.agents/skills` is also the default `user-agents` skill root, and by rank that root beats the trusted `bundled` root `DSH_BUNDLED_SKILL_DIR` fills, so with only the first variable set the registry keeps the `user-agents` copy of a same-named skill and its body read is still refused. Pointing `DSH_AGENTS_HOME` at a directory without a `skills` subdirectory takes that root off the skill directory, and the trusted copy is the one that loads.
+
+`~/.dsh/skills` is a separate, untrusted `user-dsh` root: skills kept there are just as unreadable from a sandboxed session.
+
 ## Docker Sandbox image
 
 A created Docker Sandbox runs Docker's agent-less `shell` template. To give it an image instead, fill in **Sandbox template image** on the **Settings → Dev Container presets** page: the value is stored as `sbxTemplate` and travels as `sbx create --template <image>`, in front of the agent and the workspace directory. The field is a settings-page write, so it lands in the profile patch like the two preset lists do.

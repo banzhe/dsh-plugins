@@ -355,6 +355,49 @@ The image is a creation-only setting. `resolveSbxTarget` creates a sandbox only 
 
 **Which row owns the value.** The field lives on the Host row's own Config — the namespace the settings page writes — and not in the shared container options, because the shell and filesystem rows have no page of their own and two more copies would be two more values to keep in step. Those rows are the ones that create a sandbox, so the Host row publishes a reader for the composition (`registerSandboxTemplate`, `src/registry.ts`) and every `sbxSpecFor` call site passes `liveSandboxTemplate(ctx)`. The reader answers from the row's live fiber config, the same reference a volatile settings write commits into, so a save is answered by the next command instead of the next reload; an absent row (or a registry row in another composition) answers "no image", which is exactly the earlier behaviour. The page writes one path, `['sbxTemplate']`, through the same `ConfigForm`: a list toggle never restates the image, and an image save never rewrites `sources` or `sbxSources`. Whatever the image is, it must provide `/bin/sh`, `cat`, and `mkdir` for the wrapped command, plus Node.js 18 or newer for the filesystem helper (`assertSandboxNode` reports a sandbox without one).
 
+### Host skills a sandboxed session reads
+
+A `… (devContainer)` or `… (sbx)` preset runs under the filesystem fence of its container or microVM: requests to paths outside the mounted workspace repository fail with `FS_PERMISSION_DENIED` at the boundary (`src/fs.ts:715`, `:1011-1012`). Host global skill directories — such as `~/.agents/skills` or `~/.dsh/skills` — live on the host outside that mount and are inaccessible inside sandboxed sessions by default. Reading host skills from a sandboxed session without copying them into the workspace repository or into the container relies on DSH's trusted bundled-skill root mechanism.
+
+Skill roots are gathered by `FileSystemSkillProvider.roots()` (`packages/skill/skill-filesystem/src/index.ts:251-271`), which ranks candidate roots in ascending order of priority:
+
+- project-level `<projectRoot>/.dsh/skills` (`packages/skill/skill-filesystem/src/index.ts:256`, `project-dsh`, rank 100) and `<projectRoot>/.agents/skills` (`:257`, `project-agents`, rank 200);
+- explicit `customSkillDirs` (`:260`, `custom`, rank 300);
+- `<dshHome>/skills` (`:263`, `user-dsh`, rank 400);
+- `<agentsHome>/skills` (`:264`, `user-agents`, `USER_AGENTS_RANK = 500` at `:39`);
+- `config.bundledSkillDir ?? process.env.DSH_BUNDLED_SKILL_DIR` (`:268`, `bundled`, `BUNDLED_SKILL_RANK = 600` from `packages/skill/skill/src/index.ts:28`), configured with `trustedHost: true`.
+
+The `trustedHost` flag governs whether discovery and reads touch the session filesystem:
+
+- When `trustedHost` is `true`, discovery enumerates root entries via host Node `readdir` (`packages/skill/skill-filesystem/src/index.ts:769`, `:791-809`) and parses skill frontmatter directly (`:748`); full skill content in `get()` passes `candidate.source === 'bundled'` (`:218`) to `parseSkillFile`, reading through host `realpath` and `readFile` (`:863-868`). All operations bypass `ctx.fs` entirely, so the sandbox path fence is never evaluated.
+- When `trustedHost` is `false` (every other root), directory enumeration and file reads dispatch through `ctx.fs` (`:769`, `:863-864`). In a sandboxed session, any host path outside the repository mount is rejected by the filesystem provider.
+
+**Deduplication in the registry.** Root discovery does not discard duplicate skill names across roots: `list()` runs `discoverRoot` for each root independently and gathers every candidate (`:195-207`), logging a warning and continuing when a root fails. Deduplication takes place during registry assembly in `SkillRegistry.collectLayer` (`packages/skill/skill/src/index.ts:567-580`), which sorts all gathered candidates by rank ascending (`packages/skill/skill/src/index.ts:807-811`) and retains only the first candidate encountered for each skill name, discarding lower-priority duplicates with `higher-priority skill already exists` (`:575`).
+
+When loading the full skill content, `get()` checks `candidate.source === 'bundled'` (`packages/skill/skill-filesystem/src/index.ts:218`) to decide whether to set `trustedHost = true`. If the winning candidate has `source === 'user-agents'`, `trustedHost` remains `false`, and `readSkillTextFromFileSystem` attempts to read the file through `ctx.fs` (`:863-864`, `:876-907`). Because errors other than `FS_NOT_TEXT` are re-thrown rather than swallowed (`:884-905`), the sandbox boundary refusal bubbles up directly as a session error.
+
+**Why two variables.** `resolveAgentsHome` (`packages/util/home-paths/src/index.ts:142-151`) resolves the shared agent root with the precedence: explicit configuration > `DSH_AGENTS_HOME` > `~/.agents`. Because `~/.agents/skills` is the default `user-agents` root, setting `DSH_BUNDLED_SKILL_DIR` alone creates two candidates for each skill: the untrusted `user-agents` candidate (rank 500) and the trusted `bundled` candidate (rank 600). The lower rank wins during registry deduplication, the trusted copy is discarded, and the surviving candidate still fails when reading the body through `ctx.fs`. Making the trusted candidate the sole discovery requires setting `DSH_AGENTS_HOME` to a directory that contains no `skills` subdirectory (such as an empty `~/.dsh/agents`), shifting the `user-agents` root away so the trusted `bundled` copy wins uncontested.
+
+**Isolation and persistence.** `~/.dsh/skills` is a separate untrusted root (`user-dsh`, rank 400); skills located there cannot be read in sandboxed sessions. DSH neither reads nor writes `~/.agents/.skill-lock.json` and exposes no skill installation commands, so redirecting `DSH_AGENTS_HOME` introduces no lockfile desynchronization. Skill files remain in `~/.agents/skills`, where other agent CLIs and host presets continue to read them normally.
+
+Both variables are read in the provider constructor when the host process boots (`packages/skill/skill-filesystem/src/index.ts:164-176`) and are not watched for live updates. On Windows, user-level registry writes affect only processes launched after the assignment; DSH must be closed completely and restarted from a new terminal.
+
+```powershell
+# Windows (PowerShell): persists for the current user
+[Environment]::SetEnvironmentVariable("DSH_BUNDLED_SKILL_DIR", "$env:USERPROFILE\.agents\skills", "User")
+[Environment]::SetEnvironmentVariable("DSH_AGENTS_HOME", "$env:USERPROFILE\.dsh\agents", "User")
+```
+
+The directory `$env:USERPROFILE\.dsh\agents` must be created beforehand (it may remain empty). Under Windows cmd, the equivalent values are `DSH_BUNDLED_SKILL_DIR=%USERPROFILE%\.agents\skills` and `DSH_AGENTS_HOME=%USERPROFILE%\.dsh\agents`.
+
+```sh
+# POSIX (bash, zsh)
+export DSH_BUNDLED_SKILL_DIR="$HOME/.agents/skills"
+export DSH_AGENTS_HOME="$HOME/.dsh/agents"
+```
+
+The directory `$HOME/.dsh/agents` must be created beforehand (it may remain empty).
+
 ### Where commands run
 
 `sbx exec` starts its own process and takes no environment flags on the CLI version this Bundle targets, so the argv is one POSIX wrapper:

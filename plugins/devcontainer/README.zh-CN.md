@@ -45,6 +45,34 @@
 
 字段全表、驱动回退顺序与预设机制见实现说明文档。
 
+## 在沙箱会话中使用宿主机全局技能
+
+使用 `… (devContainer)` 或 `… (sbx)` 预设时，会话跑在对应沙箱的文件系统安全策略之下：容器或沙箱所挂载的工作区仓库之外，任何路径都会被拒绝，以免会话逃逸到宿主机文件系统的其余部分。宿主上的全局技能目录（例如 `~/.agents/skills`）落在这个挂载点之外，因此会话看不到它们。
+
+若想在沙箱会话里直接读取宿主机的全局技能，而不必把技能文件拷进工作区仓库，需要在宿主机上设置两个变量：`DSH_BUNDLED_SKILL_DIR` 指向全局技能目录，`DSH_AGENTS_HOME` 指向一个不含 `skills` 子目录的目录。后者要先建好，可以是空目录：
+
+```powershell
+# Windows (PowerShell)：为当前用户持久生效
+[Environment]::SetEnvironmentVariable("DSH_BUNDLED_SKILL_DIR", "$env:USERPROFILE\.agents\skills", "User")
+[Environment]::SetEnvironmentVariable("DSH_AGENTS_HOME", "$env:USERPROFILE\.dsh\agents", "User")
+```
+
+```sh
+# Linux / macOS（bash、zsh）
+export DSH_BUNDLED_SKILL_DIR="$HOME/.agents/skills"
+export DSH_AGENTS_HOME="$HOME/.dsh/agents"
+```
+
+POSIX 上的 `export` 只对当前 shell 生效，要持久化需写进 `~/.bashrc` 或 `~/.zshrc`，并且同样要从新开的终端启动 DSH。
+
+全局技能目录成为 DSH 的 bundled 技能根，而这是一个受信任的宿主目录：对它的技能发现与文件读取由宿主机 Node.js 进程完成，不走会话的 `ctx.fs`，因此沙箱的路径越界拦截根本不会介入这些路径。这些技能与其他根目录下的技能一样出现在会话技能目录里，工作区仓库和容器内都不会多出任何文件。
+
+两个变量都只在宿主进程启动时读取一次。Windows 上，上面的用户级赋值只对之后启动的进程生效，所以设完要完全退出 DSH，再**新开一个终端**重新启动：已经在运行的 DSH 保留着启动时解析出的技能根，设置这些变量对它不起作用。
+
+`DSH_AGENTS_HOME` 这一条不能省。`~/.agents/skills` 同时也是默认的 `user-agents` 技能根，按 rank 排在 `DSH_BUNDLED_SKILL_DIR` 填入的受信任 `bundled` 根之前：两个根都有同名技能时，注册表留下的是 `user-agents` 那一份，而它的正文仍然要经会话的 `ctx.fs` 读取，照样被沙箱拒绝，只设第一个变量并不够。把 `DSH_AGENTS_HOME` 指向没有 `skills` 子目录的目录，这个技能目录就不再被默认根覆盖，加载的是受信任的那份。
+
+`~/.dsh/skills` 属于另一个非受信任的 `user-dsh` 根，放在那里的技能在沙箱会话里同样读不到。
+
 ## Docker Sandbox 镜像
 
 新建 Docker Sandbox 时默认运行 Docker 自带的、不带 agent 的 `shell` 模板。若想换成指定镜像，在**设置 → Dev Container 预设**页的“沙盒模板镜像”一栏填写：该值存为 `sbxTemplate`，并以 `sbx create --template <镜像>` 传入，插在位置参数 agent 与工作区目录之前。这一栏和两份预设列表一样是设置页写入的，会一并落进 profile。
