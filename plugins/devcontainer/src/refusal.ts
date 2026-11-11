@@ -232,6 +232,19 @@ export function sbxRefusalText(workdir: string, preset: string | undefined): str
 }
 
 /**
+ * The diagnostic a metadata probe outside every mount reports.
+ *
+ * A sandbox filesystem holds its workspace and the mounts its row declares; a probe
+ * of anything else is answered as the absence it is, in one line, without the escape
+ * wording a refused read or write gets.
+ * @param path - the path the probe named.
+ * @returns the diagnostic, ending without a newline so the seam reports it verbatim.
+ */
+export function fsUnmountedText(path: string): string {
+  return `devcontainer: "${path}" is not inside any mount of this session's container, so its filesystem has no such path`
+}
+
+/**
  * The diagnostic a refused filesystem call reports.
  *
  * It names the preset, the path, and every file discovery looked for, then the

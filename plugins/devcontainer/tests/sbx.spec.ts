@@ -16,12 +16,22 @@ import {
   sandboxNameFor,
   sandboxTemplateArgs,
   sandboxWorkspacePath,
+  sbxExtraMountsOf,
+  sbxMountAttribution,
   sbxSpecFor,
   sbxTargetOf,
   sbxWorkspaceRootFor,
 } from '../src/sbx.ts'
 import { liveSandboxTemplate, registerSandboxTemplate } from '../src/registry.ts'
 import { DEFAULT_OPTIONS, fakeRunner, repoSpec } from './support.ts'
+
+/**
+ * The row options every sandbox fixture here is built with.
+ *
+ * The extra host mounts are off in this file: they are read from the user's own
+ * home, so a suite that asserted them would depend on whoever runs it.
+ */
+const OPTIONS = { ...DEFAULT_OPTIONS, hostMounts: 'off' as const }
 
 describe('sandboxNameFor', () => {
   it('names the sandbox after the repository and a digest of its path', () => {
@@ -49,18 +59,21 @@ describe('sandboxNameFor', () => {
 describe('parseSandboxList', () => {
   it('reads the current array form', () => {
     expect(parseSandboxList('[{"name":"a","status":"running"},{"name":"b","status":"stopped"}]'))
-      .toEqual([{ name: 'a', running: true, mounts: [] }, { name: 'b', running: false, mounts: [] }])
+      .toEqual([
+        { name: 'a', running: true, mounts: [], workspaces: [] },
+        { name: 'b', running: false, mounts: [], workspaces: [] },
+      ])
   })
 
   it('reads the older envelope form', () => {
     expect(parseSandboxList('{"sandboxes":[{"name":"a","detached":true}]}'))
-      .toEqual([{ name: 'a', running: true, mounts: [] }])
+      .toEqual([{ name: 'a', running: true, mounts: [], workspaces: [] }])
   })
 
   it('treats a row that says nothing about its state as not running', () => {
     // Starting an existing sandbox again is harmless; treating a stopped one as
     // running would make every later `sbx exec` fail and never recover.
-    expect(parseSandboxList('[{"name":"a"}]')).toEqual([{ name: 'a', running: false, mounts: [] }])
+    expect(parseSandboxList('[{"name":"a"}]')).toEqual([{ name: 'a', running: false, mounts: [], workspaces: [] }])
   })
 
   it('ignores rows without a name, and output it cannot parse', () => {
@@ -75,7 +88,7 @@ describe('listSandboxes', () => {
     const ran = fakeRunner({ sbx: { stdout: '[{"name":"a","status":"running"}]', stderr: '' } })
     await expect(listSandboxes(ran.run, 1000)).resolves.toEqual({
       available: true,
-      sandboxes: [{ name: 'a', running: true, mounts: [] }],
+      sandboxes: [{ name: 'a', running: true, mounts: [], workspaces: [] }],
     })
     expect(ran.calls[0]?.argv).toEqual(['sbx', 'ls', '--json'])
   })
@@ -117,21 +130,21 @@ describe('the sandbox view of a repository', () => {
   })
 
   it('synthesizes a specification for a directory that declares nothing', () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS)
+    const spec = sbxSpecFor(root, OPTIONS)
     expect(spec).toMatchObject({
       hostWorkspaceRoot: root,
       containerWorkspaceFolder: '/f/personal/my-repo',
       configPath: '',
       cli: 'sbx',
-      shell: DEFAULT_OPTIONS.shell,
-      ensureUp: DEFAULT_OPTIONS.ensureUp,
-      containerTimeoutMs: DEFAULT_OPTIONS.containerTimeoutMs,
+      shell: OPTIONS.shell,
+      ensureUp: OPTIONS.ensureUp,
+      containerTimeoutMs: OPTIONS.containerTimeoutMs,
     })
   })
 
   it('adopts the declaration that owns the directory', () => {
     const declared = repoSpec(root, { remoteUser: 'node', sandbox: 'acme' })
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS, declared)
+    const spec = sbxSpecFor(root, OPTIONS, declared)
     expect(spec.remoteUser).toBe('node')
     expect(spec.sandbox).toBe('acme')
     expect(spec.cli).toBe('sbx')
@@ -194,7 +207,7 @@ describe('resolveSbxTarget', () => {
   const root = 'F:\\personal\\my-repo'
 
   it('probes a running sandbox before handing it out', async () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS)
+    const spec = sbxSpecFor(root, OPTIONS)
     const name = sandboxNameFor(root)
     const cli = sandboxCli(JSON.stringify([{ name, status: 'running' }]), { stdout: '/usr/local/bin/node\n' })
     await expect(resolveSbxTarget(spec, cli.run)).resolves.toMatchObject({ kind: 'sbx', sandboxName: name })
@@ -202,7 +215,7 @@ describe('resolveSbxTarget', () => {
   })
 
   it('refuses a running sandbox that cannot run the helper', async () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS)
+    const spec = sbxSpecFor(root, OPTIONS)
     const name = sandboxNameFor(root)
     const cli = sandboxCli(JSON.stringify([{ name, status: 'running' }]), { stderr: 'which: no node\n', exitCode: 1 })
     await expect(resolveSbxTarget(spec, cli.run))
@@ -210,7 +223,7 @@ describe('resolveSbxTarget', () => {
   })
 
   it('starts a stopped sandbox and probes it afterwards', async () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS)
+    const spec = sbxSpecFor(root, OPTIONS)
     const name = sandboxNameFor(root)
     const cli = sandboxCli(JSON.stringify([{ name, status: 'stopped' }]), { stdout: '/usr/bin/node\n' })
     await expect(resolveSbxTarget(spec, cli.run)).resolves.toMatchObject({ sandboxName: name })
@@ -222,7 +235,7 @@ describe('resolveSbxTarget', () => {
   })
 
   it('creates a sandbox it cannot find, then probes it', async () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS)
+    const spec = sbxSpecFor(root, OPTIONS)
     const name = sandboxNameFor(root)
     const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
     await expect(resolveSbxTarget(spec, cli.run)).resolves.toMatchObject({ sandboxName: name })
@@ -235,7 +248,7 @@ describe('resolveSbxTarget', () => {
   })
 
   it('reports the state instead of probing when ensureUp is off', async () => {
-    const spec = { ...sbxSpecFor(root, DEFAULT_OPTIONS), ensureUp: false }
+    const spec = { ...sbxSpecFor(root, OPTIONS), ensureUp: false }
     const name = sandboxNameFor(root)
     const cli = sandboxCli(JSON.stringify([{ name, status: 'stopped' }]), { stdout: '/usr/bin/node\n' })
     await expect(resolveSbxTarget(spec, cli.run)).rejects.toThrow('is not running')
@@ -252,7 +265,7 @@ describe('the image a created sandbox runs', () => {
    * composition's Host row published — the path every row takes in production.
    */
   function specification(ctx: Context): RepoContainerSpec {
-    return sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, undefined)
+    return sbxSpecFor(root, { ...OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, undefined)
   }
 
   it('passes no --template when the composition published none', async () => {
@@ -308,11 +321,11 @@ describe('the image a created sandbox runs', () => {
     const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
     const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
     await resolveSbxTarget(
-      sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(new Context()) }, declared),
+      sbxSpecFor(root, { ...OPTIONS, sbxTemplate: liveSandboxTemplate(new Context()) }, declared),
       cli.run,
     )
     expect(cli.calls[1]).toEqual(['sbx', 'create', '--name', name, 'shell', root])
-    expect('sbxTemplate' in sbxSpecFor(root, DEFAULT_OPTIONS, declared)).toBe(false)
+    expect('sbxTemplate' in sbxSpecFor(root, OPTIONS, declared)).toBe(false)
   })
 
   it('runs the image the Host row configured instead of one a declaration carried', async () => {
@@ -321,13 +334,13 @@ describe('the image a created sandbox runs', () => {
     const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
     const cli = sandboxCli('[]', { stdout: '/usr/bin/node\n' })
     await resolveSbxTarget(
-      sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared),
+      sbxSpecFor(root, { ...OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared),
       cli.run,
     )
     expect(cli.calls[1]).toEqual([
       'sbx', 'create', '--name', name, '--template', 'docker.io/org/img:1.2', 'shell', root,
     ])
-    expect(sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared).sbxTemplate)
+    expect(sbxSpecFor(root, { ...OPTIONS, sbxTemplate: liveSandboxTemplate(ctx) }, declared).sbxTemplate)
       .toBe('docker.io/org/img:1.2')
   })
 
@@ -335,7 +348,7 @@ describe('the image a created sandbox runs', () => {
     const blank = new Context()
     registerSandboxTemplate(blank, () => '   ')
     const declared = { ...repoSpec(root), sbxTemplate: 'declared/img:9' }
-    const spec = sbxSpecFor(root, { ...DEFAULT_OPTIONS, sbxTemplate: liveSandboxTemplate(blank) }, declared)
+    const spec = sbxSpecFor(root, { ...OPTIONS, sbxTemplate: liveSandboxTemplate(blank) }, declared)
     expect('sbxTemplate' in spec).toBe(false)
   })
 
@@ -402,7 +415,7 @@ describe('sandboxWorkspacePath', () => {
   it('gives a declaration whose sandbox mounts nothing the same spelling', () => {
     const declared = repoSpec('F:\\personal\\asmr-manager', { containerWorkspaceFolder: '/workspaces/asmr-manager' })
     expect(asSbxSpec(declared, []).containerWorkspaceFolder).toBe('/f/personal/asmr-manager')
-    expect(sbxTargetOf(sbxSpecFor('F:\\personal\\asmr-manager', DEFAULT_OPTIONS), []).workspaceFolder)
+    expect(sbxTargetOf(sbxSpecFor('F:\\personal\\asmr-manager', OPTIONS), []).workspaceFolder)
       .toBe('/f/personal/asmr-manager')
   })
 
@@ -425,15 +438,16 @@ describe('the mounts a sandbox reports', () => {
       name: 'a',
       running: true,
       mounts: [
-        { host: 'F:\\repo', sandbox: '/f/repo' },
-        { host: '/home/dev/other', sandbox: '/home/dev/other' },
+        { host: 'F:\\repo', sandbox: '/f/repo', readOnly: false },
+        { host: '/home/dev/other', sandbox: '/home/dev/other', readOnly: false },
       ],
+      workspaces: [],
     }])
   })
 
   it('drops entries that do not carry two absolute paths', () => {
     expect(parseSandboxList('[{"name":"a","mounts":["F:\\\\repo","nonsense",42]}]'))
-      .toEqual([{ name: 'a', running: false, mounts: [] }])
+      .toEqual([{ name: 'a', running: false, mounts: [], workspaces: [] }])
   })
 
   it('maps a Windows workspace to the path its sandbox mounts it at', () => {
@@ -460,10 +474,10 @@ describe('the mounts a sandbox reports', () => {
       JSON.stringify([{ name, status: 'running', mounts: [`${root}:${mount.sandbox}`] }]),
       { stdout: '/usr/local/bin/node\n' },
     )
-    const target = await resolveSbxTarget(sbxSpecFor(root, DEFAULT_OPTIONS), cli.run)
+    const target = await resolveSbxTarget(sbxSpecFor(root, OPTIONS), cli.run)
     expect(target).toEqual({ kind: 'sbx', sandboxName: name, workspaceFolder: '/f/personal/asmr-manager' })
-    expect(sbxSpecFor(root, DEFAULT_OPTIONS).containerWorkspaceFolder).toBe('/f/personal/asmr-manager')
-    expect(sbxTargetOf(sbxSpecFor(root, DEFAULT_OPTIONS)).workspaceFolder).toBe('/f/personal/asmr-manager')
+    expect(sbxSpecFor(root, OPTIONS).containerWorkspaceFolder).toBe('/f/personal/asmr-manager')
+    expect(sbxTargetOf(sbxSpecFor(root, OPTIONS)).workspaceFolder).toBe('/f/personal/asmr-manager')
   })
 
   it('keeps the host spelling for a sandbox that mounts it at that same path', async () => {
@@ -473,7 +487,7 @@ describe('the mounts a sandbox reports', () => {
       JSON.stringify([{ name: posixName, status: 'running', mounts: [`${posixRoot}:${posixRoot}`] }]),
       { stdout: '/usr/bin/node\n' },
     )
-    const target = await resolveSbxTarget(sbxSpecFor(posixRoot, DEFAULT_OPTIONS), cli.run)
+    const target = await resolveSbxTarget(sbxSpecFor(posixRoot, OPTIONS), cli.run)
     expect(target.workspaceFolder).toBe(posixRoot)
   })
 
@@ -481,12 +495,12 @@ describe('the mounts a sandbox reports', () => {
     const bare = 'F:\\personal\\bare-repo'
     const bareName = sandboxNameFor(bare)
     const cli = sandboxCli(JSON.stringify([{ name: bareName, status: 'running' }]), { stdout: '/usr/bin/node\n' })
-    const target = await resolveSbxTarget(sbxSpecFor(bare, DEFAULT_OPTIONS), cli.run)
+    const target = await resolveSbxTarget(sbxSpecFor(bare, OPTIONS), cli.run)
     expect(target.workspaceFolder).toBe('/f/personal/bare-repo')
   })
 
   it('binds the specification to the folder a resolved target reported', () => {
-    const spec = sbxSpecFor(root, DEFAULT_OPTIONS, undefined, [])
+    const spec = sbxSpecFor(root, OPTIONS, undefined, [])
     const target: ContainerTarget = { kind: 'sbx', sandboxName: name, workspaceFolder: '/f/personal/asmr-manager' }
     const bound = bindSbxMount(spec, target)
     expect(bound.containerWorkspaceFolder).toBe('/f/personal/asmr-manager')
@@ -513,26 +527,197 @@ describe('sandboxHostPathFor', () => {
     const root = 'F:\\personal\\mounted-elsewhere'
     const name = sandboxNameFor(root)
     const cli = sandboxCli(
-      JSON.stringify([{ name, status: 'running', mounts: [`${root}:/workspace/elsewhere`] }]),
+      JSON.stringify([{ name, status: 'running', mounts: [`${root}:/workspace/elsewhere`], workspaces: [root] }]),
       { stdout: '/usr/bin/node\n' },
     )
     await listSandboxes(cli.run, 1000)
     expect(sandboxHostPathFor('/workspace/elsewhere/src/a.ts')).toEqual({
       host: 'F:\\personal\\mounted-elsewhere\\src\\a.ts',
       workspaceRoot: root,
+      sandbox: name,
     })
   })
 
   it('lets the deepest reported mount win over a parent directory one', async () => {
     const name = 'dsh-nested-00000000'
     const cli = sandboxCli(
-      JSON.stringify([{ name, status: 'running', mounts: ['F:\\personal:/f/personal', 'F:\\personal\\nested:/elsewhere/nested'] }]),
+      JSON.stringify([{
+        name,
+        status: 'running',
+        mounts: ['F:\\personal:/f/personal', 'F:\\personal\\nested:/elsewhere/nested'],
+        workspaces: ['F:\\personal\\nested'],
+      }]),
       { stdout: '/usr/bin/node\n' },
     )
     await listSandboxes(cli.run, 1000)
     expect(sandboxHostPathFor('/elsewhere/nested/src')).toEqual({
       host: 'F:\\personal\\nested\\src',
       workspaceRoot: 'F:\\personal\\nested',
+      sandbox: name,
+    })
+  })
+})
+describe('the mode token a listing appends', () => {
+  it('keeps it out of the sandbox side of a directory and of a single file', () => {
+    expect(parseSandboxList(JSON.stringify([
+      { name: 'a', status: 'running', mounts: ['D:\\dir:/d/dir:ro', 'D:\\file.md:/d/file.md:ro'] },
+    ]))).toEqual([{
+      name: 'a',
+      running: true,
+      mounts: [
+        { host: 'D:\\dir', sandbox: '/d/dir', readOnly: true },
+        { host: 'D:\\file.md', sandbox: '/d/file.md', readOnly: true },
+      ],
+      workspaces: [],
+    }])
+  })
+
+  it('reads a workspace entry that is itself read-only, without the token', () => {
+    const [listed] = parseSandboxList(JSON.stringify([
+      { name: 'a', status: 'running', mounts: ['D:\\ws:/d/ws:ro'], workspaces: ['D:\\ws:ro'] },
+    ]))
+    expect(listed?.workspaces).toEqual([{ host: 'D:\\ws', readOnly: true }])
+    expect(listed?.mounts).toEqual([{ host: 'D:\\ws', sandbox: '/d/ws', readOnly: true }])
+  })
+
+  it('reads the object form a later listing may report', () => {
+    const [listed] = parseSandboxList(JSON.stringify([
+      {
+        name: 'a',
+        mounts: [
+          { host: 'D:\\dir', destination: '/d/dir', readOnly: true },
+          { source: '/home/dev/x', target: '/home/dev/x' },
+          { host: 'D:\\junk' },
+        ],
+      },
+    ]))
+    expect(listed?.mounts).toEqual([
+      { host: 'D:\\dir', sandbox: '/d/dir', readOnly: true },
+      { host: '/home/dev/x', sandbox: '/home/dev/x', readOnly: false },
+    ])
+  })
+})
+
+describe('the extra mounts a row declares', () => {
+  it('answers nothing for a specification that is no sandbox', () => {
+    // The rows hand this function every specification they hold, so the guard has to
+    // be here rather than at six call sites.
+    expect(sbxExtraMountsOf(repoSpec('/f/personal/my-repo'))).toEqual([])
+  })
+
+  it('reads the plan from the specification, not from a record built earlier', () => {
+    // `sbxSpecFor` is pure: what a session may name is on the specification it
+    // returned, so a fresh one answers without any sandbox having been resolved.
+    const fresh = sbxSpecFor('F:\\personal\\unresolved-repo', { ...OPTIONS, hostMounts: [agents] })
+    expect(sbxExtraMountsOf(fresh)).toEqual([{
+      host: 'C:\\Users\\me\\.dsh\\AGENTS.md',
+      sandbox: '/c/Users/me/.dsh/AGENTS.md',
+      readOnly: true,
+    }])
+  })
+
+  const root = 'F:\\personal\\my-repo'
+  const name = sandboxNameFor(root)
+  const agents = 'C:\\Users\\me\\.dsh\\AGENTS.md'
+  const skills = 'C:\\Users\\me\\.agents\\skills'
+  const injected = 'C:\\Users\\me\\AppData\\Local\\DockerSandboxes\\state\\agent-skills'
+
+  /** The listing a sandbox with this row's two mounts reports, plus sbx's own skill store. */
+  function listing(): string {
+    return JSON.stringify([{
+      name,
+      status: 'running',
+      mounts: [
+        `${root}:/f/personal/my-repo`,
+        `${agents}:/d/agents.md:ro`,
+        `${skills}:/c/Users/me/.agents/skills:ro`,
+        `${injected}:/home/agent/.claude/skills:ro`,
+      ],
+      workspaces: [root, `${agents}:ro`, `${skills}:ro`],
+    }])
+  }
+
+  /** A specification carrying the two declared mounts. */
+  function specification(): RepoContainerSpec {
+    return sbxSpecFor(root, { ...OPTIONS, hostMounts: [agents, skills] })
+  }
+
+  it('resolves a declaration to the path the sandbox reported for it', async () => {
+    const cli = sandboxCli(listing(), { stdout: '/usr/bin/node\n' })
+    const spec = specification()
+    await resolveSbxTarget(spec, cli.run)
+    expect(sbxExtraMountsOf(spec)).toEqual([
+      { host: agents, sandbox: '/d/agents.md', readOnly: true },
+      { host: skills, sandbox: '/c/Users/me/.agents/skills', readOnly: true },
+    ])
+  })
+
+  it('leaves a mount the sandbox injected for itself out of the session', async () => {
+    const cli = sandboxCli(listing(), { stdout: '/usr/bin/node\n' })
+    const spec = specification()
+    await resolveSbxTarget(spec, cli.run)
+    expect(sbxExtraMountsOf(spec).map(mount => mount.sandbox)).not.toContain('/home/agent/.claude/skills')
+    expect(sandboxHostPathFor('/home/agent/.claude/skills/demo/SKILL.md')).toBeUndefined()
+  })
+
+  it('attributes a declared mount to the sandbox that carries it, in both spellings', async () => {
+    const cli = sandboxCli(listing(), { stdout: '/usr/bin/node\n' })
+    const spec = specification()
+    await resolveSbxTarget(spec, cli.run)
+    expect(sandboxHostPathFor('/d/agents.md')).toEqual({ host: agents, workspaceRoot: root, sandbox: name })
+    expect(sbxMountAttribution(agents)).toEqual({ host: agents, workspaceRoot: root, sandbox: name })
+    expect(sbxMountAttribution('C:\\Users\\me\\.agents\\skills\\demo\\SKILL.md')).toEqual({
+      host: 'C:\\Users\\me\\.agents\\skills\\demo\\SKILL.md',
+      workspaceRoot: root,
+      sandbox: name,
+    })
+  })
+
+  it('admits nothing a listing reported when that listing carries no workspaces', async () => {
+    const cli = sandboxCli(
+      JSON.stringify([{
+        name,
+        status: 'running',
+        mounts: [
+          `${root}:/f/personal/my-repo`,
+          `${agents}:/d/agents.md:ro`,
+          `${injected}:/home/agent/.claude/skills:ro`,
+          'F:\\personal\\unrelated:/f/personal/unrelated',
+        ],
+      }]),
+      { stdout: '/usr/bin/node\n' },
+    )
+    const spec = specification()
+    await resolveSbxTarget(spec, cli.run)
+    expect(sbxExtraMountsOf(spec)).toEqual([{ host: agents, sandbox: '/d/agents.md', readOnly: true }])
+    expect(sandboxHostPathFor('/home/agent/.claude/skills/demo/SKILL.md')).toBeUndefined()
+    // Not a mount this session may name: the drive convention still spells the
+    // path, but no sandbox admits it, which is what the fence reads.
+    expect(sbxMountAttribution('F:\\personal\\unrelated\\src\\a.ts')).toBeUndefined()
+    expect(sandboxHostPathFor('/f/personal/my-repo/src/a.ts')).toEqual({
+      host: `${root}\\src\\a.ts`,
+      workspaceRoot: root,
+      sandbox: name,
+    })
+  })
+
+  it('names no sandbox for a host path no sandbox mounts', async () => {
+    const cli = sandboxCli(listing(), { stdout: '/usr/bin/node\n' })
+    await resolveSbxTarget(specification(), cli.run)
+    expect(sbxMountAttribution('C:\\Users\\me\\other\\AGENTS.md')).toBeUndefined()
+  })
+
+  it('reads workspaces as the statement of what was mounted, not the mount list', async () => {
+    // The mount list carries sbx's own skill store; only `workspaces` says which
+    // entries this row asked for.
+    const cli = sandboxCli(listing(), { stdout: '/usr/bin/node\n' })
+    const spec = specification()
+    await resolveSbxTarget(spec, cli.run)
+    expect(sandboxHostPathFor('/home/agent/.claude/skills')).toBeUndefined()
+    expect(sandboxHostPathFor('/f/personal/my-repo/src/a.ts')).toEqual({
+      host: 'F:\\personal\\my-repo\\src\\a.ts',
+      workspaceRoot: root,
+      sandbox: name,
     })
   })
 })

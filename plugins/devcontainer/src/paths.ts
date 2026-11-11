@@ -73,18 +73,33 @@ export function defaultContainerWorkspaceFolder(hostRoot: string): string {
   return posix.join('/workspaces', base === '' ? 'workspace' : base)
 }
 
+/** How one mount point is matched. */
+export interface RemainderOptions {
+  /** Compare case-insensitively, keeping the caller's spelling in the answer. */
+  readonly fold?: boolean
+}
+
 /**
  * Match a path against a container mount point.
+ *
+ * A Windows drive path reaches a sandbox as a lowercase drive segment and a caller
+ * may write it either way, so a fold belongs to the comparison only: the answer is
+ * always sliced from the candidate, never from the mount point.
  * @param path - candidate path, in either separator style.
  * @param folder - the container mount point.
+ * @param options - whether to fold case while comparing.
  * @returns the POSIX remainder (`''` for the mount point itself), or undefined when the path is elsewhere.
  */
-export function containerRemainder(path: string, folder: string): string | undefined {
+export function containerRemainder(
+  path: string, folder: string, options: RemainderOptions = {},
+): string | undefined {
   const normalized = posix.normalize(toPosixSlashes(path))
   const root = posix.normalize(toPosixSlashes(folder))
-  if (normalized === root) return ''
-  const prefix = root.endsWith('/') ? root : `${root}/`
-  return normalized.startsWith(prefix) ? normalized.slice(prefix.length) : undefined
+  const left = options.fold === true ? normalized.toLowerCase() : normalized
+  const right = options.fold === true ? root.toLowerCase() : root
+  if (left === right) return ''
+  const prefix = right.endsWith('/') ? right : `${right}/`
+  return left.startsWith(prefix) ? normalized.slice(prefix.length) : undefined
 }
 
 /** The spellings a model-supplied container path may have degraded into. */
@@ -141,14 +156,23 @@ export function joinMount(folder: string, relative: string): string {
   return isWindowsPath(folder) ? joinHostRoot(folder, relative) : posix.join(folder, toPosixSlashes(relative))
 }
 
+/** One extra mount a runtime reported: a host path and the path it has inside. */
+export interface ExtraMount {
+  /** The host path the mount originates from, in the host's own path style. */
+  readonly host: string
+  /** Absolute POSIX path the same path has inside the runtime. */
+  readonly sandbox: string
+}
+
 /**
  * Translate one model/plugin-supplied path into the container's POSIX view.
  * @param path - a host path, a mixed-separator host path, an already-container
  *   path, or a path relative to the mount point.
  * @param spec - the repository container specification.
+ * @param mounts - extra read-only mounts the runtime reported beside the workspace.
  * @returns the POSIX container path; a path outside the repository comes back slash-normalized.
  */
-export function toContainerPath(path: string, spec: RepoContainerSpec): string {
+export function toContainerPath(path: string, spec: RepoContainerSpec, mounts: readonly ExtraMount[] = []): string {
   const folder = spec.containerWorkspaceFolder
   if (path === '') return folder
   for (const candidate of containerCandidates(path)) {
@@ -169,21 +193,38 @@ export function toContainerPath(path: string, spec: RepoContainerSpec): string {
   // invent a path no caller named; it comes back unchanged so the mount check
   // can refuse it.
   const relative = relativeWithinHostRoot(path, spec.hostWorkspaceRoot)
-  if (relative === undefined) return toPosixSlashes(path)
-  return relative === '' ? folder : joinMount(folder, relative)
+  if (relative !== undefined) return relative === '' ? folder : joinMount(folder, relative)
+  // A mount the runtime reported beside the workspace is a second host directory
+  // the session may name — the host's global skills and AGENTS.md. The translation
+  // is the mount's, so the path the fence is asked about is the one that exists.
+  for (const mount of mounts) {
+    const withinMount = relativeWithinHostRoot(path, mount.host)
+    if (withinMount === undefined) continue
+    return withinMount === '' ? mount.sandbox : posix.join(mount.sandbox, withinMount)
+  }
+  return toPosixSlashes(path)
 }
 
 /**
  * Translate one container path back into the host path of the bind mount.
  * @param path - a container path, a drive-mangled container path, a host path, or a relative path.
  * @param spec - the repository container specification.
+ * @param mounts - extra read-only mounts the runtime reported beside the workspace.
  * @returns the native host path inside the repository, or `path` unchanged when it is not container-side.
  */
-export function toHostPath(path: string, spec: RepoContainerSpec): string {
+export function toHostPath(path: string, spec: RepoContainerSpec, mounts: readonly ExtraMount[] = []): string {
   for (const candidate of containerCandidates(path)) {
     const remainder = containerRemainder(candidate, spec.containerWorkspaceFolder)
     if (remainder === undefined) continue
     return remainder === '' ? normalizeHostRoot(spec.hostWorkspaceRoot) : joinHostRoot(spec.hostWorkspaceRoot, remainder)
   }
+  for (const candidate of containerCandidates(path)) {
+    for (const mount of mounts) {
+      const withinMount = containerRemainder(candidate, mount.sandbox, { fold: isWindowsPath(mount.host) })
+      if (withinMount === undefined) continue
+      return withinMount === '' ? normalizeHostRoot(mount.host) : joinHostRoot(mount.host, withinMount)
+    }
+  }
   return path
 }
+

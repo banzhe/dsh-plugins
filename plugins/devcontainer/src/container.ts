@@ -15,6 +15,7 @@
 import type { ContainerRun } from './exec.ts'
 import { toPosixSlashes } from './paths.ts'
 import { resolveSbxTarget } from './sbx.ts'
+import type { SandboxWarning } from './sbx.ts'
 import type { RepoContainerSpec } from './types.ts'
 
 /** Where agent commands run. */
@@ -118,6 +119,7 @@ export async function startContainer(
  * @param spec - the repository container specification.
  * @param run - the CLI runner.
  * @param signal - cancellation of the probe / start sequence.
+ * @param warn - reports a sandbox mount the row declares but the sandbox does not carry.
  * @returns the docker target when a container id is known, else the CLI or sandbox target.
  * @throws Error when `cli: 'docker'` was demanded and no container is running, or `sbx` cannot be prepared.
  */
@@ -125,8 +127,9 @@ export async function resolveContainerTarget(
   spec: RepoContainerSpec,
   run: ContainerRun,
   signal?: AbortSignal,
+  warn?: SandboxWarning,
 ): Promise<ContainerTarget> {
-  if (spec.cli === 'sbx') return await resolveSbxTarget(spec, run, signal)
+  if (spec.cli === 'sbx') return await resolveSbxTarget(spec, run, signal, warn)
   if (spec.container !== undefined) {
     return { kind: 'docker', containerId: spec.container, workspaceFolder: spec.containerWorkspaceFolder }
   }

@@ -57,7 +57,7 @@ import {
   markedContainerOnly, markedPreset, markedVariantKind, refusalText, refusedExecution, sbxRefusalText,
 } from './refusal.ts'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { liveSandboxTemplate, repoRegistry } from './registry.ts'
+import { liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
 import { bindSbxMount, sandboxHostPathFor, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import type { SandboxHostAttribution } from './sbx.ts'
 import type { ContainerOptions, RepoContainerSpec } from './types.ts'
@@ -328,7 +328,7 @@ export class DevcontainerShellExecutor extends SandboxBashExecutor {
     const root = this.sbxHostRootOf(workdir, cwd, declared, attributed)
     return root === undefined
       ? undefined
-      : sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, declared)
+      : sbxSpecFor(root, liveSbxOptions(this.ctx, this.options), declared)
   }
 
   /**
@@ -389,7 +389,15 @@ export class DevcontainerShellExecutor extends SandboxBashExecutor {
   private containerTarget(key: string, repository: RepoContainerSpec, signal: AbortSignal): Promise<ContainerTarget> {
     const cached = this.targets.get(key)
     if (cached !== undefined) return cached
-    const pending = resolveContainerTarget(repository, this.internals.run ?? runContainerCommand, signal)
+    for (const rejection of liveHostMountRejections(this.ctx)) {
+      warnOnce(this.ctx, text => { this.ctx.logger.warn(text) }, rejection)
+    }
+    const pending = resolveContainerTarget(
+      repository,
+      this.internals.run ?? runContainerCommand,
+      signal,
+      message => { warnOnce(this.ctx, text => { this.ctx.logger.warn(text) }, message) },
+    )
     this.targets.set(key, pending)
     pending.catch(() => {
       // A failed probe must not cache its failure: the next command retries.

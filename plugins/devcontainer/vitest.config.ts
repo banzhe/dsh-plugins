@@ -39,6 +39,7 @@ export default defineConfig({
         'src/config-loader.ts',
         'src/container.ts',
         'src/sbx.ts',
+        'src/host-mounts.ts',
         'src/argv.ts',
         'src/prompt.ts',
         'src/options.ts',

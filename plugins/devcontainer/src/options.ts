@@ -7,8 +7,9 @@
  */
 
 import z from '@deepseek-ai/schemastery'
+import { HOST_MOUNT_DEFAULTS } from './host-mounts.ts'
 import { SANDBOX_TEMPLATE_PATTERN } from './sbx-template.ts'
-import type { ContainerOptions } from './types.ts'
+import type { ContainerOptions, HostMountsConfig } from './types.ts'
 
 /** Defaults for {@link ContainerOptions}. */
 export const CONTAINER_OPTION_DEFAULTS: ContainerOptions = {
@@ -106,5 +107,33 @@ export interface SandboxTemplateOptions {
 export function sandboxTemplateFields() {
   return {
     sbxTemplate: z.string().default(SANDBOX_TEMPLATE_DEFAULTS.sbxTemplate).pattern(SANDBOX_TEMPLATE_PATTERN).volatile(),
+  }
+}
+
+/** The extra read-only host paths a created Docker Sandbox mounts, owned by the Host row. */
+export interface HostMountOptions {
+  /**
+   * `auto` mounts the host's `AGENTS.md` and skill trees when they exist, `off`
+   * mounts none, and a list names the `PATH[:TARGET][:ro]` entries to mount. Every
+   * entry is mounted read-only and skipped when its source is missing.
+   */
+  hostMounts: HostMountsConfig
+}
+
+/**
+ * The extra-mount field as the Loader validates it.
+ *
+ * A default of the Host row only, like the image: the rows that create a sandbox
+ * read it through the registry reader, so the value has one owner and one shape. It
+ * is `volatile` for the same reason the image is, so a settings write lands in the
+ * live reference the rows read on their next command.
+ * @returns schemastery fields for {@link HostMountOptions}.
+ */
+export function hostMountFields() {
+  return {
+    hostMounts: z
+      .union([z.const('auto'), z.const('off'), z.array(z.string())])
+      .default(HOST_MOUNT_DEFAULTS)
+      .volatile(),
   }
 }

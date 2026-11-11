@@ -86,10 +86,40 @@ export interface RpcHandshake {
   readonly workspaceReal: string
 }
 
+/** The handshake frame the helper accepts: the workspace, plus the extra roots it may read. */
+interface HandshakeRequest {
+  readonly protocol: number
+  readonly workspace: string
+  readonly mounts?: readonly string[]
+}
+
+/**
+ * The handshake one channel opens with.
+ * @param target - the runtime the helper runs in.
+ * @returns the `hello` parameters, naming the extra roots only when there are any.
+ */
+function handshakeOf(target: ChannelTarget): HandshakeRequest {
+  const mounts = target.kind === 'sbx' ? target.mounts ?? [] : []
+  return mounts.length === 0
+    ? { protocol: RPC_PROTOCOL_VERSION, workspace: target.workspace }
+    : { protocol: RPC_PROTOCOL_VERSION, workspace: target.workspace, mounts }
+}
+
 /** Which runtime a channel speaks to, and the directory it treats as home. */
 export type ChannelTarget =
   | { readonly kind: 'docker'; readonly containerId: string; readonly workspace: string }
-  | { readonly kind: 'sbx'; readonly sandboxName: string; readonly workspace: string }
+  | {
+    readonly kind: 'sbx'
+    readonly sandboxName: string
+    readonly workspace: string
+    /**
+     * Extra read-only mounts the sandbox carries beside the workspace. The helper
+     * fences every read against the workspace, so it has to be told which further
+     * roots this session may use — the host's global skills and `AGENTS.md` — and a
+     * sandbox that mounts none passes nothing.
+     */
+    readonly mounts?: readonly string[]
+  }
 
 /**
  * The argv that runs one program inside the runtime.
@@ -298,11 +328,7 @@ export class ContainerRpcChannel {
       options.maxPending ?? DEFAULT_MAX_PENDING,
     )
     try {
-      const hello = await channel.request<RpcHandshake>(
-        'hello',
-        { protocol: RPC_PROTOCOL_VERSION, workspace: target.workspace },
-        { timeoutMs },
-      )
+      const hello = await channel.request<RpcHandshake>('hello', handshakeOf(target), { timeoutMs })
       if (hello.protocol !== RPC_PROTOCOL_VERSION) {
         throw new Error(`devcontainer: the container helper speaks protocol ${hello.protocol}, not ${RPC_PROTOCOL_VERSION}`)
       }

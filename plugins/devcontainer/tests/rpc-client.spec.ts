@@ -2,10 +2,10 @@ import { spawn as spawnProcess } from 'node:child_process'
 import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
-import { afterAll, describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { HELPER_CONTAINER_PATH } from '../src/helper-source.ts'
 import { ContainerRpcChannel, runtimeExecArgv } from '../src/rpc/client.ts'
-import type { ContainerChild, ContainerChildSpawn } from '../src/rpc/client.ts'
+import type { ChannelTarget, ContainerChild, ContainerChildSpawn } from '../src/rpc/client.ts'
 import { RpcOperationError } from '../src/rpc/errors.ts'
 import { encodeFrame, FrameDecoder, RPC_PROTOCOL_VERSION } from '../src/rpc/frames.ts'
 import { ContainerRpcPool } from '../src/rpc/pool.ts'
@@ -337,6 +337,306 @@ describe('the container channel pool', () => {
       await expect(restarted.ping()).resolves.toMatchObject({ pong: true })
       expect(container.spawns).toHaveLength(4)
     } finally {
+      await pool.closeAll()
+    }
+  })
+
+  /** One sandbox target with the extra roots its helper should be handshaken with. */
+  function sandboxTarget(workspace: string, mounts: readonly string[]): ChannelTarget {
+    return { kind: 'sbx', sandboxName: 'dsh-demo', workspace, mounts }
+  }
+
+  it('replaces the one channel when the extra roots differ, and closes the one it replaced', async () => {
+    // The extra roots are part of the handshake, while the endpoint and workspace are
+    // one channel: a row that changes hostMounts replaces it in place, so two rows
+    // that disagree about the roots cannot evict each other's channel.
+    const container = fakeContainer()
+    const { workspace } = workspaceTree()
+    const pool = new ContainerRpcPool(container.spawn)
+    try {
+      const first = await pool.channel(sandboxTarget(workspace, ['/d/agents.md']), { timeoutMs: 30_000 })
+      const second = await pool.channel(sandboxTarget(workspace, ['/d/agents.md', '/d/skills']), { timeoutMs: 30_000 })
+      expect(second).not.toBe(first)
+      expect(first.isClosed).toBe(true)
+      await expect(first.closedPromise).resolves.toBeUndefined()
+      // The replacement is the one that answers, and it answers under the new roots.
+      await expect(second.ping()).resolves.toMatchObject({ pong: true })
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('reuses the live channel for a caller that wants the same extra roots', async () => {
+    // A second row asking for the same thing must not disturb the channel a request is
+    // already running on: no close, no re-stage.
+    const container = fakeContainer()
+    const { workspace } = workspaceTree()
+    const pool = new ContainerRpcPool(container.spawn)
+    try {
+      const first = await pool.channel(sandboxTarget(workspace, ['/d/agents.md']), { timeoutMs: 30_000 })
+      const spawns = container.spawns.length
+      const again = await pool.channel(sandboxTarget(workspace, ['/d/agents.md']), { timeoutMs: 30_000 })
+      expect(again).toBe(first)
+      expect(again.isClosed).toBe(false)
+      expect(container.spawns).toHaveLength(spawns)
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+  it('keeps one channel across A, B and back to A', async () => {
+    const container = fakeContainer()
+    const { workspace } = workspaceTree()
+    const pool = new ContainerRpcPool(container.spawn)
+    const a = ['/d/agents.md']
+    const b = ['/d/agents.md', '/d/skills']
+    try {
+      const first = await pool.channel(sandboxTarget(workspace, a), { timeoutMs: 30_000 })
+      const second = await pool.channel(sandboxTarget(workspace, b), { timeoutMs: 30_000 })
+      const third = await pool.channel(sandboxTarget(workspace, a), { timeoutMs: 30_000 })
+      // Each switch retires the channel it replaces, so nothing accumulates: two
+      // closed channels, one live, and no helper left behind.
+      expect(new Set([first, second, third]).size).toBe(3)
+      await expect(first.closedPromise).resolves.toBeUndefined()
+      await expect(second.closedPromise).resolves.toBeUndefined()
+      expect(third.isClosed).toBe(false)
+      await expect(third.ping()).resolves.toMatchObject({ pong: true })
+    } finally {
+      await pool.closeAll()
+    }
+  })
+
+
+  /** A workspace spelling the stubbed pool only ever keys on: no helper runs for these. */
+  function workspaceOf(): string {
+    return '/f/personal/pool-demo'
+  }
+
+  /** A close a test can observe and hold open. */
+  interface CloseHold {
+    /** Resolves the moment the pool enters close(). */
+    readonly entered: Promise<void>
+    /** Lets the close finish. */
+    readonly release: () => void
+  }
+
+  /** A channel the pool can hand out, with a close a test can hold open. */
+  interface FakeChannel {
+    readonly channel: ContainerRpcChannel
+    /** Whether the pool closed it. */
+    closed: () => boolean
+    /** Hold the next close(), and report the moment it is entered. */
+    holdClose: () => CloseHold
+    /** Hold the next request() until the returned function is called. */
+    holdRequest: () => () => void
+  }
+
+  function fakeChannel(): FakeChannel {
+    let closed = false
+    let releaseClose: (() => void) | undefined
+    let entered: (() => void) | undefined
+    const closedPromise = new Promise<void>((resolve) => { releaseClose = resolve })
+    const enteredClose = new Promise<void>((resolve) => { entered = resolve })
+    const held = { close: undefined as Promise<void> | undefined, request: undefined as Promise<void> | undefined }
+    const channel = {
+      isClosed: false,
+      closedPromise,
+      async close(): Promise<void> {
+        entered?.()
+        entered = undefined
+        if (held.close !== undefined) await held.close
+        if (closed) return
+        closed = true
+        ;(channel as { isClosed: boolean }).isClosed = true
+        releaseClose?.()
+      },
+      async request(): Promise<unknown> {
+        if (held.request !== undefined) await held.request
+        return null
+      },
+      async ping(): Promise<{ pong: true }> { return { pong: true } },
+    }
+    return {
+      channel: channel as unknown as ContainerRpcChannel,
+      closed: () => closed,
+      holdClose: () => {
+        let release: () => void = () => {}
+        held.close = new Promise<void>((resolve) => { release = resolve })
+        return { entered: enteredClose, release: () => { release() } }
+      },
+      holdRequest: () => {
+        let open: () => void = () => {}
+        held.request = new Promise<void>((resolve) => { open = resolve })
+        return open
+      },
+    }
+  }
+
+  /** A pool whose channels are the ones a test hands it, plus the record of what it made. */
+  function stubbedPool(): { pool: ContainerRpcPool, made: FakeChannel[] } {
+    const made: FakeChannel[] = []
+    vi.spyOn(ContainerRpcChannel, 'open').mockImplementation(async () => {
+      const fake = fakeChannel()
+      made.push(fake)
+      return fake.channel
+    })
+    return { pool: new ContainerRpcPool(() => { throw new Error('the stubbed pool opens nothing') }), made }
+  }
+
+  it('serialises a replacement, so a caller inside the close window cannot leak a channel', async () => {
+    // The old race: B dropped the key, awaited close(), and only then put its channel
+    // back — a C arriving in that window opened a third channel that B then overwrote,
+    // leaving it running with nobody holding it.
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    try {
+      const first = await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+      const hold = made[0]?.holdClose() ?? { entered: Promise.resolve(), release: () => {} }
+      const second = pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+      // Wait until the replacement is genuinely inside close(), then arrive with a
+      // third request while it cannot possibly have written its channel yet.
+      await hold.entered
+      const third = pool.channel(sandboxTarget(workspaceOf(), ['/c']), opts)
+      hold.release()
+      const [middle, last] = await Promise.all([second, third])
+
+      // Three channels were made, two were closed, exactly one is live — and it is the
+      // one the last caller asked for, held by the pool under the same key.
+      expect(made).toHaveLength(3)
+      expect(made[0]?.closed()).toBe(true)
+      expect(made[1]?.closed()).toBe(true)
+      expect(made[2]?.closed()).toBe(false)
+      expect(middle).not.toBe(first)
+      expect(last).not.toBe(middle)
+      await expect(pool.channel(sandboxTarget(workspaceOf(), ['/c']), opts)).resolves.toBe(last)
+    } finally {
+      vi.restoreAllMocks()
+      await pool.closeAll()
+    }
+  })
+
+  it('leaves an in-flight request alone when a caller asks for the same roots', async () => {
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    try {
+      const first = await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+      const release = made[0]?.holdRequest() ?? (() => {})
+      const inFlight = first.request('fs.resolve', { path: '/a/x' })
+      const again = await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+      expect(again).toBe(first)
+      expect(made[0]?.closed()).toBe(false)
+      release()
+      await expect(inFlight).resolves.toBeNull()
+      expect(made).toHaveLength(1)
+    } finally {
+      vi.restoreAllMocks()
+      await pool.closeAll()
+    }
+  })
+
+  it('starts no helper for a replacement the closing pool no longer needs', async () => {
+    // `closeAll` sets the flag, then drains the queues. A replacement already inside
+    // close() finishes that close on the queue, then finds the pool closed: it spawns
+    // nothing, and the channel it replaced is closed, so no helper is left running and
+    // `closeAll` does not have to wait for one it would only close again.
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+    const hold = made[0]?.holdClose() ?? { entered: Promise.resolve(), release: () => {} }
+    const second = pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+    await hold.entered
+    const stopping = pool.closeAll()
+    hold.release()
+
+    await expect(second).rejects.toThrow('the container channel pool is closed')
+    await stopping
+    expect(made).toHaveLength(1)
+    expect(made[0]?.closed()).toBe(true)
+    await expect(pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts))
+      .rejects.toThrow('the container channel pool is closed')
+  })
+
+  it('closes the channel forget discards, and still opens a fresh one afterwards', async () => {
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    try {
+      await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+      const hold = made[0]?.holdClose() ?? { entered: Promise.resolve(), release: () => {} }
+      const replacing = pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+      await hold.entered
+      // Forget queues behind the replacement, so it discards the channel the replacement
+      // installs — not the one it is busy closing — and closes it.
+      const forgetting = pool.forget(sandboxTarget(workspaceOf(), ['/b']))
+      hold.release()
+      await replacing
+      await forgetting
+      expect(made[0]?.closed()).toBe(true)
+      expect(made[1]?.closed()).toBe(true)
+
+      const again = await pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+      expect(again).toBe(made[2]?.channel)
+      expect(made[2]?.closed()).toBe(false)
+    } finally {
+      vi.restoreAllMocks()
+      await pool.closeAll()
+    }
+  })
+  it('starts nothing once the pool is closed', async () => {
+    const container = fakeContainer()
+    const { workspace } = workspaceTree()
+    const pool = new ContainerRpcPool(container.spawn)
+    const first = await pool.channel(sandboxTarget(workspace, ['/a']), { timeoutMs: 30_000 })
+    const spawns = container.spawns.length
+    await pool.closeAll()
+
+    // A closed pool neither starts a helper nor hands out the one it is closing.
+    await expect(pool.channel(sandboxTarget(workspace, ['/a']), { timeoutMs: 30_000 }))
+      .rejects.toThrow('the container channel pool is closed')
+    expect(container.spawns).toHaveLength(spawns)
+    expect(first.isClosed).toBe(true)
+  })
+
+  it('refuses a cached channel when the pool closed while the caller waited', async () => {
+    // The reuse path would otherwise answer with a channel `closeAll` is about to close.
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    const first = await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+    expect(made[0]?.closed()).toBe(false)
+
+    const stopping = pool.closeAll()
+    // Queued behind the close, so it reaches the reuse path after the flag is set.
+    const late = pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+    await expect(late).rejects.toThrow('the container channel pool is closed')
+    await stopping
+    expect(first.isClosed).toBe(true)
+  })
+  it('does not lock a key when closing the replaced channel fails', async () => {
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    try {
+      await pool.channel(sandboxTarget(workspaceOf(), ['/a']), opts)
+      const first = made[0]?.channel as unknown as { close: () => Promise<void> }
+      first.close = () => Promise.reject(new Error('the pipe is already gone'))
+      const replaced = await pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+      expect(replaced).toBe(made[1]?.channel)
+      const again = await pool.channel(sandboxTarget(workspaceOf(), ['/b']), opts)
+      expect(again).toBe(replaced)
+    } finally {
+      vi.restoreAllMocks()
+      await pool.closeAll()
+    }
+  })
+
+  it('tells apart two root lists that would join into the same token', async () => {
+    const { pool, made } = stubbedPool()
+    const opts = { timeoutMs: 30_000 }
+    try {
+      const joined = await pool.channel(sandboxTarget(workspaceOf(), ['/a,/b']), opts)
+      const split = await pool.channel(sandboxTarget(workspaceOf(), ['/a', '/b']), opts)
+      expect(split).not.toBe(joined)
+      expect(made).toHaveLength(2)
+    } finally {
+      vi.restoreAllMocks()
       await pool.closeAll()
     }
   })

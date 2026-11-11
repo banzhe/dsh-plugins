@@ -66,9 +66,24 @@ import {
   toHostPath,
   toPosixSlashes,
 } from './paths.ts'
-import { callingContainerPreset, fsEscapeRefusalText, fsRefusalText, presetKindOf } from './refusal.ts'
-import { liveSandboxTemplate, repoRegistry } from './registry.ts'
-import { asSbxSpec, bindSbxMount, sandboxHostPathFor, sandboxWorkspacePath, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
+import {
+  callingContainerPreset,
+  fsEscapeRefusalText,
+  fsRefusalText,
+  fsUnmountedText,
+  presetKindOf,
+} from './refusal.ts'
+import { liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
+import {
+  asSbxSpec,
+  bindSbxMount,
+  sandboxHostPathFor,
+  sandboxWorkspacePath,
+  sbxExtraMountsOf,
+  sbxMountAttribution,
+  sbxSpecFor,
+  sbxWorkspaceRootFor,
+} from './sbx.ts'
 import { ContainerRpcChannel, DEFAULT_RPC_TIMEOUT_MS, spawnContainerChild } from './rpc/client.ts'
 import type { ChannelTarget, ContainerChildSpawn, RequestOptions } from './rpc/client.ts'
 import { RpcOperationError, rpcFsError } from './rpc/errors.ts'
@@ -129,6 +144,15 @@ const ConfigSchema = z.object({
 /** The row's schema, typed for callers; the loader reads the class's static copy. */
 export const Config = ConfigSchema as unknown as z<Config>
 
+/**
+ * How a path outside every mount is answered.
+ *
+ * A metadata probe asks whether something is there, so "not in this filesystem" is
+ * the true answer; a content read or a write names something the session may not
+ * touch, which only a refusal can report.
+ */
+type OutsideMount = 'deny' | 'absent'
+
 /** A container-bound call: the repository that owns the path, and the preset that demanded it. */
 interface RemoteRoute {
   /** The repository whose container performs the work. */
@@ -153,13 +177,16 @@ const INHERITED_MUTATIONS: readonly string[] = ['patchText', 'deleteFile', 'move
  * The stdio endpoint one resolved runtime offers the helper.
  * @param target - the resolved runtime.
  * @param workspace - the mount point the helper treats as home.
+ * @param mounts - extra read-only roots the helper may read beside the workspace.
  * @returns the channel target the pool keys and the helper is started against.
  * @throws Error when the runtime has no stdio endpoint at all.
  */
-function channelTargetOf(target: ContainerTarget, workspace: string): ChannelTarget {
+function channelTargetOf(target: ContainerTarget, workspace: string, mounts: readonly string[]): ChannelTarget {
   switch (target.kind) {
     case 'docker': return { kind: 'docker', containerId: target.containerId, workspace }
-    case 'sbx': return { kind: 'sbx', sandboxName: target.sandboxName, workspace }
+    case 'sbx': return mounts.length === 0
+      ? { kind: 'sbx', sandboxName: target.sandboxName, workspace }
+      : { kind: 'sbx', sandboxName: target.sandboxName, workspace, mounts }
     case 'devcontainer-cli':
       throw new Error('devcontainer: the Dev Container CLI offers no stdio channel for the filesystem helper')
   }
@@ -188,6 +215,12 @@ function containerMountsOf(spec: RepoContainerSpec, workspaceReal: string | unde
   if (spec.cli === 'sbx') {
     const sandbox = sandboxWorkspacePath(spec.hostWorkspaceRoot)
     if (sandbox !== undefined && sandbox !== spec.containerWorkspaceFolder) folders.push(sandbox)
+    // Only the mounts this row declared are accepted here. A sandbox also reports
+    // mounts it injected for itself — its own agent skill store, for one — and
+    // admitting those would hand a session a directory this row never asked for.
+    for (const mount of sbxExtraMountsOf(spec)) {
+      if (!folders.includes(mount.sandbox)) folders.push(mount.sandbox)
+    }
   }
   if (workspaceReal !== undefined && !folders.includes(workspaceReal)) folders.push(workspaceReal)
   return folders
@@ -249,7 +282,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
    * @param path - the path to resolve; relative paths resolve against `opts.cwd`.
    * @param opts - optional cwd override and cancellation signal.
    * @returns the stable target.
-   * @throws FsError `FS_PERMISSION_DENIED` when the caller is container-bound and this path is outside the repository's mount.
+   * @throws FsError `FS_NOT_FOUND` when the caller is container-bound and this path is outside every mount the session has.
    */
   override async resolve(path: string, opts?: { cwd?: string; signal?: AbortSignal }): Promise<FsTarget> {
     const route = await this.route(path, opts?.cwd)
@@ -260,9 +293,11 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       if (opts?.signal !== undefined) next.signal = opts.signal
       return await super.resolve(mapped.path, next)
     }
-    const requested = this.remotePath(path, opts?.cwd, route)
+    const requested = this.remotePath(path, opts?.cwd, route, 'absent')
     return await this.withChannel(route.spec, opts?.signal, async (channel) => {
       const answer = await this.request<WireTarget>(channel, 'fs.resolve', { path: requested }, opts?.signal)
+      // The helper's answer is the realpath: a link inside the mount that resolves out
+      // of it is an escape, and stays a refusal whatever the ingress decided.
       this.assertInsideMount(answer.targetKey, path, route, channel.handshake.workspaceReal)
       return toFsTarget(answer)
     })
@@ -291,7 +326,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   override processPath(target: FsTarget): string {
     const spec = this.repositoryFor(target.displayPath, undefined, this.containerRequirement()?.kind)
     if (spec === undefined || hostPathStyle(spec.hostWorkspaceRoot) !== 'win32') return super.processPath(target)
-    return toHostPath(String(target.targetKey), spec)
+    return toHostPath(String(target.targetKey), spec, sbxExtraMountsOf(spec))
   }
 
   /**
@@ -300,7 +335,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
    * @param opts - `cwd` overrides the base for relative paths.
    * @param signal - aborts the metadata round-trip.
    * @returns metadata only, or undefined when the path is absent.
-   * @throws FsError `FS_PERMISSION_DENIED` when the caller is container-bound and this path is outside the repository's mount.
+   * @throws FsError `FS_NOT_FOUND` when the caller is container-bound and this path is outside every mount the session has.
    */
   override async lstat(path: string, opts?: { cwd?: string }, signal?: AbortSignal): Promise<FsPathInfo | undefined> {
     const route = await this.route(path, opts?.cwd)
@@ -310,7 +345,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       if (mapped.cwd !== undefined) next.cwd = mapped.cwd
       return await super.lstat(mapped.path, next, signal)
     }
-    const requested = this.remotePath(path, opts?.cwd, route)
+    const requested = this.remotePath(path, opts?.cwd, route, 'absent')
     return await this.withChannel(route.spec, signal, async (channel) => {
       const info = await this.request<WirePathInfo | null>(channel, 'fs.lstat', { path: requested }, signal)
       return info === null ? undefined : toFsPathInfo(info)
@@ -322,13 +357,13 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
    * @param target - the resolved target.
    * @param signal - aborts the metadata round-trip.
    * @returns metadata only, or undefined when the target is absent.
-   * @throws FsError `FS_PERMISSION_DENIED` when the caller is container-bound and this target is not in a container repository.
+   * @throws FsError `FS_NOT_FOUND` when the caller is container-bound and this target is outside every mount the session has.
    */
   override async stat(target: FsTarget, signal?: AbortSignal): Promise<FsInfo | undefined> {
     const route = await this.routeTarget(target)
     if (route === undefined) return await super.stat(this.fenced(target), signal)
     return await this.withChannel(route.spec, signal, async (channel) => {
-      this.assertTargetInsideMount(target, route, channel)
+      this.assertTargetInsideMount(target, route, channel, 'absent')
       const value = await this.request<WireInfo | null>(channel, 'fs.stat', { target: wireTargetOf(target) }, signal)
       return value === null ? undefined : toFsInfo(value)
     })
@@ -415,13 +450,13 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
    * @param target - the resolved directory target.
    * @param signal - aborts the listing.
    * @returns the direct children with their resolved targets.
-   * @throws FsError `FS_PERMISSION_DENIED` when the caller is container-bound and this target is not in a container repository.
+   * @throws FsError `FS_NOT_FOUND` when the caller is container-bound and this target is outside every mount the session has.
    */
   override async listDir(target: FsTarget, signal?: AbortSignal): Promise<FsDirEntry[]> {
     const route = await this.routeTarget(target)
     if (route === undefined) return await super.listDir(this.fenced(target), signal)
     return await this.withChannel(route.spec, signal, async (channel) => {
-      this.assertTargetInsideMount(target, route, channel)
+      this.assertTargetInsideMount(target, route, channel, 'absent')
       const entries = await this.request<WireDirEntry[]>(
         channel, 'fs.list', { target: wireTargetOf(target) }, signal,
       )
@@ -555,7 +590,11 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const runtime = await this.runtimeTarget(spec, signal)
     // A sandbox may mount the workspace under a path of its own, which only its
     // listing reports: the helper starts in the folder that really exists there.
-    const target = channelTargetOf(runtime, bindSbxMount(spec, runtime).containerWorkspaceFolder)
+    const target = channelTargetOf(
+      runtime,
+      bindSbxMount(spec, runtime).containerWorkspaceFolder,
+      sbxExtraMountsOf(spec).map(mount => mount.sandbox),
+    )
     const channel = this.containerInternals.channel
     if (channel !== undefined) return await channel(target)
     return await this.pool.channel(target, { timeoutMs: this.rpcTimeoutMs })
@@ -679,9 +718,22 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     this.containers.delete(this.containerKey(spec))
   }
 
+  /** Report every mount this row configures that no argv can carry, once per composition. */
+  private reportMountRejections(): void {
+    for (const rejection of liveHostMountRejections(this.ctx)) {
+      warnOnce(this.ctx, text => { this.ctx.logger.warn(text) }, rejection)
+    }
+  }
+
   /** Probe where the repository's container is, requiring an endpoint the helper can be started in. */
   private async probeContainer(spec: RepoContainerSpec, signal?: AbortSignal): Promise<ContainerTarget> {
-    const target = await resolveContainerTarget(spec, this.containerInternals.run ?? runContainerCommand, signal)
+    this.reportMountRejections()
+    const target = await resolveContainerTarget(
+      spec,
+      this.containerInternals.run ?? runContainerCommand,
+      signal,
+      message => { warnOnce(this.ctx, text => { this.ctx.logger.warn(text) }, message) },
+    )
     if (target.kind === 'devcontainer-cli') {
       // `devcontainer exec` allocates a process of its own and offers no stdio
       // channel, so there is no pipe to run the helper over.
@@ -695,29 +747,88 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     return target
   }
 
-  /** Translate one path for a container-bound call, refusing anything outside the mount. */
-  private remotePath(path: string, cwd: string | undefined, route: RemoteRoute): string {
-    const base = toContainerPath(cwd ?? this.config.cwd, route.spec)
+  /**
+   * Translate one path for a container-bound call, refusing anything outside the mount.
+   *
+   * Only a metadata probe answers a path outside every mount as absent; a read or a
+   * write names something the sandbox may not have, which stays a refusal.
+   */
+  private remotePath(
+    path: string, cwd: string | undefined, route: RemoteRoute, outside: OutsideMount = 'deny',
+  ): string {
+    const mounts = sbxExtraMountsOf(route.spec)
+    const base = toContainerPath(cwd ?? this.config.cwd, route.spec, mounts)
     const absolute = isWindowsPath(path) || isPosixAbsolute(path)
-      ? toContainerPath(path, route.spec)
+      ? toContainerPath(path, route.spec, mounts)
       : posix.resolve(base, toPosixSlashes(path))
-    this.assertInsideMount(absolute, path, route)
+    this.assertInsideMount(absolute, path, route, undefined, outside)
     return absolute
   }
 
-  /** Refuse a container path that leaves every spelling of the repository's mount. */
+  /** Whether a container path lies at or under one of the mounts this session may see. */
+  private insideMounts(containerPath: string, route: RemoteRoute, workspaceReal?: string): boolean {
+    return containerMountsOf(route.spec, workspaceReal)
+      .some(folder => containerRemainder(containerPath, folder) !== undefined)
+  }
+
+  /** Whether a HOST path lies at or under one of the host directories this session may see. */
+  private insideHostRoots(hostPath: string, route: RemoteRoute): boolean {
+    const roots = [route.spec.hostWorkspaceRoot, ...sbxExtraMountsOf(route.spec).map(mount => mount.host)]
+    return roots.some(root => relativeWithinHostRoot(hostPath, root) !== undefined)
+  }
+
+  /**
+   * Whether the path a call named is one this session could have translated into I/O.
+   *
+   * The distinction the metadata answer turns on: a path this session cannot name at
+   * all is simply absent, while a path it CAN name whose I/O identity ends up outside
+   * the mount is an escape and stays a refusal. Both spellings are read, because a
+   * call may name either; a relative path may still be either, so it counts as
+   * inside and keeps the refusal.
+   * @param displayPath - the path the call named.
+   * @param route - the container route the call runs under.
+   * @param workspaceReal - the workspace as the helper resolved it, when it is known.
+   * @returns true when the named path belongs to some spelling of the mount.
+   */
+  private namesMountPath(displayPath: string, route: RemoteRoute, workspaceReal?: string): boolean {
+    if (this.insideMounts(displayPath, route, workspaceReal)) return true
+    if (!isWindowsPath(displayPath) && !isPosixAbsolute(displayPath)) return true
+    return this.insideHostRoots(displayPath, route)
+  }
+
+  /**
+   * Answer a container path that leaves every spelling of the repository's mount.
+   *
+   * Two situations look alike here and are not: a path the session cannot see at all,
+   * and a path it can see resolving out of the mount through a symbolic link. The
+   * named path decides which: outside every mount, a `probe` may be answered as the
+   * absence it is, while a named path that is inside still names an escape, and only
+   * a refusal can report that.
+   * @param containerPath - the container path the call would use for I/O.
+   * @param displayPath - the path the call named.
+   * @param route - the container route the call runs under.
+   * @param workspaceReal - the workspace as the helper resolved it, when it is known.
+   * @param outside - how a path outside every mount is answered: refused, or reported absent.
+   * @throws FsError `FS_NOT_FOUND` for an absent probe, `FS_PERMISSION_DENIED` otherwise.
+   */
   private assertInsideMount(
     containerPath: string, displayPath: string, route: RemoteRoute, workspaceReal?: string,
+    outside: OutsideMount = 'deny',
   ): void {
-    for (const folder of containerMountsOf(route.spec, workspaceReal)) {
-      if (containerRemainder(containerPath, folder) !== undefined) return
+    if (this.insideMounts(containerPath, route, workspaceReal)) return
+    if (outside === 'absent' && !this.namesMountPath(displayPath, route, workspaceReal)) {
+      throw new FsError(fsUnmountedText(displayPath), 'FS_NOT_FOUND')
     }
     throw new FsError(fsEscapeRefusalText(displayPath, containerPath, route.preset), 'FS_PERMISSION_DENIED')
   }
 
-  /** Refuse an already-resolved target that leaves the repository's mount. */
-  private assertTargetInsideMount(target: FsTarget, route: RemoteRoute, channel: ContainerRpcChannel): void {
-    this.assertInsideMount(String(target.targetKey), target.displayPath, route, channel.handshake.workspaceReal)
+  /** Fence an already-resolved target against the repository's mount. */
+  private assertTargetInsideMount(
+    target: FsTarget, route: RemoteRoute, channel: ContainerRpcChannel, outside: OutsideMount = 'deny',
+  ): void {
+    this.assertInsideMount(
+      String(target.targetKey), target.displayPath, route, channel.handshake.workspaceReal, outside,
+    )
   }
 
   /**
@@ -849,9 +960,10 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       this.refuseHostAccess(path)
       return { path, cwd }
     }
+    const mounts = sbxExtraMountsOf(repository)
     return {
-      path: toHostPath(path, repository),
-      cwd: cwd === undefined ? undefined : toHostPath(cwd, repository),
+      path: toHostPath(path, repository, mounts),
+      cwd: cwd === undefined ? undefined : toHostPath(cwd, repository, mounts),
     }
   }
 
@@ -900,7 +1012,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const root = sbxWorkspaceRootFor(path, base, undefined)
     return root === undefined
       ? undefined
-      : sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, undefined)
+      : sbxSpecFor(root, liveSbxOptions(this.ctx, this.options), undefined)
   }
 
   /**
@@ -914,33 +1026,36 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
    * declares a container above the directory it spells: `/f/…` cannot claim
    * whatever host path it happens to name, and a sandbox path outside every mount
    * stays refused locally.
-   * @param path - the path the call named.
+   * @param path - the path the call named, in either spelling.
    * @param adopt - the calling track's view of a declared specification.
    * @returns the governing specification, or undefined when nothing attributes the path.
    */
   private specForSandboxPath(
     path: string, adopt: (spec: RepoContainerSpec) => RepoContainerSpec,
   ): RepoContainerSpec | undefined {
+    // Either spelling answers: a session names its workspace the way the sandbox
+    // spells it, and the host's global AGENTS.md or skills the way the host does.
     const attributed = sandboxHostPathFor(path)
+      ?? (isWindowsPath(path) || isPosixAbsolute(path) ? sbxMountAttribution(path) : undefined)
     if (attributed === undefined) return undefined
     const declared = repoRegistry(this.ctx).locate(attributed.host, { ...this.options, cwd: attributed.host })
     if (declared !== undefined) return adopt(declared)
     if (attributed.workspaceRoot === undefined) return undefined
-    return sbxSpecFor(
-      attributed.workspaceRoot,
-      { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) },
-      undefined,
-    )
+    const spec = sbxSpecFor(attributed.workspaceRoot, liveSbxOptions(this.ctx, this.options), undefined)
+    // The mount belongs to the sandbox that reported it, which is not necessarily
+    // the sandbox a host directory named after this path would produce: a mount of
+    // one host file is part of the workspace's sandbox, and nothing else.
+    return attributed.sandbox === undefined ? spec : { ...spec, sandbox: attributed.sandbox }
   }
 
   /**
    * Whether the fallback repository may claim one path.
    *
-   * A container path of that repository, a host path under its root, or a
-   * relative path that resolves — against the same base the fallback names —
-   * to somewhere inside it. Anything else is a host path the repository does
-   * not own: `..` traversal and absolute paths elsewhere on the machine
-   * included.
+   * A container path of that repository, a host path under its root, a host path
+   * one of its declared extra mounts covers, or a relative path that resolves —
+   * against the same base the fallback names — to somewhere inside it. Anything
+   * else is a host path the repository does not own: `..` traversal and absolute
+   * paths elsewhere on the machine included.
    * @param path - the path the call named.
    * @param base - the directory relative paths resolve against.
    * @param spec - the fallback repository specification.
@@ -949,10 +1064,14 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   private belongsTo(path: string, base: string, spec: RepoContainerSpec): boolean {
     if (isPathInsideContainer(path, spec)) return true
     if (relativeWithinHostRoot(path, spec.hostWorkspaceRoot) !== undefined) return true
+    // The extra mounts this row declares are host paths the session may name, and
+    // they belong to the sandbox of the workspace that declares them — not to a
+    // sandbox invented around the mounted file itself.
+    if (sbxExtraMountsOf(spec).some(mount => relativeWithinHostRoot(path, mount.host) !== undefined)) return true
     if (isWindowsPath(path) || isPosixAbsolute(path)) return false
     // A relative path resolves against a host directory: the bind mount when the
     // base is container-side, the base itself otherwise.
-    const hostBase = toHostPath(base, spec)
+    const hostBase = toHostPath(base, spec, sbxExtraMountsOf(spec))
     if (!isWindowsPath(hostBase) && !isPosixAbsolute(hostBase)) return true
     return relativeWithinHostRoot(joinHostRoot(hostBase, path), spec.hostWorkspaceRoot) !== undefined
   }
@@ -978,7 +1097,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const declared = registry.locate(base, { ...this.options, cwd: this.config.cwd })
     const root = declared?.hostWorkspaceRoot ?? base
     if (root === '') return
-    const spec = sbxSpecFor(root, { ...this.options, sbxTemplate: liveSandboxTemplate(this.ctx) }, declared)
+    const spec = sbxSpecFor(root, liveSbxOptions(this.ctx, this.options), declared)
     await this.runtimeTarget(spec).catch(() => {})
   }
 

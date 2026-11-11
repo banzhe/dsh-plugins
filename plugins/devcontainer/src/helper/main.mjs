@@ -180,6 +180,8 @@ function toPosixPath(value) {
 let workspace = '/'
 /** The realpath of the workspace, so a mount point that is itself a link still counts as inside. */
 let workspaceReal = '/'
+/** Extra read-only mounts the host declared for this session, in this container's spelling. */
+let extraRoots = []
 let initialized = false
 
 /**
@@ -293,11 +295,25 @@ async function requireFile(target, verb) {
   return info
 }
 
-/** Whether one real path stays inside a workspace spelling the handshake named. */
+/**
+ * Whether one real path stays inside a root the handshake named.
+ *
+ * The workspace is the session's own directory; the extra roots are the host paths
+ * its sandbox was created with beside the workspace — the host's global skills and
+ * `AGENTS.md`, mounted read-only. Nothing else is reachable, which is why the host
+ * sends this list rather than the helper trusting the mount table.
+ */
 function insideWorkspace(real) {
-  for (const root of workspaceReal === workspace ? [workspace] : [workspace, workspaceReal]) {
+  const roots = workspaceReal === workspace ? [workspace] : [workspace, workspaceReal]
+  const normalized = real.replace(/\/+$/, '')
+  for (const root of [...roots, ...extraRoots]) {
     const base = root.replace(/\/+$/, '')
-    if (base === '' || real === base || real.startsWith(base + '/')) return true
+    // A root that normalizes to the filesystem root leaves an empty base, and an
+    // empty base is a prefix of every path: honouring it would open the whole
+    // container. The host refuses such a mount, and the helper refuses it again
+    // rather than trusting that the host did.
+    if (base === '') continue
+    if (normalized === base || normalized.startsWith(base + '/')) return true
   }
   return false
 }
@@ -619,6 +635,9 @@ function hello(params) {
   }
   const declared = String(typeof params.workspace === 'string' ? params.workspace : '/').split('\\').join('/')
   workspace = anchorPath(declared.trim() === '' ? '/' : declared, '/')
+  extraRoots = Array.isArray(params.mounts)
+    ? params.mounts.filter((mount) => typeof mount === 'string' && mount.trim() !== '').map((mount) => posix.normalize(toPosixPath(mount.trim())))
+    : []
   initialized = true
   const greeting = () => ({
     protocol: PROTOCOL_VERSION,

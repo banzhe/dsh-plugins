@@ -2,4 +2,4 @@
 '@banzhe/dsh-devcontainer': patch
 ---
 
-README 补正「沙箱会话读取宿主机全局技能」的配置说明：需要同时设置 `DSH_BUNDLED_SKILL_DIR` 与 `DSH_AGENTS_HOME`，缺一不可。两个变量都只在宿主进程启动时读取，设置后要重启 DSH，才会对之后启动的会话生效。
+Add `hostMounts` to the Host row, so a `(sbx)` session reads the host's global `AGENTS.md` and skills: a created sandbox mounts them read-only beside the workspace. `auto` (the default) mounts `<dshHome>/AGENTS.md`, `<agentsHome>/AGENTS.md`, `<dshHome>/skills`, and `<agentsHome>/skills` when they exist, `off` mounts none, and a list names its own `PATH[:TARGET][:ro]` entries. A source that does not exist is skipped with a warning instead of failing the create, the filesystem fence admits only the mounts the row declares, and the mounts are fixed when the sandbox is created — a path added later needs `sbx rm` and a fresh sandbox.

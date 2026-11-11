@@ -19,6 +19,7 @@ A Host-only [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for th
 - **A settings page that derives presets on demand.** On Windows the shipped presets mount `pwsh` and disable `bash`; a Dev Container is Linux, so checking a preset on the **Settings → Dev Container presets** page derives a `… (devContainer)` copy of it (for example `委派模式 (devContainer)`, `标准模式 (devContainer)`) that mounts `bash` and sends its subagents to their own derived copies. Subagent routes are followed four levels deep; a route that limit stops is dropped (an allowed choice removed, a fixed preset row disabled) instead of being left pointing at the ordinary preset. The page carries two independent groups: **Dev Container** (the `sources` list, heading `(devContainer)`) and **Docker Sandbox** (the `sbxSources` list, heading `(sbx)`), and checking a box in one group never touches the other list. Nothing is derived until you check something, unchecking disposes the copy immediately, and the presets you already have are never modified — a preset that mounts no shell tool (the delegate main agent) derives to one that still mounts none.
 - **Docker Sandbox (`sbx`) is a second track, with no declaration required.** A `… (sbx)` preset derives from the new `sbxSources` list the same way `… (devContainer)` derives from `sources` — same shell-tool flip, same depth-bounded subagent routing, but each track routes only into its own variants. Because a sandbox is given a host directory to mount rather than a build to describe, a repository needs no `.devcontainer/devcontainer.json`: the sandbox `dsh-<repo>-<hash>` is listed (`sbx ls --json`), created (`sbx create --name … shell <root>`) and started detached (`sbx run --detach --name …`) on first use, and commands run as `sbx exec <name> -- /bin/sh -c "cd -- '<workdir>' && exec … '<shell>' -c '<command>'"`. `ctx.fs` delegates to the same container helper over `sbx exec -i <name> -- node …`, so reads and writes happen inside the sandbox, and a missing `sbx` CLI is reported as an install problem rather than as a missing sandbox. A filesystem call names its workspace the way the sandbox mounts it (`/f/personal/repo`), which is no host path at all, while one row serves every session on the host and its configured `cwd` is the directory DSH started in: the host directory is recovered from the mounts `sbx ls` reported — the deepest one wins and names the workspace, declaration or not — and from the drive convention only when a repository really declares a container there, so a path outside every mount is still refused on the host. The shell row reverses the same spelling before it looks a repository up, so a workdir of `/f/personal/repo` runs in that directory's sandbox even when the row was mounted without a `cwd`.
 - **Falls back to the platform's own shell** for ordinary presets: a directory with no Dev Container declaration keeps the local provider it had before — bash on POSIX, PowerShell on Windows (`pwsh -NoLogo -NoProfile -NonInteractive -Command`) — so the ordinary `pwsh` tool keeps working outside container repositories.
+- **The host's `AGENTS.md` and skills travel with the sandbox.** A `… (sbx)` preset mounts the host's global agent configuration read-only beside the workspace — `hostMounts`, `auto` by default: `<dshHome>/AGENTS.md`, `<agentsHome>/AGENTS.md`, `<dshHome>/skills`, `<agentsHome>/skills` — so a sandboxed session reads the same skills and instructions as a host one. A source that does not exist is skipped with a warning, every mount is read-only, and the fence admits exactly the declared ones. See [Host AGENTS.md and skills in sandboxed sessions](#host-agentsmd-and-skills-in-sandboxed-sessions).
 - **Container routing follows the preset.** A `… (devContainer)` preset runs every command in the repository's container; an ordinary preset keeps the host shell it had, even in a repository that declares a container. Set `requireContainer: true` on the rows to make every session container-bound instead.
 - **A `(devContainer)` preset never runs on the host by accident.** The shell tools mark every call issued from a derived preset, so a repository that declares no container gets a warning in the working-directory context (the model is told to say so, in Chinese, and to stop retrying) and the executor **refuses** the command with `exitCode: 1` and a diagnostic instead of falling back. Ordinary presets are unaffected.
 - **Files are refused with the commands.** `ctx.fs` reads the same preset for the agent that issued the call (a subagent answers for its own Session), so in a repository that declares no container every `resolve`, `read`, `write`, `edit`, `stat`, and listing is refused with a structured `FS_PERMISSION_DENIED` — no host file is read, written, or created. A `(devContainer)` session over a repository that DOES declare a container is fully delegated to that container, and an ordinary preset keeps the plain host filesystem. Looking like it is inside the repository is not enough: a symbolic link that resolves outside the repository's mount is refused the same way, and the diagnostic names the link target.
@@ -45,33 +46,24 @@ A repository opts in with any one of the three shapes, for example:
 
 Every field, the driver fallbacks, and the preset mechanics are documented in the implementation notes.
 
-## Host skills in sandboxed sessions
+## Host AGENTS.md and skills in sandboxed sessions
 
-A `… (devContainer)` or `… (sbx)` preset runs under the filesystem safety policy of its sandbox: a path outside the workspace repository that the container or the sandbox mounts is refused, so a session cannot escape into the rest of the host filesystem. A global skill on the host — `~/.agents/skills`, for example — lives outside that mount, so the session does not see it.
+A `… (devContainer)` or `… (sbx)` preset runs under the filesystem fence of its runtime: a path outside the mounted workspace is refused, so a global skill on the host — `~/.agents/skills`, say — is invisible from inside. The host's shared agent configuration is therefore mounted into the sandbox instead, read-only, and read through `ctx.fs` like any other file.
 
-To read host skills from inside a sandboxed session without copying them into the workspace repository, set two variables on the host: `DSH_BUNDLED_SKILL_DIR` points at the global skill directory, and `DSH_AGENTS_HOME` points at a directory that holds no `skills` subdirectory. Create that directory first; it may stay empty:
+`hostMounts` on the Host row decides what is mounted. `auto` (the default) takes the host's `AGENTS.md` and skill trees, each only when it exists:
 
-```powershell
-# Windows (PowerShell): persists for the current user
-[Environment]::SetEnvironmentVariable("DSH_BUNDLED_SKILL_DIR", "$env:USERPROFILE\.agents\skills", "User")
-[Environment]::SetEnvironmentVariable("DSH_AGENTS_HOME", "$env:USERPROFILE\.dsh\agents", "User")
-```
+| host path | mounted as |
+| --- | --- |
+| `<dshHome>/AGENTS.md` | a single read-only file |
+| `<agentsHome>/AGENTS.md` | a single read-only file |
+| `<dshHome>/skills` | a read-only directory |
+| `<agentsHome>/skills` | a read-only directory |
 
-```sh
-# Linux / macOS (bash, zsh)
-export DSH_BUNDLED_SKILL_DIR="$HOME/.agents/skills"
-export DSH_AGENTS_HOME="$HOME/.dsh/agents"
-```
+`dshHome` and `agentsHome` are resolved by DSH itself (`$DSH_HOME` / `$DSH_AGENTS_HOME`, else `~/.dsh` and `~/.agents`), so an override is the directory the sandbox mounts. Set `hostMounts: 'off'` to mount nothing, or list your own `PATH[:TARGET][:ro]` entries; every entry is mounted read-only whichever form it is written in.
 
-On POSIX systems, `export` only takes effect for the current shell; to persist the variables, write them to `~/.bashrc` or `~/.zshrc`, and likewise start DSH from a newly opened terminal.
+A source that does not exist is skipped with a warning that names it, instead of failing the create — nothing is created on the host. Mounts are fixed at creation: a path added later needs `sbx rm <sandbox>` and a fresh create before the sandbox can see it. A sandbox already running keeps reading what it mounted, so editing or replacing those files shows up immediately.
 
-The skill directory becomes DSH's bundled skill root, which is a trusted host root: discovery and file reads for it run in the host Node.js process instead of the session's `ctx.fs`, so the sandbox path fence is never asked about those paths. The skills appear in the session catalog as any other root does, and nothing is copied into the workspace repository or into the container.
-
-DSH reads both variables once, when the host process starts. On Windows the user-level assignments above reach only processes started after them, so quit DSH completely and start it again from a **new** terminal: a DSH that is already running keeps the skill roots it resolved at startup, and setting the variables has no effect on it.
-
-`DSH_AGENTS_HOME` is not optional: `~/.agents/skills` is also the default `user-agents` skill root, and by rank that root beats the trusted `bundled` root `DSH_BUNDLED_SKILL_DIR` fills, so with only the first variable set the registry keeps the `user-agents` copy of a same-named skill and its body read is still refused. Pointing `DSH_AGENTS_HOME` at a directory without a `skills` subdirectory takes that root off the skill directory, and the trusted copy is the one that loads.
-
-`~/.dsh/skills` is a separate, untrusted `user-dsh` root: skills kept there are just as unreadable from a sandboxed session.
+The fence knows about exactly these mounts: the paths `hostMounts` declares, translated to the places the sandbox mounted them at. Anything else the sandbox reports — the agent skill store `sbx` injects itself, for example — stays unreachable. No environment variable and no restart is involved.
 
 ## Docker Sandbox image
 

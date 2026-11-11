@@ -132,7 +132,9 @@ describe('resolveContainerTarget', () => {
 })
 
 describe('resolveContainerTarget for a Docker Sandbox', () => {
-  const sandboxSpec: RepoContainerSpec = { ...spec, cli: 'sbx' }
+  // No extra host mounts: they are read from the user's own home, and this suite
+  // pins the create/start sequence.
+  const sandboxSpec: RepoContainerSpec = { ...spec, cli: 'sbx', hostMounts: [] }
   const name = sandboxNameFor(spec.hostWorkspaceRoot)
   const sandboxTarget = { kind: 'sbx', sandboxName: name, workspaceFolder: spec.containerWorkspaceFolder }
 

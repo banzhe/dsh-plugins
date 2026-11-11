@@ -325,3 +325,54 @@ describe('the container helper failure mapping', () => {
       .resolves.toBeNull()
   })
 })
+describe('the extra roots the handshake names', () => {
+  it('allows a read inside one of them, and still refuses everything else', async () => {
+    const root = realpathSync(temporaryDirectory())
+    const extra = realpathSync(temporaryDirectory())
+    writeFileSync(join(extra, 'AGENTS.md'), '# host agents\\n', 'utf8')
+    const helper = await unhandshaken()
+    await helper.handle('hello', {
+      protocol: 3,
+      workspace: containerPathOf(root),
+      mounts: [containerPathOf(extra)],
+    })
+
+    const allowed = await targetOf(helper, `${containerPathOf(extra)}/AGENTS.md`)
+    await expect(helper.handle('fs.readText', { target: allowed })).resolves.toBe('# host agents\\n')
+
+    const outside = join(root, '..', 'elsewhere.txt')
+    writeFileSync(outside, 'nope\\n', 'utf8')
+    const refused = await targetOf(helper, containerPathOf(outside))
+    await expect(helper.handle('fs.readText', { target: refused }))
+      .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+  })
+
+  it('refuses every path when a handshake names the filesystem root as a root', async () => {
+    // A mount of `/` normalizes to an empty base, and an empty base is a prefix of
+    // every path: honouring it would open the whole container. The host refuses such
+    // a mount before it is created, and the helper refuses it again.
+    const root = realpathSync(temporaryDirectory())
+    const helper = await unhandshaken()
+    await helper.handle('hello', {
+      protocol: 3,
+      workspace: containerPathOf(root),
+      mounts: ['/'],
+    })
+
+    const outside = realpathSync(temporaryDirectory())
+    writeFileSync(join(outside, 'secret.txt'), 'nope\n', 'utf8')
+    const refused = await targetOf(helper, containerPathOf(join(outside, 'secret.txt')))
+    await expect(helper.handle('fs.readText', { target: refused }))
+      .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+  })
+
+  it('reads a handshake without mounts as the workspace only', async () => {
+    const { root, helper } = await workspace({ 'a.txt': 'a\\n' })
+    const outside = realpathSync(temporaryDirectory())
+    writeFileSync(join(outside, 'b.txt'), 'b\\n', 'utf8')
+    void root
+    const refused = await targetOf(helper, containerPathOf(join(outside, 'b.txt')))
+    await expect(helper.handle('fs.readText', { target: refused }))
+      .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+  })
+})

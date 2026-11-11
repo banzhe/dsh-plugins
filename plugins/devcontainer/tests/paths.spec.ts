@@ -193,3 +193,47 @@ describe('relative traversal', () => {
     expect(toHostPath('/workspaces/my-repo/../../etc/passwd', windowsSpec)).toBe('/workspaces/my-repo/../../etc/passwd')
   })
 })
+describe('a mount reported beside the workspace', () => {
+  const mounts = [{ host: 'C:\\Users\\me\\.dsh\\AGENTS.md', sandbox: '/d/agents.md' }]
+
+  it('translates the host spelling into the path the mount has', () => {
+    expect(toContainerPath('C:\\Users\\me\\.dsh\\AGENTS.md', sandboxSpec, mounts)).toBe('/d/agents.md')
+    expect(toContainerPath('c:/users/me/.dsh/AGENTS.md', sandboxSpec, mounts)).toBe('/d/agents.md')
+  })
+
+  it('translates what the mount holds, and only that', () => {
+    expect(toContainerPath('C:\\Users\\me\\.dsh\\other.md', sandboxSpec, mounts))
+      .toBe('C:/Users/me/.dsh/other.md')
+    expect(toContainerPath('src/a.ts', sandboxSpec, mounts)).toBe(win32.join(HOST_ROOT, 'src', 'a.ts'))
+  })
+
+  it('maps the sandbox spelling of the mount back onto its host path', () => {
+    expect(toHostPath('/d/agents.md', sandboxSpec, mounts)).toBe('C:\\Users\\me\\.dsh\\AGENTS.md')
+    expect(toHostPath('/workspaces/elsewhere', sandboxSpec, mounts)).toBe('/workspaces/elsewhere')
+  })
+
+  it('answers the declared host spelling however the sandbox path is cased', () => {
+    // The sandbox spells a Windows drive in lowercase and stays case-sensitive
+    // beyond it, so the fold belongs to the comparison: the answer is the mount's
+    // own spelling, never the one the caller typed.
+    const declared = [{ host: 'D:\\Users\\me\\.dsh\\AGENTS.md', sandbox: '/d/users/me/.dsh/agents.md' }]
+    expect(toHostPath('/d/users/me/.dsh/agents.md', sandboxSpec, declared)).toBe('D:\\Users\\me\\.dsh\\AGENTS.md')
+    expect(toHostPath('/D/Users/Me/.dsh/AGENTS.md', sandboxSpec, declared)).toBe('D:\\Users\\me\\.dsh\\AGENTS.md')
+    expect(toHostPath('/d/users/me/.dsh/other.md', sandboxSpec, declared)).toBe('/d/users/me/.dsh/other.md')
+  })
+
+  it('answers the same mount however the host path inside it is spelled', () => {
+    // A Windows host folds case on its own side of the translation, so the same
+    // file written three ways lands on the one sandbox path, and the reverse
+    // direction always answers the spelling the mount was declared with.
+    for (const spelling of [
+      'C:\\Users\\me\\.dsh\\AGENTS.md',
+      'c:\\users\\me\\.dsh\\agents.md',
+      'C:/Users/me/.dsh/AGENTS.md',
+    ]) {
+      const mounted = toContainerPath(spelling, sandboxSpec, mounts)
+      expect(mounted).toBe('/d/agents.md')
+      expect(toHostPath(mounted, sandboxSpec, mounts)).toBe('C:\\Users\\me\\.dsh\\AGENTS.md')
+    }
+  })
+})

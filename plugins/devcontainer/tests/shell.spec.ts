@@ -422,7 +422,7 @@ describe('DevcontainerShellExecutor under an (sbx) preset', () => {
     const root = makeRepo({ 'README.md': '# demo\n' })
     repoRegistry().reset()
     const { ctx } = await contextWith()
-    apply(ctx, Config({ sbxTemplate: 'docker.io/org/img:1.2', presets: { win32Only: false } }))
+    apply(ctx, Config({ sbxTemplate: 'docker.io/org/img:1.2', hostMounts: 'off', presets: { win32Only: false } }))
     await ctx.plugin(DevcontainerShellExecutor, { cwd: root })
     const shell = ctx.shell as DevcontainerShellExecutor
     const ran = fakeRunner({ sbx: { stdout: '[]', stderr: '' } })

@@ -15,6 +15,17 @@
  */
 export type ContainerCli = 'auto' | 'devcontainer' | 'docker' | 'sbx'
 
+/** How the Host row configures the extra read-only host paths a Docker Sandbox mounts. */
+export type HostMountsConfig = 'auto' | 'off' | readonly string[]
+
+/** One extra read-only host path a Docker Sandbox mounts beside the workspace. */
+export interface HostMount {
+  /** Absolute host path of the file or directory. */
+  readonly host: string
+  /** The path to mount it at inside the sandbox, when the row named one. */
+  readonly target?: string
+}
+
 /** One repository's resolved container configuration. */
 export interface RepoContainerSpec {
   /** Absolute host path of the repository root that owns the configuration file. */
@@ -55,6 +66,15 @@ export interface RepoContainerSpec {
    * never recreated for it.
    */
   sbxTemplate?: string
+  /**
+   * Extra read-only host paths a created sandbox mounts beside the workspace.
+   *
+   * The plan the row's `hostMounts` resolves to — host spellings, not yet
+   * filtered to the ones that exist. Only a specification a row built carries it:
+   * a declaration has no say in what its host mounts, and a sandbox that already
+   * exists is never recreated for it.
+   */
+  hostMounts?: readonly HostMount[]
   /** Shell the command runs under inside the container (default `/bin/bash`). */
   shell: string
   /** Execution driver (default `auto`). */

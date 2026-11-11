@@ -27,7 +27,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SubprocessHandle, SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
 import { toHostPath } from './paths.ts'
 import { callingVariantKind } from './refusal.ts'
-import { liveSandboxTemplate, repoRegistry } from './registry.ts'
+import { liveSbxOptions, repoRegistry } from './registry.ts'
 import { asSbxSpec, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import type { ContainerOptions, RepoContainerSpec } from './types.ts'
 
@@ -141,7 +141,7 @@ export function repositoryOfPath(
   const root = sbxWorkspaceRootFor(path, undefined, undefined)
   return root === undefined
     ? undefined
-    : sbxSpecFor(root, { ...options, sbxTemplate: liveSandboxTemplate(ctx) }, undefined)
+    : sbxSpecFor(root, liveSbxOptions(ctx, options), undefined)
 }
 
 /**

@@ -4,6 +4,7 @@ import * as hostModule from '../src/index.ts'
 import * as shellModule from '../src/shell.ts'
 import * as fsModule from '../src/fs.ts'
 import { Config as HostConfig } from '../src/index.ts'
+import { hostMountFields, sandboxTemplateFields } from '../src/options.ts'
 
 /**
  * The Loader normalizes a plugin through `unwrapExports`
@@ -75,6 +76,20 @@ describe('the host row loads without a config', () => {
     const resolved = HostConfig({}) as NonNullable<Parameters<typeof hostModule.apply>[1]>
     expect(resolved.sources).toBeDefined()
     expect(() => { hostModule.apply(ctx, resolved) }).not.toThrow()
+  })
+})
+
+describe('the fields a settings page writes', () => {
+  /** The schemastery flag a Loader row needs to see a settings write without reloading. */
+  function volatileOf(schema: unknown): boolean {
+    return (schema as { meta?: { volatile?: boolean } }).meta?.volatile === true
+  }
+
+  it('marks the image and the extra mounts volatile, so a write lands before a reload', () => {
+    // The resolved config carries a live reference for such a field, so the flag is
+    // read from the schema the Loader validates.
+    expect(volatileOf(hostMountFields().hostMounts)).toBe(true)
+    expect(volatileOf(sandboxTemplateFields().sbxTemplate)).toBe(true)
   })
 })
 

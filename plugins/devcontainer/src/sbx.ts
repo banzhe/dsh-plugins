@@ -35,8 +35,17 @@ import {
   relativeWithinHostRoot,
   toPosixSlashes,
 } from './paths.ts'
+import type { ExtraMount } from './paths.ts'
+import {
+  hostMountArgument,
+  hostMountPlan,
+  hostMountSourceExists,
+  splitHostTarget,
+  splitMountMode,
+} from './host-mounts.ts'
+import type { SandboxSpecOptions } from './registry.ts'
 import { sandboxTemplateOf } from './sbx-template.ts'
-import type { ContainerOptions, RepoContainerSpec } from './types.ts'
+import type { HostMount, RepoContainerSpec } from './types.ts'
 
 /** Prefix every sandbox this Bundle creates carries, so it is recognizable on a host. */
 export const SANDBOX_NAME_PREFIX = 'dsh-'
@@ -62,14 +71,28 @@ export function sandboxTemplateArgs(spec: RepoContainerSpec): string[] {
 }
 
 /**
- * The tail of the `sbx create` argv one specification issues: the image flags,
- * the agent, and the host directory to mount.
+ * The extra read-only positionals one specification asks for, as declared.
+ *
+ * This is the argv shape without asking the host whether the sources exist, which
+ * is what a diagnostic that names the command should show; `createSandbox`
+ * filters it against the host before it runs.
  * @param spec - the sandbox specification.
+ * @returns one `PATH[:TARGET]:ro` argument per declared mount, in declaration order.
+ */
+function hostMountArgsOf(spec: RepoContainerSpec): string[] {
+  return (spec.hostMounts ?? []).map(hostMountArgument)
+}
+
+/**
+ * The tail of the `sbx create` argv one specification issues: the image flags,
+ * the agent, the host directory to mount, and the extra read-only host paths.
+ * @param spec - the sandbox specification.
+ * @param extra - the extra mount arguments to append; the declared ones by default.
  * @returns the flags and positionals that follow `--name`.
  * @throws Error when the configured image cannot travel as one argv token.
  */
-function createTailOf(spec: RepoContainerSpec): string[] {
-  return [...sandboxTemplateArgs(spec), SANDBOX_TEMPLATE, spec.hostWorkspaceRoot]
+function createTailOf(spec: RepoContainerSpec, extra: readonly string[] = hostMountArgsOf(spec)): string[] {
+  return [...sandboxTemplateArgs(spec), SANDBOX_TEMPLATE, spec.hostWorkspaceRoot, ...extra]
 }
 
 /**
@@ -82,12 +105,22 @@ function createTailOf(spec: RepoContainerSpec): string[] {
 export const SBX_INSTALL_HINT = 'Install the Docker Sandbox CLI ("sbx", shipped with Docker Desktop) so it is on PATH, '
   + 'sign in with "sbx login", or switch to a preset without the (sbx) suffix.'
 
-/** One host directory a sandbox mounts, with the path it has inside the sandbox. */
-export interface SandboxMount {
-  /** The host directory the mount originates from, in the host's own path style. */
+/** One host path a sandbox mounts, with the path it has inside the sandbox. */
+export interface SandboxMount extends ExtraMount {
+  /**
+   * Whether the sandbox mounted it read-only, which the listing reports as a
+   * `:ro` token on the entry and not as a field. Absent means read-write, or an
+   * entry whose form says nothing about it.
+   */
+  readonly readOnly?: boolean
+}
+
+/** One host path a sandbox takes as a workspace, as its `workspaces` list reports it. */
+export interface SandboxWorkspace {
+  /** The host path the sandbox mounted as a workspace, in the host's own path style. */
   readonly host: string
-  /** Absolute POSIX path the same directory has inside the sandbox. */
-  readonly sandbox: string
+  /** Whether the sandbox mounted that workspace read-only. */
+  readonly readOnly?: boolean
 }
 
 /** One sandbox as `sbx ls` reports it. */
@@ -98,6 +131,14 @@ export interface ListedSandbox {
   readonly running: boolean
   /** The mounts it reported; empty when the row carried none this module can read. */
   readonly mounts: readonly SandboxMount[]
+  /**
+   * The paths it was asked to mount: the workspace first, then every host path the
+   * `create` named, in order. Empty when the row reported none this module can read.
+   *
+   * This is what tells a workspace from an extra mount: `mounts` also carries the
+   * mounts `sbx` injects for itself, such as its agent skill store.
+   */
+  readonly workspaces: readonly SandboxWorkspace[]
 }
 
 /**
@@ -131,26 +172,60 @@ export function sandboxNameFor(hostWorkspaceRoot: string): string {
 /** The state names a listed sandbox may report while it is running. */
 const RUNNING_STATES: ReadonlySet<string> = new Set(['running', 'ready', 'up', 'started'])
 
+/** The first string-valued field of a row, when it carries one. */
+function firstString(row: Record<string, unknown>, names: readonly string[]): string | undefined {
+  for (const name of names) {
+    const value = row[name]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return undefined
+}
+
 /**
  * Read one mount entry a listing reports.
  *
- * The separator is the LAST `:/` of the entry: a Windows host directory carries a
- * drive colon of its own, while the sandbox side of a mount is always
- * POSIX-absolute. An entry that does not split into two absolute paths is
+ * The mode token and the two paths are read by the same splitter the row's own
+ * `hostMounts` entries go through ({@link splitMountMode} and
+ * {@link splitHostTarget}), so a listing and a configuration cannot disagree about
+ * what one entry means. An entry that does not split into two absolute paths is
  * dropped rather than guessed at, which leaves its sandbox on the host-path
- * fallback instead of a path that exists nowhere.
+ * fallback instead of a path that exists nowhere. The object form is accepted
+ * with the field names a later listing may use, so a release that switches from
+ * the `host:sandbox` string to an object does not silently report no mounts.
  * @param value - one entry of a row's `mounts` array.
  * @returns the mount, or undefined when the entry names none.
  */
 function sandboxMount(value: unknown): SandboxMount | undefined {
-  if (typeof value !== 'string') return undefined
-  const separator = value.lastIndexOf(':/')
-  if (separator <= 0) return undefined
-  const host = value.slice(0, separator).trim()
-  const sandbox = value.slice(separator + 1).trim()
+  if (typeof value === 'string') {
+    const { text, readOnly } = splitMountMode(value.trim())
+    const { host: spelled, target } = splitHostTarget(text)
+    const host = spelled.trim()
+    const sandbox = target?.trim()
+    if (sandbox === undefined) return undefined
+    if (!isWindowsPath(host) && !isPosixAbsolute(host)) return undefined
+    if (!isPosixAbsolute(sandbox)) return undefined
+    return { host, sandbox, readOnly }
+  }
+  if (typeof value !== 'object' || value === null) return undefined
+  const row = value as Record<string, unknown>
+  const host = firstString(row, ['host', 'source', 'src', 'hostPath'])
+  const sandbox = firstString(row, ['sandbox', 'destination', 'dst', 'target'])
+  if (host === undefined || sandbox === undefined) return undefined
   if (!isWindowsPath(host) && !isPosixAbsolute(host)) return undefined
   if (!isPosixAbsolute(sandbox)) return undefined
-  return { host, sandbox }
+  return { host, sandbox, readOnly: row['readOnly'] === true || row['read_only'] === true }
+}
+
+/**
+ * Read one `workspaces` entry, which is an absolute host path that may end in `:ro`.
+ * @param value - one entry of a row's `workspaces` array.
+ * @returns the workspace, or undefined when the entry names no absolute host path.
+ */
+function sandboxWorkspace(value: unknown): SandboxWorkspace | undefined {
+  if (typeof value !== 'string') return undefined
+  const { text, readOnly } = splitMountMode(value.trim())
+  if (!isWindowsPath(text) && !isPosixAbsolute(text)) return undefined
+  return { host: text, readOnly }
 }
 
 /** The mounts one row reports, in the order it reports them. */
@@ -158,6 +233,13 @@ function mountsOf(row: Record<string, unknown>): SandboxMount[] {
   const listed = row['mounts']
   if (!Array.isArray(listed)) return []
   return listed.map(sandboxMount).filter((mount): mount is SandboxMount => mount !== undefined)
+}
+
+/** The workspaces one row reports, in the order it reports them. */
+function workspacesOf(row: Record<string, unknown>): SandboxWorkspace[] {
+  const listed = row['workspaces']
+  if (!Array.isArray(listed)) return []
+  return listed.map(sandboxWorkspace).filter((workspace): workspace is SandboxWorkspace => workspace !== undefined)
 }
 
 /**
@@ -176,14 +258,15 @@ function listedSandbox(value: unknown): ListedSandbox | undefined {
   const name = row['name']
   if (typeof name !== 'string' || name.trim() === '') return undefined
   const mounts = mountsOf(row)
-  if (row['running'] === true || row['detached'] === true) return { name: name.trim(), running: true, mounts }
+  const workspaces = workspacesOf(row)
+  if (row['running'] === true || row['detached'] === true) return { name: name.trim(), running: true, mounts, workspaces }
   for (const field of ['status', 'state']) {
     const state = row[field]
     if (typeof state === 'string') {
-      return { name: name.trim(), running: RUNNING_STATES.has(state.trim().toLowerCase()), mounts }
+      return { name: name.trim(), running: RUNNING_STATES.has(state.trim().toLowerCase()), mounts, workspaces }
     }
   }
-  return { name: name.trim(), running: false, mounts }
+  return { name: name.trim(), running: false, mounts, workspaces }
 }
 
 /**
@@ -243,7 +326,7 @@ export async function listSandboxes(
   if (result.exitCode === null) return { available: false, sandboxes: [] }
   if (result.exitCode !== 0) return { available: true, sandboxes: [] }
   const sandboxes = parseSandboxList(result.stdout)
-  recordMounts(sandboxes)
+  recordListing(sandboxes)
   return { available: true, sandboxes }
 }
 
@@ -329,21 +412,158 @@ export function sandboxMountFor(
 }
 
 /**
- * The mounts the last listing reported, per sandbox name.
+ * What one sandbox's last listing reported, together with what the last
+ * specification built for it declares.
  *
  * {@link sbxSpecFor} and {@link asSbxSpec} are synchronous — the preset builder,
  * the filesystem route, and the spawn-cwd mapping all build a specification on a
  * path that a listing has already answered for — so the listing leaves its mounts
  * here for them. Mounts handed to those functions explicitly always win.
  */
-const reportedMounts = new Map<string, readonly SandboxMount[]>()
+interface SandboxRecord {
+  /** The mounts the last listing reported, which include the ones `sbx` injects itself. */
+  mounts: readonly SandboxMount[]
+  /** The `workspaces` the last listing reported: the workspace first, then the declared extra hosts. */
+  workspaces: readonly SandboxWorkspace[]
+  /** The extra host paths the last specification built for this sandbox declares. */
+  declared: readonly HostMount[]
+  /** The host workspace that specification mounted. */
+  workspaceRoot?: string
+}
+
+/** What is known about each sandbox, for the life of the process. */
+const sandboxRecords = new Map<string, SandboxRecord>()
+
+/** The record of one sandbox, created empty when nothing is known about it yet. */
+function recordOf(name: string): SandboxRecord {
+  const existing = sandboxRecords.get(name)
+  if (existing !== undefined) return existing
+  const created: SandboxRecord = { mounts: [], workspaces: [], declared: [] }
+  sandboxRecords.set(name, created)
+  return created
+}
 
 /**
- * Remember one listing's mounts.
+ * Remember one listing, so the synchronous builders below can read it.
  * @param sandboxes - the sandboxes the listing reported.
  */
-function recordMounts(sandboxes: readonly ListedSandbox[]): void {
-  for (const sandbox of sandboxes) reportedMounts.set(sandbox.name, sandbox.mounts)
+function recordListing(sandboxes: readonly ListedSandbox[]): void {
+  for (const sandbox of sandboxes) {
+    const record = recordOf(sandbox.name)
+    record.mounts = sandbox.mounts
+    record.workspaces = sandbox.workspaces
+  }
+}
+
+/**
+ * Remember what one specification asks for, so a later attribution can name it.
+ *
+ * Only a specification a row BUILT carries a declared plan: one adopted from a
+ * declaration has no say in what its host mounts, so it must not erase the plan
+ * the row configured.
+ * @param spec - the specification just built.
+ */
+function recordSpec(spec: RepoContainerSpec): void {
+  const record = recordOf(sandboxNameOf(spec))
+  record.workspaceRoot = spec.hostWorkspaceRoot
+  if (spec.hostMounts !== undefined) record.declared = spec.hostMounts
+}
+
+/** The host workspace of one sandbox, as its specification or its listing names it. */
+function workspaceRootOf(record: SandboxRecord): string | undefined {
+  return record.workspaceRoot ?? record.workspaces[0]?.host
+}
+
+/**
+ * The host paths one sandbox accepts beside its workspace.
+ *
+ * Only the workspace and the mounts the row itself declares are here. The rest of
+ * a listing — the agent skill store `sbx` injects, for one — belongs to the
+ * sandbox's own machinery, and a session must not be able to name it, so nothing
+ * is admitted merely because the listing reported it.
+ *
+ * A listing without `workspaces` still names its workspace through the mount that
+ * covers this specification's workspace root; that mount is the only one such a
+ * row can be given outside the declared set.
+ * @param record - what is known about the sandbox.
+ * @returns the accepted mounts, the workspace first.
+ */
+function acceptedMounts(record: SandboxRecord): readonly SandboxMount[] {
+  const accepted: SandboxMount[] = []
+  const reported = record.workspaces[0]
+  const root = workspaceRootOf(record) ?? reported?.host
+  if (root !== undefined) {
+    const sandbox = sandboxMountFor(root, record.mounts)
+    if (sandbox !== undefined) {
+      accepted.push({
+        host: normalizeHostRoot(root),
+        sandbox,
+        ...reported?.readOnly === undefined ? {} : { readOnly: reported.readOnly },
+      })
+    }
+  }
+  for (const mount of declaredMounts(record.declared, record.mounts, record.mounts.length > 0)) {
+    if (accepted.some(candidate => sameHost(candidate.host, mount.host))) continue
+    accepted.push(mount)
+  }
+  return accepted
+}
+
+/**
+ * Resolve declared host paths to the paths the sandbox really has for them.
+ *
+ * The listing is the authority: it reports where each host path was mounted, so a
+ * declaration it does not mention was never mounted and is left out. A declaration
+ * that names its own target needs no lookup, and the host convention answers only
+ * before any listing has run — the same drive-letter rule a sandbox uses for its
+ * workspace, and the only thing available at that point.
+ *
+ * That convention guess is a deliberate, accepted exception to "only what the
+ * listing reported": the paths it admits are the row's own declarations, which are
+ * exactly the ones just handed to `sbx create`, so it widens nothing a listing
+ * would have named. If the sandbox mounted one of them elsewhere, a read there
+ * fails with `FS_NOT_FOUND` — a missing file inside an accepted root, never a
+ * fence that opens onto something else.
+ * @param declared - the host paths a row asked to mount.
+ * @param mounts - the mounts a listing reported.
+ * @param listed - whether a listing has reported this sandbox at all.
+ * @returns one read-only mount per declaration the sandbox carries.
+ */
+function declaredMounts(
+  declared: readonly HostMount[], mounts: readonly SandboxMount[], listed: boolean,
+): SandboxMount[] {
+  const resolved: SandboxMount[] = []
+  for (const mount of declared) {
+    const host = normalizeHostRoot(mount.host)
+    const reported = sandboxMountFor(host, mounts)
+    const sandbox = mount.target ?? reported ?? (listed ? undefined : sandboxWorkspacePath(host))
+    if (sandbox === undefined) continue
+    resolved.push({ host, sandbox, readOnly: true })
+  }
+  return resolved
+}
+
+/** Whether two host paths name the same file or directory, folding win32 case. */
+function sameHost(left: string, right: string): boolean {
+  return relativeWithinHostRoot(left, right) === '' || relativeWithinHostRoot(right, left) === ''
+}
+
+/**
+ * The extra read-only mounts one specification's sandbox carries.
+ *
+ * These are the paths a session may name beside its workspace, and nothing else a
+ * listing reports: the fence, the path translation, and the helper's own guard are
+ * all built from this list.
+ * @param spec - the repository container specification.
+ * @returns the declared mounts with their sandbox spellings; empty when none resolves.
+ */
+export function sbxExtraMountsOf(spec: RepoContainerSpec): readonly SandboxMount[] {
+  if (spec.cli !== 'sbx') return []
+  const record = sandboxRecords.get(sandboxNameOf(spec))
+  const declared = spec.hostMounts ?? record?.declared ?? []
+  if (declared.length === 0) return []
+  const mounts = record?.mounts ?? []
+  return declaredMounts(declared, mounts, mounts.length > 0)
 }
 
 /** Where a sandbox-spelled path really is, as far as the host can tell. */
@@ -351,11 +571,18 @@ export interface SandboxHostAttribution {
   /** Absolute host path the sandbox path stands for. */
   readonly host: string
   /**
-   * The host directory the sandbox mounts that path from — present only when a
-   * listing reported the mount, because only a mount says which directory a
-   * sandbox has, while the host convention says just what the path is called.
+   * The host workspace of the sandbox that mounts the path — present only when a
+   * reported mount answered, because only a mount says which workspace a sandbox
+   * has, while the host convention says just what the path is called.
    */
   readonly workspaceRoot?: string
+  /**
+   * The sandbox that mounts the path, present only when a reported mount answered.
+   * It is the sandbox a call naming the path must run in, which is not the sandbox
+   * of the host directory the path itself happens to live in — a mount of one host
+   * file belongs to the workspace that mounted it, not to a sandbox named after it.
+   */
+  readonly sandbox?: string
 }
 
 /**
@@ -382,30 +609,63 @@ export function sandboxHostPathFor(sandboxPath: string): SandboxHostAttribution 
   const normalized = posix.normalize(toPosixSlashes(sandboxPath))
   if (!isPosixAbsolute(normalized)) return undefined
   const mounted = mountedHostFor(normalized)
-  if (mounted !== undefined) {
-    return { host: mounted.host, workspaceRoot: normalizeHostRoot(mounted.root) }
-  }
+  if (mounted !== undefined) return mounted
   const drive = driveHostFor(normalized)
   return drive === undefined ? undefined : { host: drive }
 }
 
+/**
+ * The sandbox whose workspace or declared extra mount covers one HOST path.
+ *
+ * A session names `C:\Users\me\.dsh\AGENTS.md` the way the host spells it, while
+ * the sandbox that mounted it is the one whose workspace the session runs in — not
+ * a sandbox invented around that file. This answers which one it is.
+ * @param hostPath - an absolute host path.
+ * @returns the host path and its sandbox, or undefined when no sandbox mounts it.
+ */
+export function sbxMountAttribution(hostPath: string): SandboxHostAttribution | undefined {
+  const normalized = normalizeHostRoot(hostPath)
+  let found: { readonly length: number, readonly attribution: SandboxHostAttribution } | undefined
+  for (const [name, record] of sandboxRecords) {
+    for (const mount of acceptedMounts(record)) {
+      const relative = relativeWithinHostRoot(normalized, mount.host)
+      if (relative === undefined) continue
+      if (found !== undefined && found.length >= mount.host.length) continue
+      const workspaceRoot = workspaceRootOf(record)
+      found = {
+        length: mount.host.length,
+        attribution: {
+          host: relative === '' ? normalizeHostRoot(mount.host) : joinHostRoot(mount.host, relative),
+          ...workspaceRoot === undefined ? {} : { workspaceRoot: normalizeHostRoot(workspaceRoot) },
+          sandbox: name,
+        },
+      }
+    }
+  }
+  return found?.attribution
+}
+
 /** The host directory and workspace a reported mount covers, the deepest mount winning. */
-function mountedHostFor(sandboxPath: string): { readonly host: string, readonly root: string } | undefined {
-  let found: { readonly depth: number, readonly host: string, readonly root: string } | undefined
-  for (const mounts of reportedMounts.values()) {
-    for (const mount of mounts) {
+function mountedHostFor(sandboxPath: string): SandboxHostAttribution | undefined {
+  let found: { readonly depth: number, readonly attribution: SandboxHostAttribution } | undefined
+  for (const [name, record] of sandboxRecords) {
+    const workspaceRoot = workspaceRootOf(record)
+    for (const mount of acceptedMounts(record)) {
       const relative = containerRemainder(sandboxPath, mount.sandbox)
       if (relative === undefined) continue
       const depth = posix.normalize(mount.sandbox).length
       if (found !== undefined && found.depth >= depth) continue
       found = {
         depth,
-        root: mount.host,
-        host: relative === '' ? normalizeHostRoot(mount.host) : joinHostRoot(mount.host, relative),
+        attribution: {
+          host: relative === '' ? normalizeHostRoot(mount.host) : joinHostRoot(mount.host, relative),
+          workspaceRoot: normalizeHostRoot(workspaceRoot ?? mount.host),
+          sandbox: name,
+        },
       }
     }
   }
-  return found === undefined ? undefined : { host: found.host, root: found.root }
+  return found?.attribution
 }
 
 /** The drive-letter directory a sandbox path spells on a Windows host, when its first segment is a letter. */
@@ -432,7 +692,7 @@ function sandboxNameOf(spec: RepoContainerSpec): string {
  * @returns the absolute sandbox path, or undefined when no listing covered the workspace.
  */
 export function sbxMountOf(spec: RepoContainerSpec): string | undefined {
-  const mounts = reportedMounts.get(sandboxNameOf(spec))
+  const mounts = sandboxRecords.get(sandboxNameOf(spec))?.mounts
   return mounts === undefined ? undefined : sandboxMountFor(spec.hostWorkspaceRoot, mounts)
 }
 
@@ -483,15 +743,20 @@ export function asSbxSpec(spec: RepoContainerSpec, mounts?: readonly SandboxMoun
  * (`liveSandboxTemplate`) on `options.sbxTemplate`, so a settings write is
  * answered by the next command, and it is carried on the specification so
  * `createSandbox` and the diagnostic that names the command both read the same one.
+ *
+ * The extra host mounts are the Host row's too, for the same reason: they are the
+ * paths a sandbox mounts beside this workspace, and a declaration has no say in
+ * them. The plan is carried on the specification, where the fence, the path
+ * translation, and the helper's guard read it.
  * @param hostWorkspaceRoot - absolute host path of the workspace.
- * @param options - the row's container defaults, plus the image configured right now.
+ * @param options - the row's container defaults, plus the image and mounts configured right now.
  * @param declared - the specification a declaration produced, when one exists.
  * @param mounts - the mounts of a fresh listing; when absent, the mounts the last one reported are used.
  * @returns the specification a `(sbx)` session runs under.
  */
 export function sbxSpecFor(
   hostWorkspaceRoot: string,
-  options: ContainerOptions & { readonly sbxTemplate?: string | undefined },
+  options: SandboxSpecOptions,
   declared?: RepoContainerSpec,
   mounts?: readonly SandboxMount[],
 ): RepoContainerSpec {
@@ -507,12 +772,17 @@ export function sbxSpecFor(
       ensureUp: options.ensureUp,
       containerTimeoutMs: options.containerTimeoutMs,
     }, mounts)
-  // The image is the row's, never a declaration's: a repository cannot choose
-  // the sandbox image of the host that mounts it, so the specification is rebuilt
-  // without whatever a declaration carried and the live value decides alone.
+  // The image and the extra mounts are the row's, never a declaration's: a
+  // repository cannot choose the sandbox image or the host configuration of the
+  // host that mounts it, so the specification is rebuilt without whatever a
+  // declaration carried and the live values decide alone.
   const image = options.sbxTemplate?.trim() ?? ''
-  const { sbxTemplate: _declared, ...rest } = spec
-  return image === '' ? rest : { ...rest, sbxTemplate: image }
+  const { sbxTemplate: _declared, hostMounts: _declaredMounts, ...rest } = spec
+  return {
+    ...rest,
+    hostMounts: hostMountPlan(options.hostMounts),
+    ...image === '' ? {} : { sbxTemplate: image },
+  }
 }
 
 /**
@@ -536,12 +806,116 @@ function failureDetail(result: { stdout: string; stderr: string }): string {
   return (result.stderr.trim() || result.stdout.trim() || 'no output').split('\n').slice(-3).join(' ')
 }
 
+/** Reports a mount this Bundle could not establish, where a person running the session can see it. */
+export type SandboxWarning = (message: string) => void
+
+/**
+ * The declared mounts whose host source is gone.
+ * @param spec - the sandbox specification.
+ * @returns the declarations whose path does not exist right now.
+ */
+async function missingHostMounts(spec: RepoContainerSpec): Promise<HostMount[]> {
+  const missing: HostMount[] = []
+  for (const mount of spec.hostMounts ?? []) {
+    if (!(await hostMountSourceExists(mount))) missing.push(mount)
+  }
+  return missing
+}
+
+/**
+ * The declared mounts one existing sandbox did not take.
+ *
+ * The listing's `workspaces` is what answers, in order: the first entry is the
+ * workspace, so a declaration missing from the rest was never mounted — it did not
+ * exist when the sandbox was created. A listing that reports no `workspaces` is
+ * read through its mounts, which is all an older CLI offers.
+ * @param spec - the sandbox specification.
+ * @param listed - the sandbox as the listing reports it.
+ * @returns the declarations that sandbox does not mount.
+ */
+function unmountedHostMounts(spec: RepoContainerSpec, listed: ListedSandbox): HostMount[] {
+  const declared = spec.hostMounts ?? []
+  if (declared.length === 0) return []
+  const mounted = listed.workspaces.length === 0
+    ? listed.mounts.map(mount => mount.host)
+    : listed.workspaces.map(workspace => workspace.host)
+  return declared.filter(mount => !mounted.some(host => sameHost(host, mount.host)))
+}
+
+/** The one sentence a mount whose source is gone is reported with. */
+function missingHostMountText(mount: HostMount, sandboxName: string): string {
+  return 'devcontainer: the host mount source "' + mount.host + '" does not exist, so it is not mounted in sandbox "'
+    + sandboxName + '"; create it, then remove the sandbox ("sbx rm ' + sandboxName + '") so it is created with that mount'
+}
+
+/** The one sentence a mount the sandbox carries whose host source vanished is reported with. */
+function brokenHostMountText(mount: HostMount, sandboxName: string): string {
+  return 'devcontainer: sandbox "' + sandboxName + '" mounts "' + mount.host
+    + '", whose source no longer exists on the host; restore it, or remove the sandbox ("sbx rm '
+    + sandboxName + '") so it is created without that mount'
+}
+
+/** The one sentence a declaration an existing sandbox never took is reported with. */
+function unmountedHostMountText(mount: HostMount, sandboxName: string): string {
+  return 'devcontainer: sandbox "' + sandboxName + '" does not mount "' + mount.host + '", which this row declares; '
+    + 'remove the sandbox ("sbx rm ' + sandboxName + '") so it is created with that mount'
+}
+
+/** The failure of a start that cannot succeed, worded as what to do about it. */
+function missingMountStartText(sandboxName: string, mounts: readonly HostMount[]): string {
+  const paths = mounts.map(mount => '"' + mount.host + '"').join(', ')
+  return 'sbx: Docker Sandbox "' + sandboxName + '" cannot start: the host mount source ' + paths
+    + ' no longer exists. Restore it, or remove the sandbox ("sbx rm ' + sandboxName
+    + '") so it is created without that mount.'
+}
+
+/**
+ * Report every declared mount the host or the sandbox does not carry.
+ *
+ * Only a mount the sandbox actually carries can make a start fail, so that is the
+ * one case reported as a state a start cannot survive. A declaration whose source
+ * is gone and that the sandbox never took is the ordinary `auto` situation — the
+ * host has no `~/.agents/AGENTS.md`, say — and a sandbox without that mount starts
+ * exactly as it always did; it is reported, never refused.
+ * @param spec - the sandbox specification.
+ * @param listed - the sandbox as the listing reports it.
+ * @param warn - where the reports go; nothing is reported without one.
+ * @returns the declarations the sandbox mounts whose host source is gone.
+ */
+async function reportMountState(
+  spec: RepoContainerSpec, listed: ListedSandbox, warn: SandboxWarning | undefined,
+): Promise<HostMount[]> {
+  const name = sandboxNameOf(spec)
+  const missing = await missingHostMounts(spec)
+  const unmounted = unmountedHostMounts(spec, listed)
+  const broken: HostMount[] = []
+  for (const mount of missing) {
+    if (unmounted.some(candidate => sameHost(candidate.host, mount.host))) {
+      warn?.(missingHostMountText(mount, name))
+      continue
+    }
+    warn?.(brokenHostMountText(mount, name))
+    broken.push(mount)
+  }
+  for (const mount of unmounted) {
+    if (missing.some(candidate => sameHost(candidate.host, mount.host))) continue
+    warn?.(unmountedHostMountText(mount, name))
+  }
+  return broken
+}
+
 /**
  * Create one sandbox around a host workspace, without attaching to it.
+ *
+ * The extra host mounts are appended as positional arguments, and only the ones
+ * whose source exists right now: `sbx` fails the whole creation for a missing
+ * source, and an interactive CLI offers to create one, which a session must never
+ * do to a host path it was only given to read.
  * @param spec - the sandbox specification.
  * @param sandboxName - the name to create.
  * @param run - the CLI runner.
  * @param signal - cancellation.
+ * @param warn - reports each declared mount whose source is gone.
  * @throws Error when `sbx` is missing or the creation failed.
  */
 export async function createSandbox(
@@ -549,13 +923,20 @@ export async function createSandbox(
   sandboxName: string,
   run: ContainerRun,
   signal?: AbortSignal,
+  warn?: SandboxWarning,
 ): Promise<void> {
+  recordSpec(spec)
+  const extra: string[] = []
+  for (const mount of spec.hostMounts ?? []) {
+    if (await hostMountSourceExists(mount)) extra.push(hostMountArgument(mount))
+    else warn?.(missingHostMountText(mount, sandboxName))
+  }
   const result = await run(
     // The documented core form: an optional image, then the agent (an agent-less
-    // shell), then the host directory to mount. Progress output goes to the
-    // captured stream and is not shown, so no suppression flag is needed — and no
-    // flag this CLI may not have.
-    ['sbx', 'create', '--name', sandboxName, ...createTailOf(spec)],
+    // shell), then the host directory to mount, then any further read-only host
+    // paths. Progress output goes to the captured stream and is not shown, so no
+    // suppression flag is needed — and no flag this CLI may not have.
+    ['sbx', 'create', '--name', sandboxName, ...createTailOf(spec, extra)],
     { ...signal === undefined ? {} : { signal }, timeoutMs: spec.containerTimeoutMs },
   )
   if (result.exitCode === null) throw new Error(`sbx: the CLI could not be started. ${SBX_INSTALL_HINT}`)
@@ -635,18 +1016,27 @@ export async function assertSandboxNode(
  *
  * The listing also names the mounts, so the returned target carries the folder
  * the sandbox really has for this workspace instead of the host spelling.
+ *
+ * The extra host mounts are the one thing a sandbox cannot gain after it exists,
+ * so this is also where their state is reported: a missing source is a diagnostic
+ * (and, for a sandbox that has to start, a refusal worded as what to do), and a
+ * declaration the sandbox never took is the same `sbx rm` advice. Nothing here
+ * removes or recreates a sandbox — that is the user's call.
  * @param spec - the sandbox specification.
  * @param run - the CLI runner.
  * @param signal - cancellation of the probe / start sequence.
+ * @param warn - reports a mount the sandbox does not carry, and a source that is gone.
  * @returns the sandbox target.
- * @throws Error when `sbx` is missing, the sandbox cannot be prepared, one is required and absent, or it has no Node.js.
+ * @throws Error when `sbx` is missing, the sandbox cannot be prepared, one is required and absent, it has no Node.js, or a start would fail on a mount the sandbox carries whose source is gone.
  */
 export async function resolveSbxTarget(
   spec: RepoContainerSpec,
   run: ContainerRun,
   signal?: AbortSignal,
+  warn?: SandboxWarning,
 ): Promise<ContainerTarget> {
   const name = sandboxNameOf(spec)
+  recordSpec(spec)
   const listing = await listSandboxes(run, spec.containerTimeoutMs, signal)
   if (!listing.available) throw new Error(`sbx: ${SBX_INSTALL_HINT}`)
   const listed = listing.sandboxes.find(sandbox => sandbox.name === name)
@@ -655,6 +1045,9 @@ export async function resolveSbxTarget(
   // the specification's own folder.
   const target = sbxTargetOf(spec, listed?.mounts ?? [])
   if (listed?.running === true) {
+    // A running sandbox keeps reading its mounts, so a source that is gone is
+    // reported rather than refused: only the next start needs it.
+    await reportMountState(spec, listed, warn)
     await assertSandboxNode(spec, name, run, signal)
     return target
   }
@@ -663,7 +1056,20 @@ export async function resolveSbxTarget(
       ? `sbx: no Docker Sandbox named "${name}" exists for "${spec.hostWorkspaceRoot}"; create it with "sbx create --name ${name} ${createTailOf(spec).join(' ')}", or set ensureUp: true`
       : `sbx: Docker Sandbox "${name}" for "${spec.hostWorkspaceRoot}" is not running; start it with "sbx run --detach --name ${name}", or set ensureUp: true`)
   }
-  if (listed === undefined) await createSandbox(spec, name, run, signal)
+  if (listed === undefined) {
+    await createSandbox(spec, name, run, signal, warn)
+    await startSandbox(spec, name, run, signal)
+    await assertSandboxNode(spec, name, run, signal)
+    // A sandbox that has just been created carries its extra mounts now, and only a
+    // fresh listing says where `sbx` put them: the fence and the path translation
+    // are built from what is recorded here. A create that asked for none has
+    // nothing to learn, so it costs no second listing.
+    if ((spec.hostMounts ?? []).length === 0) return target
+    const refreshed = await listSandboxes(run, spec.containerTimeoutMs, signal)
+    return sbxTargetOf(spec, refreshed.sandboxes.find(sandbox => sandbox.name === name)?.mounts ?? [])
+  }
+  const missing = await reportMountState(spec, listed, warn)
+  if (missing.length > 0) throw new Error(missingMountStartText(name, missing))
   await startSandbox(spec, name, run, signal)
   await assertSandboxNode(spec, name, run, signal)
   return target

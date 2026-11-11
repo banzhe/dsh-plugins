@@ -24,7 +24,7 @@ import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-working-directory'
 import {
-  containerOptionFields, containerOptions, presetSourceFields, sandboxTemplateFields,
+  containerOptionFields, containerOptions, hostMountFields, presetSourceFields, sandboxTemplateFields,
 } from './options.ts'
 import { toContainerPath } from './paths.ts'
 import {
@@ -44,12 +44,13 @@ import {
   SBX_PRESET_ENV_KEY,
 } from './refusal.ts'
 import type { PresetLookup } from './refusal.ts'
-import { liveSandboxTemplate, registerSandboxTemplate, repoRegistry } from './registry.ts'
+import { liveSbxOptions, registerHostMounts, registerSandboxTemplate, repoRegistry } from './registry.ts'
 import { installSpawnCwdMapping, repositoryOfPath } from './subprocess.ts'
 import { sandboxNameFor, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import { VariantSync } from './variants.ts'
 import type { VariantRegistryLike } from './variants.ts'
-import type { ContainerOptions } from './types.ts'
+import { hostMountsConfig } from './host-mounts.ts'
+import type { ContainerOptions, HostMountsConfig } from './types.ts'
 
 /** Plugin name used by the Loader row, and the settings namespace the page edits. */
 export const name = 'devcontainer'
@@ -109,6 +110,12 @@ export interface Config extends ContainerOptions {
    * filesystem, and subprocess rows through `liveSandboxTemplate`.
    */
   sbxTemplate: Volatile<string>
+  /**
+   * Extra read-only host paths a created Docker Sandbox mounts beside the
+   * workspace (`auto`, `off`, or an explicit `PATH[:TARGET][:ro]` list). Read by
+   * the shell, filesystem, and subprocess rows through `liveHostMounts`.
+   */
+  hostMounts: Volatile<HostMountsConfig>
   presets: PresetVariantConfig
 }
 
@@ -123,6 +130,7 @@ export const Config = z.object({
   ...containerOptionFields(),
   ...presetSourceFields(),
   ...sandboxTemplateFields(),
+  ...hostMountFields(),
   presets: z.object({
     enabled: z.boolean().default(true),
     win32Only: z.boolean().default(true),
@@ -190,7 +198,7 @@ export function apply(ctx: Context, configured?: Config): void {
         // below cannot apply: the workspace is the session's own directory.
         const root = sbxWorkspaceRootFor(hostWorkdir, hostWorkdir, repository)
         if (root === undefined) return result
-        const spec = sbxSpecFor(root, { ...options, sbxTemplate: liveSandboxTemplate(child) }, repository)
+        const spec = sbxSpecFor(root, liveSbxOptions(child, options), repository)
         applyContainerContext(result, sbxContextText(
           toContainerPath(hostWorkdir, spec),
           spec.sandbox ?? sandboxNameFor(root),
@@ -251,6 +259,13 @@ export function apply(ctx: Context, configured?: Config): void {
     () => registerSandboxTemplate(ctx, () => configuredSbxTemplate(ctx, config)),
     'devcontainer.sbx-template',
   )
+  // The extra host mounts are read the same way and for the same reason: the rows
+  // that create a sandbox ask this reader at the moment they build a
+  // specification, so the value in force at that moment is the one that lands.
+  ctx.effect(
+    () => registerHostMounts(ctx, () => configuredHostMounts(ctx, config)),
+    'devcontainer.host-mounts',
+  )
   registerVariants(ctx, config)
 }
 
@@ -266,15 +281,40 @@ export function apply(ctx: Context, configured?: Config): void {
  * @returns the image to pass as `--template`, or undefined for the CLI's own template.
  */
 function configuredSbxTemplate(ctx: Context, config: Config): string | undefined {
-  const live = (ctx as unknown as { fiber?: { effectiveConfig?: Record<string, unknown> } })
-    .fiber?.effectiveConfig?.['sbxTemplate']
-  const value: unknown = live ?? config.sbxTemplate
+  const value: unknown = liveField(ctx, 'sbxTemplate') ?? config.sbxTemplate
   if (value === undefined || value === null) return undefined
   const text: unknown = typeof (value as { get?: unknown }).get === 'function'
     ? (value as { get(): unknown }).get()
     : value
   const image = typeof text === 'string' ? text.trim() : ''
   return image === '' ? undefined : image
+}
+
+/**
+ * The extra host mounts this row configures right now.
+ * @param ctx - this row's context.
+ * @param config - the resolved config this row was mounted with.
+ * @returns the configured value, or the schema default when this row carries none.
+ */
+function configuredHostMounts(ctx: Context, config: Config): HostMountsConfig {
+  return hostMountsConfig(liveField(ctx, 'hostMounts') ?? config.hostMounts)
+}
+
+/**
+ * The value of one field as the fiber holds it right now, or undefined when it holds none.
+ *
+ * A volatile field is committed into the fiber's effective config rather than into
+ * the object `apply` was handed, and the profile patch may land after this row
+ * mounted, so the live reference is the only current answer. The cast is the price
+ * of reading a Cordis internal this Bundle does not own: the shape is checked here
+ * and nowhere else.
+ * @param ctx - this row's context.
+ * @param field - the config key to read.
+ * @returns the live value, or undefined when the fiber carries none.
+ */
+function liveField(ctx: Context, field: string): unknown {
+  const fiber = (ctx as unknown as { fiber?: { effectiveConfig?: Record<string, unknown> } }).fiber
+  return fiber?.effectiveConfig?.[field]
 }
 
 /** The `ctx.shellEnv` slice this row registers into. */
@@ -353,11 +393,9 @@ function registerVariants(ctx: Context, config: Config): void {
   // and "nothing is derived" is the only sane reading of an absent list.
   const storedList = (field: 'sources' | 'sbxSources'): readonly string[] => {
     // Read the LIVE config: the Profile patch can land after this row mounted,
-    // and a volatile-only change commits into the fiber's effective config
-    // rather than into the object `apply` was handed.
-    const live = (ctx as unknown as { fiber?: { effectiveConfig?: Record<string, unknown> } })
-      .fiber?.effectiveConfig?.[field]
-    const value: unknown = live ?? config[field]
+    // and a volatile-only change commits into the fiber's effective config rather
+    // than into the object `apply` was handed.
+    const value: unknown = liveField(ctx, field) ?? config[field]
     if (value === undefined || value === null) return []
     const list: unknown = typeof (value as { get?: unknown }).get === 'function'
       ? (value as { get(): unknown }).get()

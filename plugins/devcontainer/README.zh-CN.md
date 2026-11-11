@@ -18,6 +18,7 @@
 - **不串环境变量。** 进入容器的只有 `remoteEnv`、调用方自己的条目、`DSH_*` 快照，以及 `TERM=dumb`/`GIT_TERMINAL_PROMPT=0`/`NO_COLOR=1`：没有宿主机 `PATH`，没有 `SystemRoot`。宿主一侧同样清洗：Docker / Dev Container CLI 只带着白名单变量启动（找到 `docker` 与读取你自己的 Docker 配置所需的那几个，加上 `DOCKER_*`/`XDG_*` 家族，并剔除名字像凭据的变量），DSH 自己的凭据不会进入它，也不会进入它启动的进程。
 - **设置页按需派生预设。** Windows 上官方预设挂 `pwsh`、禁用 `bash`；Dev Container 是 Linux，所以在**设置 → Dev Container 预设**页勾选某个预设，就会派生它的 `… (devContainer)` 副本（例如 `委派模式 (devContainer)`、`标准模式 (devContainer)`）：改用 `bash`，子代理也指向各自派生的副本，路由最多追踪四层；到达上限的路由会被切断（从可选列表里移除，或禁用整行固定路由），而不是留成原版宿主预设。该页分成两组，互不影响：**Dev Container** 组写 `sources`、派生的预设名后缀是 `(devContainer)`，**Docker Sandbox** 组写 `sbxSources`、后缀是 `(sbx)`。默认不派生任何预设，取消勾选立即注销副本；原有预设一律不改——本来不挂 shell 工具的预设（委派模式主代理）派生后依然不挂。
 - **Docker Sandbox（`sbx`）是第二条派生轨道，且不需要任何声明文件。** `… (sbx)` 预设由新的 `sbxSources` 列表派生，机制与 `sources` 派生 `… (devContainer)` 完全一致：同样翻转 shell 工具、同样限深的子代理路由，但每条轨道只会把子代理指向自己这条轨道的副本。因为沙箱只需要一个宿主目录、不需要任何构建描述，仓库不需要 `.devcontainer/devcontainer.json`：首次使用时会列出（`sbx ls --json`）、创建（`sbx create --name … shell <仓库根>`）并以 detach 方式启动（`sbx run --detach --name …`）名为 `dsh-<仓库>-<哈希>` 的沙箱，命令以 `sbx exec <名字> -- /bin/sh -c "cd -- '<工作目录>' && exec … '<shell>' -c '<命令>'"` 执行。`ctx.fs` 通过 `sbx exec -i <名字> -- node …` 复用同一个容器 helper，读写都发生在沙箱内部；缺少 `sbx` CLI 时给出的是安装指引，而不是「沙箱不存在」。文件调用报出的路径是沙箱挂载的拼写（`/f/personal/repo`），它根本不是宿主路径，而一行配置服务宿主上的所有会话、其 `cwd` 是启动 DSH 的目录：宿主目录由 `sbx ls` 报告的挂载反解得出（最深的挂载优先，并直接给出工作区根目录，无论仓库有没有声明文件），只有仓库确实在该盘符路径上声明了容器时才采用盘符约定，因此落在所有挂载之外的路径仍然在宿主侧被拒绝。shell 行在查找仓库之前会先反解同一个拼写，因此即使该行挂载时没有配置 `cwd`，工作目录 `/f/personal/repo` 也会进入该目录对应的沙箱。
+- **宿主的 `AGENTS.md` 与技能跟着沙箱一起可见。** `… (sbx)` 预设把宿主的全局 agent 配置以只读方式挂到工作区旁边——宿主行配置项 `hostMounts`，默认 `auto`：`<dshHome>/AGENTS.md`、`<agentsHome>/AGENTS.md`、`<dshHome>/skills`、`<agentsHome>/skills`——于是沙箱会话读到的技能与说明和在宿主上一致。宿主上不存在的源会被跳过并告警，所有挂载一律只读，围栏只放行声明的这几条。详见[在沙箱会话中使用宿主机全局 AGENTS.md 与技能](#在沙箱会话中使用宿主机全局-agentsmd-与技能)。
 - **普通预设的本地兜底沿用平台自己的 shell。** 没有声明 Dev Container 的目录保持安装前的本地执行器：POSIX 上用 bash，Windows 上用 PowerShell（`pwsh -NoLogo -NoProfile -NonInteractive -Command`）。因此普通的 `pwsh` 工具在容器仓库之外照常可用。
 - **容器路由跟随预设。**`… (devContainer)` 预设把每条命令送进仓库容器；普通预设保持原来的宿主机 shell，即使该仓库声明了容器。想让所有会话都走容器，请在各行设置 `requireContainer: true`。
 - **`(devContainer)` 预设不会悄悄在宿主机上跑命令。** shell 工具会给来自派生预设的每次调用打标记，所以仓库没有容器配置时：工作目录上下文里会出现明确警告（要求模型立刻用中文说明情况并停止重试），执行器**直接拒绝**执行并返回 `exitCode: 1` 与诊断信息，而不是回退到宿主机。普通预设不受影响。
@@ -45,33 +46,24 @@
 
 字段全表、驱动回退顺序与预设机制见实现说明文档。
 
-## 在沙箱会话中使用宿主机全局技能
+## 在沙箱会话中使用宿主机全局 AGENTS.md 与技能
 
-使用 `… (devContainer)` 或 `… (sbx)` 预设时，会话跑在对应沙箱的文件系统安全策略之下：容器或沙箱所挂载的工作区仓库之外，任何路径都会被拒绝，以免会话逃逸到宿主机文件系统的其余部分。宿主上的全局技能目录（例如 `~/.agents/skills`）落在这个挂载点之外，因此会话看不到它们。
+使用 `… (devContainer)` 或 `… (sbx)` 预设时，会话跑在对应沙箱的文件系统围栏之内：工作区挂载点之外的路径一律被拒绝，因此宿主上的全局技能目录（例如 `~/.agents/skills`）在沙箱里看不到。宿主的全局 agent 配置改为以只读方式挂进沙箱，并像其他文件一样经 `ctx.fs` 读取。
 
-若想在沙箱会话里直接读取宿主机的全局技能，而不必把技能文件拷进工作区仓库，需要在宿主机上设置两个变量：`DSH_BUNDLED_SKILL_DIR` 指向全局技能目录，`DSH_AGENTS_HOME` 指向一个不含 `skills` 子目录的目录。后者要先建好，可以是空目录：
+挂载哪些路径由宿主行的 `hostMounts` 决定。默认值 `auto` 取宿主的 `AGENTS.md` 与技能目录，且每一项只在宿主上确实存在时才挂：
 
-```powershell
-# Windows (PowerShell)：为当前用户持久生效
-[Environment]::SetEnvironmentVariable("DSH_BUNDLED_SKILL_DIR", "$env:USERPROFILE\.agents\skills", "User")
-[Environment]::SetEnvironmentVariable("DSH_AGENTS_HOME", "$env:USERPROFILE\.dsh\agents", "User")
-```
+| 宿主路径 | 挂载形态 |
+| --- | --- |
+| `<dshHome>/AGENTS.md` | 只读单文件 |
+| `<agentsHome>/AGENTS.md` | 只读单文件 |
+| `<dshHome>/skills` | 只读目录 |
+| `<agentsHome>/skills` | 只读目录 |
 
-```sh
-# Linux / macOS（bash、zsh）
-export DSH_BUNDLED_SKILL_DIR="$HOME/.agents/skills"
-export DSH_AGENTS_HOME="$HOME/.dsh/agents"
-```
+`dshHome` 与 `agentsHome` 由 DSH 自己解析（`$DSH_HOME` / `$DSH_AGENTS_HOME`，否则是 `~/.dsh` 与 `~/.agents`），所以改了环境变量后沙箱挂载的就是那个目录。把 `hostMounts` 设为 `'off'` 则什么都不挂；也可以自己列 `PATH[:TARGET][:ro]` 条目，无论写成哪种形态，挂载一律只读。
 
-POSIX 上的 `export` 只对当前 shell 生效，要持久化需写进 `~/.bashrc` 或 `~/.zshrc`，并且同样要从新开的终端启动 DSH。
+宿主上不存在的源会被跳过并给出一条指名路径的告警，而不是让创建失败——也不会在宿主上创建任何文件。挂载在创建时固定：之后再补的路径需要 `sbx rm <沙箱>` 重建才能被沙箱看见；已经在运行的沙箱则实时读取它挂载的内容，改动或替换文件立刻生效。
 
-全局技能目录成为 DSH 的 bundled 技能根，而这是一个受信任的宿主目录：对它的技能发现与文件读取由宿主机 Node.js 进程完成，不走会话的 `ctx.fs`，因此沙箱的路径越界拦截根本不会介入这些路径。这些技能与其他根目录下的技能一样出现在会话技能目录里，工作区仓库和容器内都不会多出任何文件。
-
-两个变量都只在宿主进程启动时读取一次。Windows 上，上面的用户级赋值只对之后启动的进程生效，所以设完要完全退出 DSH，再**新开一个终端**重新启动：已经在运行的 DSH 保留着启动时解析出的技能根，设置这些变量对它不起作用。
-
-`DSH_AGENTS_HOME` 这一条不能省。`~/.agents/skills` 同时也是默认的 `user-agents` 技能根，按 rank 排在 `DSH_BUNDLED_SKILL_DIR` 填入的受信任 `bundled` 根之前：两个根都有同名技能时，注册表留下的是 `user-agents` 那一份，而它的正文仍然要经会话的 `ctx.fs` 读取，照样被沙箱拒绝，只设第一个变量并不够。把 `DSH_AGENTS_HOME` 指向没有 `skills` 子目录的目录，这个技能目录就不再被默认根覆盖，加载的是受信任的那份。
-
-`~/.dsh/skills` 属于另一个非受信任的 `user-dsh` 根，放在那里的技能在沙箱会话里同样读不到。
+围栏只承认这些挂载：即 `hostMounts` 声明的路径，翻译成沙箱里实际挂载的位置。沙箱自己上报的其他挂载（例如 `sbx` 注入的 agent 技能库）仍然不可达。整个过程不涉及环境变量，也不需要重启 DSH。
 
 ## Docker Sandbox 镜像
 

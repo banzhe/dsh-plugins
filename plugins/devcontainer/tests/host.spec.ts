@@ -3,12 +3,13 @@ import { Context } from '@deepseek-ai/cordis'
 import type { PresetDefinition } from '@deepseek-ai/dsh-agent-preset-registry'
 import { apply, Config, name } from '../src/index.ts'
 import type { Config as PluginConfig } from '../src/index.ts'
+import type { HostMountsConfig } from '../src/types.ts'
 import {
   DEVCONTAINER_ENV_KEY, DEVCONTAINER_ENV_VALUE, DEVCONTAINER_PRESET_ENV_KEY,
   SBX_ENV_KEY, SBX_ENV_VALUE, SBX_PRESET_ENV_KEY,
 } from '../src/refusal.ts'
 import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
-import { liveSandboxTemplate, repoRegistry } from '../src/registry.ts'
+import { liveHostMounts, liveSandboxTemplate, repoRegistry } from '../src/registry.ts'
 import { cleanupTemporaryDirectories, makeRepo } from './support.ts'
 
 const BASH = '@deepseek-ai/dsh-tool-bash'
@@ -409,5 +410,38 @@ describe('the sandbox image the Host row publishes', () => {
   it('publishes nothing for a blank value', () => {
     const page = publishing('   ')
     expect(liveSandboxTemplate(page.root)).toBeUndefined()
+  })
+})
+describe('the extra host mounts the Host row publishes', () => {
+  /**
+   * Mount the Host row with a movable mount list, the shape the settings page
+   * writes: the page stores a value, and the row's reader answers with the live
+   * reference it was given.
+   */
+  function publishing(initial: HostMountsConfig): { root: Context, store(next: HostMountsConfig): void } {
+    const root = new Context()
+    const mounts = mutableRef(initial)
+    const config = {
+      ...Config({ presets: { win32Only: false } }),
+      hostMounts: mounts,
+    } as unknown as PluginConfig
+    apply(root, config)
+    return { root, store: (next) => { storeSources(mounts, next) } }
+  }
+
+  it('answers with the value a write stored, not with the schema default', () => {
+    const page = publishing('auto')
+    expect(liveHostMounts(page.root)).toBe('auto')
+    // The live reference is unwrapped at use, so a stored `off` is `off` — not the
+    // default `auto` the reader would otherwise fall back to.
+    page.store('off')
+    expect(liveHostMounts(page.root)).toBe('off')
+  })
+
+  it('answers with a stored list as it was written', () => {
+    const page = publishing('off')
+    const stored = ['D:\\x\\AGENTS.md:ro']
+    page.store(stored)
+    expect(liveHostMounts(page.root)).toEqual(stored)
   })
 })
