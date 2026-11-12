@@ -1,0 +1,3 @@
+- insert:
+    - id: open-in-select
+      name: '@banzhe/dsh-open-in-select'

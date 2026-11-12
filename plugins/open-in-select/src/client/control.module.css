@@ -1,0 +1,56 @@
+/*
+ * The split control's own chrome. The two halves are shipped `sm` ghost buttons
+ * whose hover, active, disabled and focus behaviour stays exactly the library's;
+ * this sheet only makes the pair read as one segmented control.
+ *
+ * The 1px stroke is an inset shadow rather than a border: the shell keeps the
+ * control at 28px, so a real border would grow the box by 2px and shift the
+ * header row. The radii come from the same `--dsw-radius-sm` the `sm` button
+ * uses, minus the stroke that covers the outer pixel.
+ */
+.group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  border-radius: var(--dsw-radius-sm);
+  box-shadow: inset 0 0 0 1px var(--dsw-alias-border-l3);
+}
+
+/* Tooltip clones its child instead of wrapping it, so the halves are the only
+ * children, and a lone half keeps the library's full radius. */
+.group > button:first-child:not(:only-child) {
+  border-start-start-radius: calc(var(--dsw-radius-sm) - 1px);
+  border-end-start-radius: calc(var(--dsw-radius-sm) - 1px);
+  border-start-end-radius: 0;
+  border-end-end-radius: 0;
+}
+
+.group > button:last-child:not(:only-child) {
+  border-start-end-radius: calc(var(--dsw-radius-sm) - 1px);
+  border-end-end-radius: calc(var(--dsw-radius-sm) - 1px);
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  /* The seam between the halves: painted inside the trailing half, so the two
+   * keep equal widths and the group keeps its geometry. */
+  box-shadow: inset 1px 0 0 var(--dsw-alias-border-l2);
+  /* The chevron half is one 16px icon box plus this padding, and no text, so the
+   * library's 10px text padding would leave it as wide as the button beside it.
+   * 4px keeps the hit area at the 24px floor and leaves the glyph 5px clear of
+   * the seam. */
+  min-width: 24px;
+  padding-inline: 4px;
+}
+
+/*
+ * A launch in flight leaves the halves clickable on purpose: the control keeps
+ * the pointer cursor so the gesture still reads as available, and the plugin
+ * body's guard drops the second press. `aria-disabled` states the same fact to
+ * assistive technology. Declared explicitly here because the halves are real
+ * buttons, whose library face would otherwise decide this.
+ */
+.group > button,
+.group > button:hover,
+.group > button[aria-disabled='true'],
+.group > button[aria-disabled='true']:hover {
+  cursor: pointer;
+}
