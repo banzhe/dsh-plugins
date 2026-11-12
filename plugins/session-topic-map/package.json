@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-session-topic-map",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A right-sidebar topic map for the current Session: pick a model, confirm, and read the conversation as a branching topic graph whose nodes jump to the reply they came from",
   "repository": {
     "type": "git",
