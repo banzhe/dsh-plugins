@@ -5,7 +5,7 @@
   "description": "Build helpers shared by this repo's DSH plugin Bundles: stylesheet loaders for their tsdown client bundles",
   "type": "module",
   "exports": {
-    ".": "./src/tsdown-css.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

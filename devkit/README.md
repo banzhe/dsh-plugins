@@ -1,10 +1,46 @@
 # @banzhe/dsh-devkit
 
 Private build helpers the Bundles in this workspace share. Not published, not a
-Bundle: it exists so a tsdown config stops re-implementing the same loaders, and
-so a stylesheet is a stylesheet on disk for every plugin here.
+Bundle: it exists so a tsdown config stops re-implementing the same rules, and so
+a stylesheet is a stylesheet on disk and a client bundle is wrapped the same way
+for every plugin here. Build time only — nothing here ships in a plugin artifact.
 
-`src/tsdown-css.ts` — the stylesheet loaders. DSH's own client preset does this
+## `clientBundle` — the two-half recipe
+
+Every Bundle here has a Node half the Host Loader mounts and a browser half that
+ships as `client.js`, a CommonJS factory registered through
+`window.__ModuleLoader__.load({ id, factory })`. Both halves are one call:
+
+```ts
+import { clientBundle } from '@banzhe/dsh-devkit'
+
+export default clientBundle({
+  id: '@banzhe/dsh-my-plugin',            // must equal package.json name
+  // All optional: clientEntry ('src/client/index.ts'), node ({ entry, clean, copy }),
+  // externals (extra module-table specifiers), css (true by default).
+})
+```
+
+The client half resolves the shell's frozen module table externally and carries
+everything else. That baseline is `PLATFORM_MODULES` for DSH `0.2.2-rc.2`
+(`react`, `react/jsx-runtime`, `react-dom`, `react-dom/client`,
+`@deepseek-ai/cordis`, `zod`, `@tanstack/react-virtual`,
+`@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-slots`,
+`@deepseek-ai/dsh-client-ui-primitives`, `@deepseek-ai/dsh-client-ui-dockkit`),
+restated in `src/tsdown-client.ts` rather than imported from a host installation:
+this workspace builds from its own checkout. Matching is exact, so a subpath is
+never swept into externals with its package — a package may publish a
+browser-safe `/shared` module that is meant to be inlined.
+
+A package states only what it requests beyond that table, in `externals`; the
+baseline needs no declaration. The corresponding module-graph edges live in the
+package's `dsh.client.inject`, which names the client packages whose services the
+plugin injects — one entry per provider, and every entry also declared in
+`peerDependencies`/`devDependencies`.
+
+## `cssPlugins` — the stylesheet loaders
+
+`src/tsdown-css.ts`. DSH's own client preset does this
 for the packages inside the harness and cannot be reused here (its loaders live
 in a non-exported config factory, and reaching them would drag in harness-internal
 paths); this restates the same semantics for an out-of-tree Bundle, the way
@@ -55,17 +91,10 @@ subject of [ADR 0009](../docs/adr/0009-css-as-files.md).
   trap of re-exporting a `?inline` text, which the browser faces here avoid with
   `dts: false` plus `src/client/css.d.ts`.
 
-## Use
+## Stylesheet modes
 
-```ts
-import { cssPlugins } from '@banzhe/dsh-devkit'
-import { defineConfig } from 'tsdown'
-
-export default defineConfig({
-  // …
-  plugins: cssPlugins('@banzhe/dsh-my-plugin'),
-})
-```
+The loaders are installed for every Bundle by `clientBundle` (they are inert
+without a stylesheet import). Called directly:
 
 The plugin id is stamped onto every injected tag (`data-plugin` and the
 `data-plugin-css` tag id `<id>/<basename>`), which is also the idempotency key: a
@@ -95,4 +124,7 @@ pnpm --filter @banzhe/dsh-devkit test -- --coverage
 
 The specs drive `resolveId`/`load` over real sheets in a temp directory and assert
 the emitted module text, so a mode that stops working fails here rather than in a
-Bundle six months later. Coverage is per-file 100%, like the Bundles'.
+Bundle six months later. The build recipe (`clientBundle`) is pinned the same way,
+by asserting the config objects it returns rather than running a build.
+
+Coverage is per-file 100%, like the Bundles'.
