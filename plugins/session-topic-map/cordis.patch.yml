@@ -1,0 +1,3 @@
+- insert:
+    - id: session-topic-map
+      name: '@banzhe/dsh-session-topic-map'

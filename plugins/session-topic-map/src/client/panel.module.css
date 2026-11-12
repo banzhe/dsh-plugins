@@ -1,0 +1,181 @@
+.root {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+}
+
+.toolbar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 12px;
+  border-bottom: 0.5px solid var(--dsw-alias-border-l2);
+}
+
+.select {
+  box-sizing: border-box;
+  flex: 1 1 120px;
+  min-width: 0;
+  height: 26px;
+  padding: 0 6px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-sm);
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+}
+
+.select:focus {
+  border-color: var(--dsw-alias-state-business-primary);
+}
+
+.selectLabel {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.start,
+.retry {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: var(--dsw-font-xs-13);
+  cursor: pointer;
+}
+
+.start:hover:not(:disabled),
+.retry:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.start:disabled,
+.retry:disabled {
+  color: var(--dsw-alias-label-tertiary);
+  cursor: default;
+}
+
+.failure {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 12px;
+  padding: 6px 8px;
+  border-radius: var(--dsw-radius-sm);
+  border: 0.5px solid var(--dsw-alias-state-error-primary);
+  color: var(--dsw-alias-label-primary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.failureText {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The retry button sits inside the failure row, so it is the smaller of the two. */
+.retry {
+  height: 22px;
+  padding: 0 8px;
+}
+
+.hint,
+.notice,
+.status {
+  flex: none;
+  margin: 0;
+  padding: 6px 12px;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.notice[data-failed] {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.canvas {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+/*
+ * The drawing runs top to bottom, so it is centred while it fits the pane and
+ * scrolls once a level is wider: over-constrained auto margins resolve to zero,
+ * which keeps the start of the drawing reachable instead of clipping it.
+ */
+.graph {
+  display: block;
+  margin-inline: auto;
+}
+
+.edge {
+  fill: none;
+  stroke: var(--dsw-alias-border-l4);
+  stroke-width: 1.2;
+}
+
+.edge[data-kind='merge'] {
+  stroke-dasharray: 4 3;
+  stroke: var(--dsw-alias-state-business-primary);
+}
+
+.node {
+  cursor: pointer;
+}
+
+.node rect {
+  fill: var(--dsw-alias-bg-base);
+  stroke: var(--dsw-alias-border-l4);
+  stroke-width: 1;
+}
+
+.node:hover rect,
+.node:focus-visible rect {
+  stroke: var(--dsw-alias-state-business-primary);
+}
+
+.node:focus-visible {
+  outline: none;
+}
+
+.nodeLabel {
+  fill: var(--dsw-alias-label-primary);
+  font-size: 12px;
+}
+
+.nodeMeta {
+  fill: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+}
+
+/*
+ * The row this panel jumped to, outlined without touching ui-chat: the attribute
+ * is added and removed by the panel's anchor helper, and this rule is its whole
+ * style.
+ */
+:global([data-session-topic-map-focus]) {
+  outline: 2px solid var(--dsw-alias-state-business-primary);
+  outline-offset: 2px;
+  border-radius: var(--dsw-radius-sm);
+}
+.titleIcon {
+  flex: none;
+  margin-inline-end: 6px;
+  vertical-align: -3px;
+}
