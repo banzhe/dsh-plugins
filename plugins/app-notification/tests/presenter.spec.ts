@@ -675,6 +675,15 @@ describe('CompletionPresenter', () => {
     expect(open).toHaveBeenCalledWith('s2')
   })
 
+  it('showDemo lands on the first Session when the random source overshoots', () => {
+    stubCapabilities()
+    const open = vi.fn()
+    const presenter = new CompletionPresenter(options(open, [workspace('w1', ['s1', 's2'])]))
+    expect(presenter.showDemo(() => 1)).toBe(true)
+    FakeNotification.instances[0]?.onclick?.()
+    expect(open).toHaveBeenCalledWith('s1')
+  })
+
   it('showDemo refuses instead of raising when every Sessions is blank', () => {
     stubCapabilities()
     // The options() reader marks 's1' blank; no landing target survives and the
@@ -797,6 +806,97 @@ describe('CompletionPresenter', () => {
       detach()
     })
 
+    /** A shell whose `show` answers with a boolean instead of a promise. */
+    function stubSynchronousBridge(answer: boolean): {
+      show: ReturnType<typeof vi.fn<(request: { id: string, title: string, body: string }) => boolean>>
+      emit: (id: string) => void
+    } {
+      const activations: Array<(activation: { id?: string }) => void> = []
+      const show = vi.fn(() => answer)
+      vi.stubGlobal('dshDesktop', {
+        protocolVersion: 1,
+        window: { reveal: vi.fn(async () => {}) },
+        notifications: {
+          show,
+          close: vi.fn(async () => {}),
+          onActivate: (listener: (activation: { id?: string }) => void) => {
+            activations.push(listener)
+            return () => { activations.splice(activations.indexOf(listener), 1) }
+          },
+        },
+      })
+      return { show, emit: (id: string) => { for (const listen of activations) listen({ id }) } }
+    }
+
+    it('reads a synchronous answer from the shell without breaking the raise', async () => {
+      stubCapabilities()
+      const bridge = stubSynchronousBridge(false)
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      // The shell answered in the same tick: the raise is still one request,
+      // carrying the notification it was asked for.
+      expect(bridge.show).toHaveBeenCalledOnce()
+      const raised = bridge.show.mock.calls[0]?.[0]
+      expect(raised).toMatchObject({ title: 'Session finished', body: '"Title a" finished.' })
+      await Promise.resolve()
+      bridge.emit(raised?.id as string)
+      expect(open).toHaveBeenCalledWith('a')
+      presenter.detach()
+      detach()
+    })
+
+    it('keeps the click target a synchronously accepting shell raised', () => {
+      stubCapabilities()
+      const bridge = stubSynchronousBridge(true)
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      expect(bridge.show).toHaveBeenCalledOnce()
+      const raised = bridge.show.mock.calls[0]?.[0]
+      bridge.emit(raised?.id as string)
+      expect(open).toHaveBeenCalledWith('a')
+      presenter.detach()
+      detach()
+    })
+
+    it('ignores an activation event that carries no id', () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      const sessions = sessionSources([summary('a', { running: true })])
+      const open = vi.fn()
+      const presenter = new CompletionPresenter(options(open))
+      const detach = presenter.attach(sessions.status, sessions.list)
+      sessions.update((state) => { state.byId['a' as SessionId] = summary('a', { completed: true }) })
+      const id = bridge.show.mock.calls[0]?.[0]?.id as string
+      // An activation without an id names no notification, so nothing is spent.
+      for (const listen of bridge.activations) listen({})
+      expect(open).not.toHaveBeenCalled()
+      // The click target the notification did raise is still there for it.
+      bridge.emit(id)
+      expect(open).toHaveBeenCalledWith('a')
+      presenter.detach()
+      detach()
+    })
+
+    it('raises the test probe without a click target to activate', () => {
+      stubCapabilities()
+      const bridge = stubDesktopBridge()
+      const presenter = new CompletionPresenter(options())
+      expect(presenter.showTest()).toBe(true)
+      expect(bridge.show).toHaveBeenCalledOnce()
+      const raised = bridge.show.mock.calls[0]?.[0]
+      expect(raised).toMatchObject({ title: 'Test notification' })
+      expect(raised?.id).toContain('dsh-session-completed-test')
+      // Nothing was registered for the probe, so activating it raises nothing new.
+      bridge.emit(raised?.id as string)
+      expect(bridge.show).toHaveBeenCalledOnce()
+    })
+
     it('logs a rejected request and still reports the raise accepted', async () => {
       stubCapabilities()
       const bridge = stubDesktopBridge()
@@ -863,6 +963,15 @@ describe('pickWorkspaceDemoTarget', () => {
     // After 'mixed' is filtered to ['s1'], the candidates are ['s1'] (from
     // 'mixed') and ['s2'] (from 'filled'); random() = 0.4 lands on the first
     // candidate, and the half-split pick takes its 's1'.
+    expect(target).toBe('s1')
+  })
+
+  it('falls back to the first Session when the random source overshoots', () => {
+    // `random() = 1` indexes one past the last candidate, so the pick falls
+    // back to the first Workspace's first Session.
+    const target = pickWorkspaceDemoTarget(
+      snapshot([workspace('w1', ['s1', 's2']), workspace('w2', ['s3'])]), nonBlank(), () => 1,
+    )
     expect(target).toBe('s1')
   })
 

@@ -13,6 +13,7 @@
     "lint:fix": "oxlint plugins devkit --fix",
     "prepare": "git config core.hooksPath .githooks",
     "test": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" test",
+    "test:coverage": "pnpm -r --no-bail --if-present --filter \"./plugins/*\" --filter \"./devkit\" test:coverage",
     "typecheck": "pnpm -r --filter \"./plugins/*\" --filter \"./devkit\" typecheck"
   },
   "devDependencies": {

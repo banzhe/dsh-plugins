@@ -297,6 +297,39 @@ describe('CompletionObserver', () => {
       expect(answered.newlyCompleted.map(row => row.id)).toEqual(['parent'])
     })
 
+    it('keeps holding a published parent, and forgets one that leaves the sources', () => {
+      /**
+       * A parent held waiting for its own turn: it dispatched the child, the
+       * child stopped, and the parent has not been woken yet.
+       */
+      const waiting = (): CompletionObserver => {
+        const observer = new CompletionObserver()
+        fold(observer, [parent({ running: true })], NONE, { child: true })
+        fold(observer, [parent({ completed: true })], NONE, { child: true })
+        fold(observer, [parent({ completed: true })], NONE, { child: false })
+        return observer
+      }
+      const stopped = (observer: CompletionObserver): string[] =>
+        fold(observer, [parent({ completed: true })], NONE, { child: false }).newlyCompleted.map(row => row.id)
+
+      // Control: the parent stays published, so the hold its wave put on it
+      // still stands and the same unread state is not a second completion.
+      expect(stopped(waiting())).toEqual([])
+
+      // Filed away by the archive set: the Session leaves the published
+      // sources, so nothing of its handover is kept. The next stop is a
+      // completion of its own — announced once, not once per observation.
+      const archived = waiting()
+      fold(archived, [parent({ completed: true })], new Set(['parent' as SessionId]), { child: false })
+      expect(stopped(archived)).toEqual(['parent'])
+      expect(stopped(archived)).toEqual([])
+
+      // Dropped from the list and the status together: the same forgetting.
+      const dropped = waiting()
+      fold(dropped, [], NONE, {})
+      expect(stopped(dropped)).toEqual(['parent'])
+    })
+
     it('holds the parent while any of its subagents is still running', () => {
       const observer = new CompletionObserver()
       const both = (over: Partial<SessionRow> = {}): SessionRow => sessionRow('parent', {

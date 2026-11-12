@@ -30,7 +30,8 @@
     "build": "tsdown",
     "prepare": "tsdown",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "dsh": {
     "bundle": {

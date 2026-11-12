@@ -25,7 +25,7 @@ import type {} from '@deepseek-ai/dsh-api-workspace-controller/client'
 // Type-only: the ctx.uiWorkspace service a row jumps through.
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { AttentionOverlay, type AttentionInjected } from './AttentionOverlay.tsx'
-import { createAttentionStore, deriveAttention, type AttentionModel, type AttentionRow } from './attention.ts'
+import { attentionAnchors, createAttentionStore, type AttentionModel } from './attention.ts'
 import { en, NS, zh } from './locales.ts'
 import { TaskbarProgressPresenter } from './taskbar.ts'
 // Text, not a stylesheet link: the ModuleLoader fetches one artifact, so the
@@ -125,24 +125,12 @@ export function apply(ctx: ClientContext): void {
       const workspaces = ctx.workspaces.list.getSnapshot()
       const archived = new Set<SessionId>(workspaces.archivedSessionIds)
       const pinned = new Set<SessionId>(workspaces.pinnedSessionIds)
-      const { running } = deriveAttention(snapshot, ctx.uiSession.sessionStatus.getSnapshot(), archived, pinned)
-      // A container row renders no anchor of its own, so only the other rows
-      // read; every level of the nesting reads, because the running descendant
-      // a container nests is where the anchor cell actually lands. Unread rows
-      // never carry an anchor, so they read nothing, and a row listed only
-      // because it is pinned is a container too: its label and version come
-      // from the list row the fold already read.
-      const claim = (row: AttentionRow): void => {
-        if (row.container !== true) {
-          // The model rows carry no version (the fold sorts on the inner
-          // value); the read version comes from the row the id still has on
-          // the list.
-          const entry = snapshot.byId[row.id]
-          if (entry !== undefined) read(row.id, entry.updatedAt, true)
-        }
-        for (const child of row.children ?? []) claim(child)
-      }
-      for (const row of running) claim(row)
+      // The fold already knows the nesting and each running row's list version,
+      // so the anchor set is the whole read plan: a container row renders no
+      // anchor cell, an unread row never carries one, and every level of the
+      // nesting is included because that is where the cell lands.
+      const anchors = attentionAnchors(snapshot, ctx.uiSession.sessionStatus.getSnapshot(), archived, pinned)
+      for (const anchor of anchors) read(anchor.id, anchor.updatedAt, true)
     }
     pull()
     const unsubscribe = ctx.sessions.list.subscribe(pull)

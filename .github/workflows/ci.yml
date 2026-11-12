@@ -28,7 +28,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      # Only packages with a `test` script run; plugins without tests are skipped.
-      - run: pnpm -r --if-present --filter "./plugins/*" --filter "./devkit" test
+      # Every package that has tests also states its coverage thresholds, and the
+      # run is --no-bail so one failing package cannot hide the others.
+      - run: pnpm test:coverage
       - run: pnpm changeset status --since=origin/master
         if: github.event_name == 'pull_request'

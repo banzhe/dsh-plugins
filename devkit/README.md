@@ -118,8 +118,8 @@ plugin code that re-injects a tag the page lost without re-running the factory
 ## Test
 
 ```sh
-pnpm --filter @banzhe/dsh-devkit test          # hooks driven directly, no build
-pnpm --filter @banzhe/dsh-devkit test -- --coverage
+pnpm --filter @banzhe/dsh-devkit test            # hooks driven directly, no build
+pnpm --filter @banzhe/dsh-devkit test:coverage   # the same run with the per-file 100% gate
 ```
 
 The specs drive `resolveId`/`load` over real sheets in a temp directory and assert
@@ -127,4 +127,6 @@ the emitted module text, so a mode that stops working fails here rather than in 
 Bundle six months later. The build recipe (`clientBundle`) is pinned the same way,
 by asserting the config objects it returns rather than running a build.
 
-Coverage is per-file 100%, like the Bundles'.
+Coverage is per-file 100% over `src/**/*.ts` and runs in the same gate as the
+Bundles' (`pnpm test:coverage` at the root, which CI, the release job and
+`pre-push` all call).

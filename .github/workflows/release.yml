@@ -26,7 +26,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
       - run: pnpm typecheck
-      - run: pnpm test
+      - run: pnpm test:coverage
 
   # Changesets opens (or updates) a "Version Packages" PR when unreleased changesets
   # exist on master. Merging that PR bumps versions and CHANGELOGs; the publish job

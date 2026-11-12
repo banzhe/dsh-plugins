@@ -547,6 +547,114 @@ describe('durable prompt-time reads', () => {
     expect(refreshedIds(b)).toEqual(['a'])
   })
 
+  it('rereads at once when the version moved while the read was in flight', async () => {
+    const b = await bench()
+    let resolveRead!: () => void
+    b.refreshProjections.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveRead = resolve }))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 1 })
+    })
+    expect(refreshedIds(b)).toEqual(['a'])
+
+    // A newer version lands in the same tick the read settles in: it cannot
+    // start a read of its own, so the settled read hands it straight on.
+    resolveRead()
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 2 })
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['a', 'a'])
+  })
+
+  it('drops a rejected read whose version a newer publish already replaced', async () => {
+    const b = await bench()
+    let rejectRead!: (error: Error) => void
+    b.refreshProjections.mockImplementationOnce(() => new Promise<void>((_resolve, reject) => { rejectRead = reject }))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 1 })
+    })
+    expect(refreshedIds(b)).toEqual(['a'])
+
+    // The version this read was for is gone by the time it fails.
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 2 })
+    })
+    rejectRead(new Error('stale version'))
+    await flushMicrotasks()
+    // The newer version has its own read; the stale failure is dropped rather
+    // than retried, so no third read follows it.
+    expect(refreshedIds(b)).toEqual(['a', 'a'])
+  })
+
+  it('never reads a running Session the list no longer carries', async () => {
+    const b = await bench([sessionRow('a', { running: true })])
+    await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(1)
+    b.refreshProjections.mockClear()
+
+    // The status source still calls it running and the row is still in the
+    // model, but the list snapshot no longer carries the id: there is no listed
+    // row to read a version for.
+    b.surface.publish((draft) => {
+      draft.ids = []
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).not.toHaveBeenCalled()
+
+    // The id is listed again while no row is projected for it: still nothing to
+    // read a version from.
+    b.surface.publish((draft) => {
+      draft.ids = ['a' as never]
+      delete draft.byId['a' as never]
+    })
+    await flushMicrotasks()
+    expect(b.refreshProjections).not.toHaveBeenCalled()
+  })
+
+  it('does not read again when the panel unloads before a read settles', async () => {
+    const b = await bench()
+    let resolveRead!: () => void
+    b.refreshProjections.mockImplementationOnce(() => new Promise<void>((resolve) => { resolveRead = resolve }))
+    b.surface.update((draft) => {
+      draft.ids.push('a' as never)
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 1 })
+    })
+    expect(refreshedIds(b)).toEqual(['a'])
+
+    // The panel is gone before the read settles, and a newer version lands
+    // afterwards: nothing may start a read any more.
+    await retire(b)
+    resolveRead()
+    b.surface.update((draft) => {
+      draft.byId['a' as never] = sessionRow('a', { running: true, updatedAt: 2 })
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['a'])
+  })
+
+  it('reads a listed running Session that has no children of its own', async () => {
+    const b = await bench([sessionRow('solo', { running: true, updatedAt: 1 })])
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual(['solo'])
+  })
+
+  it('reads a row the list names twice only once', async () => {
+    const b = await bench([sessionRow('a', { running: true, updatedAt: 1 })])
+    await flushMicrotasks()
+    expect(callsFor(b, 'a')).toBe(1)
+    b.refreshProjections.mockClear()
+
+    // The host can publish the same id twice; the second sighting is the same
+    // row and must not start a second read.
+    b.surface.publish((draft) => {
+      draft.ids.push('a' as never)
+    })
+    await flushMicrotasks()
+    expect(refreshedIds(b)).toEqual([])
+  })
+
   it('does not read again when a call settles after dispose', async () => {
     const b = await bench()
     let rejectRead!: (error: Error) => void

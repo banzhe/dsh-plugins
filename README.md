@@ -63,6 +63,17 @@ pnpm lint:fix
 
 The correctness and type-aware rule block is the one upstream DeepSeek Harness lints itself with, so a Bundle reads like the packages it plugs into. Upstream's `@stylistic` and `sonarjs` blocks are deliberately absent: formatting belongs to a formatter, not the linter. Both tools are pinned exactly in the `pnpm-workspace.yaml` catalog.
 
+## Tests and coverage
+
+`pnpm test` runs each package's suite on its own, which is what to use while developing. The gates — CI's `verify` job, the release job that decides whether a push publishes, and `pre-push` — run `pnpm test:coverage` instead:
+
+```sh
+pnpm test            # vitest run, no thresholds
+pnpm test:coverage   # vitest run --coverage, thresholds enforced, --no-bail across packages
+```
+
+Every package that has tests states its own thresholds in its `vitest.config.ts`, and the coverage `include` is the shipped source, not the files the specs happen to touch — a suite that reaches half a package reports half a package. Where the suite does reach all shipped code the gate is per-file 100%; where part of the shipped code cannot be driven from a unit test (the browser entry of a plugin whose specs mount only its controller, a helper program that only runs inside a container, a package whose client half has no specs yet) the thresholds are the measured baseline rounded down, so they ratchet and the gap stays visible in the report. Nothing is excluded to make a number go up: a coverage report that hides untested logic is worth less than the number it prints.
+
 ## Git hooks
 
 `pnpm install` points `core.hooksPath` at `.githooks/`. On a clone that already has `node_modules`, run it once yourself:
@@ -74,7 +85,7 @@ pnpm hooks:install
 | Hook | Runs |
 | --- | --- |
 | `pre-commit` | `pnpm typecheck` |
-| `pre-push` | `pnpm lint`, `pnpm typecheck`, `pnpm test` |
+| `pre-push` | `pnpm lint`, `pnpm typecheck`, `pnpm test:coverage` |
 
 `pre-push` is the same gate as CI's `verify` job, which decides whether a push to `master` publishes. Skip a hook with `git commit --no-verify` or `git push --no-verify`.
 

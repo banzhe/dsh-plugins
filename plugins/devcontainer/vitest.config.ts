@@ -27,39 +27,24 @@ export default defineConfig({
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
     pool: 'forks',
     css: true,
+    // Measured over what the package actually ships: every module under src
+    // builds into lib, and src/helper/main.mjs is copied verbatim as a program the
+    // container runs. Three kinds of module cannot be driven from a unit test —
+    // the container helper (its only execution context is a live container), the
+    // browser entry (no spec mounts it), and type-only modules such as
+    // src/types.ts and src/client/css.d.ts — so they stay in the report as the gap
+    // they are and the thresholds are global rather than per-file. The numbers are
+    // the measured baseline (88.80 / 82.61 / 90.07 / 91.84) rounded down.
     coverage: {
       provider: 'v8',
-      include: [
-        'src/index.ts',
-        'src/ids.ts',
-        'src/presets.ts',
-        'src/variants.ts',
-        'src/paths.ts',
-        'src/jsonc.ts',
-        'src/config-loader.ts',
-        'src/container.ts',
-        'src/sbx.ts',
-        'src/host-mounts.ts',
-        'src/argv.ts',
-        'src/prompt.ts',
-        'src/options.ts',
-        'src/registry.ts',
-        'src/exec.ts',
-        'src/fs.ts',
-        'src/subprocess.ts',
-        'src/ptc.ts',
-        'src/helper-source.ts',
-        'src/rpc/frames.ts',
-        'src/rpc/client.ts',
-        'src/rpc/pool.ts',
-        'src/rpc/errors.ts',
-        'src/rpc/wire.ts',
-        'src/client/variants.ts',
-        'src/client/locales.ts',
-        'src/client/controller.ts',
-        'src/client/VariantsSection.tsx',
-      ],
+      include: ['src/**/*.ts', 'src/**/*.tsx', 'src/**/*.mjs'],
       reporter: ['text'],
+      thresholds: {
+        statements: 88,
+        branches: 82,
+        functions: 90,
+        lines: 91,
+      },
     },
   },
 })

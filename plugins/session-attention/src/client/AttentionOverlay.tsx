@@ -63,11 +63,9 @@ export type AttentionOverlayProps =
   & PropsLocale<'session-attention'>
   & InjectFace<AttentionInjected>
 
-function Duration({ row, now }: {
-  readonly row: AttentionRow
-  readonly now: number
+function Duration({ elapsed }: {
+  readonly elapsed: number
 }): ReactNode {
-  const elapsed = runElapsed(row, now) ?? 0
   return (
     <span className="sa-row-duration" data-duration-ms={elapsed}>
       {formatDuration(elapsed)}
@@ -140,32 +138,33 @@ function Children({ rows, state, now, open, rowLabel }: {
 }): ReactNode {
   return (
     <ul className="sa-list sa-children">
-      {rows.map(row => (
-        <li key={row.id} className="sa-item">
-          <button
-            type="button"
-            className="sa-row sa-child-row"
-            data-container={row.container === true || undefined}
-            aria-label={rowLabel(row.title, row.pinned === true)}
-            onClick={() => { open(row.id) }}
-          >
-            <RowLead row={row} state={state} />
-            <span className="sa-row-title">{row.title}</span>
-            {row.container !== true && runElapsed(row, now) !== undefined && (
-              <Duration row={row} now={now} />
+      {rows.map(row => {
+        const elapsed = row.container === true ? undefined : runElapsed(row, now)
+        return (
+          <li key={row.id} className="sa-item">
+            <button
+              type="button"
+              className="sa-row sa-child-row"
+              data-container={row.container === true || undefined}
+              aria-label={rowLabel(row.title, row.pinned === true)}
+              onClick={() => { open(row.id) }}
+            >
+              <RowLead row={row} state={state} />
+              <span className="sa-row-title">{row.title}</span>
+              {elapsed !== undefined && <Duration elapsed={elapsed} />}
+            </button>
+            {row.children !== undefined && (
+              <Children
+                rows={row.children}
+                state={state}
+                now={now}
+                open={open}
+                rowLabel={rowLabel}
+              />
             )}
-          </button>
-          {row.children !== undefined && (
-            <Children
-              rows={row.children}
-              state={state}
-              now={now}
-              open={open}
-              rowLabel={rowLabel}
-            />
-          )}
-        </li>
-      ))}
+          </li>
+        )
+      })}
     </ul>
   )
 }
@@ -192,6 +191,7 @@ function Section({ title, rows, state, waiting, now, open, unpin, rowLabel, unpi
       <ul className="sa-list">
         {rows.map((row) => {
           const pin = pinSlotOf(row)
+          const elapsed = row.container === true ? undefined : runElapsed(row, now)
           return (
             <li key={row.id} className="sa-item">
               {/* One positioned wrapper, so the release control centers on the row
@@ -213,9 +213,7 @@ function Section({ title, rows, state, waiting, now, open, unpin, rowLabel, unpi
                     state={waiting.has(row.id) ? 'warning' : state}
                   />
                   <span className="sa-row-title">{row.title}</span>
-                  {row.container !== true && runElapsed(row, now) !== undefined && (
-                    <Duration row={row} now={now} />
-                  )}
+                  {elapsed !== undefined && <Duration elapsed={elapsed} />}
                 </button>
               </div>
               {row.children !== undefined && (

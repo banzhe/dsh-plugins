@@ -932,6 +932,20 @@ describe('deriveAttention nested subagents', () => {
     expect(model.total).toBe(1)
   })
 
+  it('terminates a mutual parent pair that no catalog names', () => {
+    // Two running rows claim each other as parent and neither catalog exists to
+    // order them: the expansion must still come back, once per id.
+    const rows: SessionRow[] = [
+      subagentRow('loop-a', { parentId: 'loop-b' as SessionId, running: true }),
+      subagentRow('loop-b', { parentId: 'loop-a' as SessionId, running: true }),
+    ]
+    const model = fold(sessionListOf(rows), sessionStatusOf(rows))
+    const ids = treeIds(model.running)
+    expect(new Set(ids).size).toBe(ids.length)
+    expect(model.running).toEqual([])
+    expect(model.total).toBe(0)
+  })
+
   it('never re-mounts an archived parent because a grandchild still runs', () => {
     const rows = descendantChain(sessionRow('parent'), [
       ['child', {}],

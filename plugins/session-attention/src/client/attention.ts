@@ -90,6 +90,16 @@ interface Candidate {
   readonly row: AttentionRow
 }
 
+/**
+ * One running row the browser half refreshes, with the list version that claims
+ * the read. Only the fold knows both the nesting and each row's version without
+ * the caller having to look a row back up in the list it came from.
+ */
+export interface AttentionAnchor {
+  readonly id: SessionId
+  readonly updatedAt: number
+}
+
 /** The row's `projectionValues` is a `Partial`, so absence is the normal pre-read state. */
 function lastPromptAtOf(projections: SessionProjectionSnapshot | undefined): number | undefined {
   return projections?.values.sessionListMetadata?.lastPromptAt ?? undefined
@@ -161,19 +171,20 @@ function directChildrenOf(parent: SessionId, ctx: SubtreeContext): readonly Sess
  * The mounted descendants of one node in direct-child order: every child that is
  * running or that carries running work below it.
  *
- * `visited` is shared by one root's whole expansion, so a forged `parentId` cycle
- * terminates and no id lands in the tree twice.
+ * No id can land in the tree twice, so there is no cycle guard to keep: the only
+ * edge is `parentId`, and one row has one parent, so the graph is functional. A
+ * functional graph repeats a node only along a cycle, and a cycle cannot be
+ * entered from outside it — every node on it has its parent on it, while a root
+ * is not a subagent row (dropped above) and `directChildrenOf` filters those out.
  */
 function runningChildrenOf(
   parent: SessionId,
   ctx: SubtreeContext,
-  visited: Set<SessionId>,
+  anchors: AttentionAnchor[],
 ): AttentionRow[] | undefined {
   const children: AttentionRow[] = []
   for (const row of directChildrenOf(parent, ctx)) {
-    if (visited.has(row.id)) continue
-    visited.add(row.id)
-    const node = runningNodeOf(row, ctx, visited)
+    const node = runningNodeOf(row, ctx, anchors)
     if (node !== undefined) children.push(node)
   }
   return children.length === 0 ? undefined : children
@@ -187,10 +198,12 @@ function runningChildrenOf(
 function runningNodeOf(
   row: SessionSummary,
   ctx: SubtreeContext,
-  visited: Set<SessionId>,
+  anchors: AttentionAnchor[],
 ): AttentionRow | undefined {
   const running = isRunning(row, ctx.status)
-  const children = runningChildrenOf(row.id, ctx, visited)
+  // Parent before its descendants, the order the panel renders anchors in.
+  if (running) anchors.push({ id: row.id, updatedAt: row.updatedAt })
+  const children = runningChildrenOf(row.id, ctx, anchors)
   if (!running) {
     return children === undefined
       ? undefined
@@ -214,26 +227,34 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
   return Object.keys(byId) as SessionId[]
 }
 
+/** What one fold produces: the panel content and the anchor reads it implies. */
+interface Fold {
+  readonly model: AttentionModel
+  readonly anchors: readonly AttentionAnchor[]
+}
+
 /**
  * Fold one list snapshot, one status snapshot, and the archive and pin sets into
  * the panel's content: the running and finished-unread sections, each newest
- * first, plus the listed subset of them whose work is blocked on the user.
+ * first, plus the listed subset of them whose work is blocked on the user, plus
+ * the anchor reads the running rows imply.
  *
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
  * @param archived - archived Session ids, which never list.
  * @param pinned - pinned Session ids, which list without live work.
- * @returns both sections, the waiting subset, and the counted total.
+ * @returns the model and the anchor reads.
  */
-export function deriveAttention(
+function foldAttention(
   list: SessionListState,
   status: SessionStatusSnapshot,
   archived: ReadonlySet<SessionId>,
   pinned: ReadonlySet<SessionId>,
-): AttentionModel {
+): Fold {
   const running: Candidate[] = []
   const unread: Candidate[] = []
   const waiting: Candidate[] = []
+  const anchors: AttentionAnchor[] = []
   const ctx: SubtreeContext = { list, index: childIndexOf(list.byId), status }
   list.ids.forEach((id) => {
     const row = list.byId[id]
@@ -249,10 +270,11 @@ export function deriveAttention(
     // outline from reporting a state with no row behind it.
     const blocked = entry?.pendingInteraction !== undefined
     const lastPromptAt = lastPromptAtOf(list.projectionsBySession[id])
-    // The root's own id seeds `visited`: a forged `parentId` chain looping back
-    // to it must not re-mount the row inside itself.
-    const children = runningChildrenOf(id, ctx, new Set<SessionId>([id]))
     const live = isRunning(row, status)
+    // A running root renders an anchor cell of its own; a container renders none,
+    // and an unread row never carries one.
+    if (live) anchors.push({ id, updatedAt: row.updatedAt })
+    const children = runningChildrenOf(id, ctx, anchors)
     if (live || children !== undefined) {
       const candidate: Candidate = {
         updatedAt: row.updatedAt,
@@ -300,11 +322,38 @@ export function deriveAttention(
   const runningRows = running.sort(byRecency).map(candidate => candidate.row)
   const unreadRows = unread.sort(byRecency).map(candidate => candidate.row)
   return {
-    running: runningRows,
-    unread: unreadRows,
-    waiting: waiting.sort(byRecency).map(candidate => candidate.row),
-    total: runningRows.filter(reportsActivity).length + unreadRows.length,
+    model: {
+      running: runningRows,
+      unread: unreadRows,
+      waiting: waiting.sort(byRecency).map(candidate => candidate.row),
+      total: runningRows.filter(reportsActivity).length + unreadRows.length,
+    },
+    anchors,
   }
+}
+
+/** The panel content for one fold of the three sources. */
+export function deriveAttention(
+  list: SessionListState,
+  status: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId>,
+  pinned: ReadonlySet<SessionId>,
+): AttentionModel {
+  return foldAttention(list, status, archived, pinned).model
+}
+
+/**
+ * The rows whose timing anchors the panel renders, in fold order, each with the
+ * list version that claims its read: a running row renders an anchor cell, a
+ * container row renders none, and an unread row never carries one.
+ */
+export function attentionAnchors(
+  list: SessionListState,
+  status: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId>,
+  pinned: ReadonlySet<SessionId>,
+): readonly AttentionAnchor[] {
+  return foldAttention(list, status, archived, pinned).anchors
 }
 
 /**

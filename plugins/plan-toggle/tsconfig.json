@@ -3,9 +3,9 @@
   "compilerOptions": {
     "rootDir": ".",
     "lib": ["ES2022", "DOM"],
-    "types": ["node"],
+    "types": ["node", "vitest/globals"],
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "tsdown.config.ts"]
+  "include": ["src", "tests", "tsdown.config.ts", "vitest.config.ts"]
 }

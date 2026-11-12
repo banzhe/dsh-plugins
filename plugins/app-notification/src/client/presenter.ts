@@ -66,11 +66,23 @@ interface DesktopWindowBridge {
  * renderer from the Windows notification center, which Chromium's own
  * notifications cannot.
  */
-function desktopNotifications(): NonNullable<DesktopWindowBridge['dshDesktop']>['notifications'] | undefined {
-  const bridge = (globalThis as DesktopWindowBridge).dshDesktop?.notifications
+type DesktopNotifications = NonNullable<NonNullable<DesktopWindowBridge['dshDesktop']>['notifications']>
+
+/**
+ * The slice a page can actually use: the probe below proves both members are
+ * functions, so everything downstream may call them without re-checking.
+ */
+type DesktopChannel = DesktopNotifications
+  & { readonly show: NonNullable<DesktopNotifications['show']> }
+  & { readonly onActivate: NonNullable<DesktopNotifications['onActivate']> }
+
+function isUsableChannel(bridge: DesktopNotifications | undefined): bridge is DesktopChannel {
   return bridge !== undefined && typeof bridge.show === 'function' && typeof bridge.onActivate === 'function'
-    ? bridge
-    : undefined
+}
+
+function desktopNotifications(): DesktopChannel | undefined {
+  const bridge = (globalThis as DesktopWindowBridge).dshDesktop?.notifications
+  return isUsableChannel(bridge) ? bridge : undefined
 }
 
 /**
@@ -294,7 +306,7 @@ export class CompletionPresenter {
   private readonly observer = new CompletionObserver()
   private readonly capabilities = probeCapabilities()
   private readonly badge: AppBadgePresenter | undefined
-  private readonly desktop: NonNullable<DesktopWindowBridge['dshDesktop']>['notifications'] | undefined
+  private readonly desktop: DesktopChannel | undefined
   private desktopSequence = 0
   private readonly pendingClicks = new Map<string, () => void>()
   private readonly disposeActivation: (() => void) | undefined
@@ -310,10 +322,9 @@ export class CompletionPresenter {
     // page's life. Notification permission CAN, so it is read per use.
     this.badge = this.capabilities.badge ? new AppBadgePresenter(options.logger) : undefined
     this.desktop = desktopNotifications()
-    const onActivate = this.desktop?.onActivate
-    this.disposeActivation = onActivate === undefined
+    this.disposeActivation = this.desktop === undefined
       ? undefined
-      : onActivate(({ id }) => {
+      : this.desktop.onActivate(({ id }) => {
         if (id === undefined) return
         const onClick = this.pendingClicks.get(id)
         if (onClick === undefined) return
@@ -452,7 +463,7 @@ export class CompletionPresenter {
    * (HTML5) or a false answer (desktop).
    */
   private notify(copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
-    if (this.desktop !== undefined) return this.notifyDesktop(copy, tag, onClick)
+    if (this.desktop !== undefined) return this.notifyDesktop(this.desktop, copy, tag, onClick)
     // Read live: an ungranted or revoked permission makes construction throw,
     // and this is the only guard that stays correct after a grant.
     if (notificationPermission() !== 'granted') return false
@@ -501,16 +512,13 @@ export class CompletionPresenter {
    * dispatched from the activation subscription. A refused request resolves the
    * target away, keeping the pending-click map from ever growing.
    */
-  private notifyDesktop(copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
-    const desktop = this.desktop
-    const show = desktop?.show
-    if (desktop === undefined || show === undefined) return false
+  private notifyDesktop(desktop: DesktopChannel, copy: NotificationCopy, tag: string, onClick?: () => void): boolean {
     const id = `${tag}-${++this.desktopSequence}`
     const settle = (raised: boolean): void => {
       if (raised || onClick === undefined) return
       this.pendingClicks.delete(id)
     }
-    const shown = show.call(desktop, { id, title: copy.title, body: copy.detail })
+    const shown = desktop.show.call(desktop, { id, title: copy.title, body: copy.detail })
     if (shown instanceof Promise) {
       void shown.then(settle).catch((error: unknown) => {
         this.options.logger.warn('app-badge: the shell refused the notification', error)
