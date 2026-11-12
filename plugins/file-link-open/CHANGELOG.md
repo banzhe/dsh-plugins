@@ -1,5 +1,12 @@
 # @banzhe/dsh-file-link-open
 
+## 0.2.4
+
+### Patch Changes
+
+- 9ae083b: Every browser half is built by one shared recipe and resolves the shell's module table in full: React, Cordis, Zod, the store engine, the slot registry, the UI primitives, and the dockkit are requested from the page instead of being bundled, and each package additionally declares the client packages whose services it injects. Bundles no longer carry a second copy of React or of the store engine, and the title-model settings no longer carry a bundled copy of the store engine.
+- 3a9b399: File paths now contribute their entries to the official file context menu instead of adding a second, duplicate set beside it: one group with copy path, copy relative path, and the applications that can open the file. Entries act on the workspace of the Session the click came from rather than the directory of the process serving the menu, and an application probe that fails leaves the entry in place, so the next click retries it.
+
 ## 0.2.3
 
 ### Patch Changes

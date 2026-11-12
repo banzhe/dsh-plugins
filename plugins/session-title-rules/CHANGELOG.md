@@ -1,5 +1,11 @@
 # @banzhe/dsh-session-title-rules
 
+## 0.2.4
+
+### Patch Changes
+
+- 9ae083b: Every browser half is built by one shared recipe and resolves the shell's module table in full: React, Cordis, Zod, the store engine, the slot registry, the UI primitives, and the dockkit are requested from the page instead of being bundled, and each package additionally declares the client packages whose services it injects. Bundles no longer carry a second copy of React or of the store engine, and the title-model settings no longer carry a bundled copy of the store engine.
+
 ## 0.2.3
 
 ### Patch Changes

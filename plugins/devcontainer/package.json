@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-devcontainer",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Run every agent command inside the repository's Linux Dev Container or a Docker Sandbox: a Docker/sbx-backed ctx.shell, a ctx.fs that delegates every file operation to a runtime-resident Node helper, a Linux prompt context, and devContainer / sbx agent-preset variants",
   "repository": {
     "type": "git",
