@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-open-in-select",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Open the Session's workspace directory in a local application from the Session header",
   "repository": {
     "type": "git",

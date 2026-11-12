@@ -1,5 +1,12 @@
 # @banzhe/dsh-devcontainer
 
+## 0.3.1
+
+### Patch Changes
+
+- 9ae083b: Every browser half is built by one shared recipe and resolves the shell's module table in full: React, Cordis, Zod, the store engine, the slot registry, the UI primitives, and the dockkit are requested from the page instead of being bundled, and each package additionally declares the client packages whose services it injects. Bundles no longer carry a second copy of React or of the store engine, and the title-model settings no longer carry a bundled copy of the store engine.
+- 95928bb: Works with DSH 0.2.2-rc.2, whose prompt assembly hands listeners the presentation half of the assembly (sections, contexts, variables) instead of the complete assembly with tool declarations. The container context is written into the working-directory contribution exactly as before; only the accepted parameter type is the wider one both halves share. The `@deepseek-ai/dsh-system-prompt` peer now states the version this shape belongs to.
+
 ## 0.3.0
 
 ### Minor Changes
