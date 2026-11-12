@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 import {
   applyContainerContext,
   containerContextText,
@@ -19,11 +19,10 @@ const spec: RepoContainerSpec = {
   containerTimeoutMs: 1000,
 }
 
-function assembly(text = 'Current working directory: "F:\\\\personal\\\\my-repo".'): PromptAssembly {
+function assembly(text = 'Current working directory: "F:\\\\personal\\\\my-repo".'): PromptPresentation {
   return {
     sections: [],
     contexts: [{ name: WORKING_DIRECTORY_CONTEXT, text, interpolate: false }],
-    tools: [],
     variables: {},
   }
 }
@@ -54,7 +53,7 @@ describe('applyContainerContext', () => {
   })
 
   it('adds the context when the assembly carries none', () => {
-    const target: PromptAssembly = { sections: [], contexts: [], tools: [], variables: {} }
+    const target: PromptPresentation = { sections: [], contexts: [], variables: {} }
     expect(applyContainerContext(target, 'rewritten')).toBe(true)
     expect(target.contexts).toHaveLength(1)
   })
@@ -66,7 +65,7 @@ describe('hostDirectoryFromContext', () => {
   })
 
   it('returns undefined without the context or without a readable path', () => {
-    expect(hostDirectoryFromContext({ sections: [], contexts: [], tools: [], variables: {} })).toBeUndefined()
+    expect(hostDirectoryFromContext({ sections: [], contexts: [], variables: {} })).toBeUndefined()
     expect(hostDirectoryFromContext(assembly('nothing useful here'))).toBeUndefined()
     expect(hostDirectoryFromContext(assembly('Current working directory: "unterminated.'))).toBeUndefined()
   })

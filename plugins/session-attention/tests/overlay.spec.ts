@@ -27,14 +27,18 @@ const ENTRY = 'session-attention.panel'
 /**
  * The entry ignores these, but the composed props type requires them: ui-session
  * and ui-workspace merge `GlobalStandardProps` onto every slot key, so a fixture
- * cast must supply all four selectors or the entry's own props type rejects the
+ * cast must supply every member or the entry's own props type rejects the
  * cast.
  */
 const STANDARD_PROPS = {
   useSessions: (() => {}) as never,
   useSessionStatus: (() => {}) as never,
   useSessionRetainInfo: (() => {}) as never,
+  useSessionAccess: (() => {}) as never,
   useWorkspaces: (() => {}) as never,
+  useWorkspaceAccess: (() => {}) as never,
+  // A menu binding shaped like the public UseContextMenu, which neither component reads.
+  useContextMenu: () => ({ getTriggerProps: () => ({}) }),
 }
 
 /** Translate through the Chinese dictionary, the key-set source of truth. */
@@ -466,6 +470,32 @@ describe('AttentionOverlay', () => {
       })
     })
     expect(durations()).toEqual(['0:05'])
+  })
+
+  it('ticks the open panel once a second and stops when it closes', async () => {
+    vi.useFakeTimers()
+    try {
+      const now = Date.now()
+      const overlay = await bench([
+        sessionRow('timed', { running: true, updatedAt: 1, lastPromptAt: now - 65_000 }),
+      ])
+      await overlay.click(overlay.trigger())
+      const durations = (): string[] =>
+        [...overlay.host.querySelectorAll<HTMLElement>('.sa-row-duration')].map(node => node.textContent ?? '')
+      expect(durations()).toEqual(['1:05'])
+
+      // The row's clock is redrawn by the panel's own tick.
+      await act(async () => { vi.advanceTimersByTime(1_000) })
+      expect(durations()).toEqual(['1:06'])
+
+      // Closed: the tick left with the panel, so time passing changes nothing.
+      await overlay.escape()
+      expect(overlay.panel()).toBeNull()
+      await act(async () => { vi.advanceTimersByTime(5_000) })
+      expect(overlay.panel()).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('jumps to a Session and closes the panel behind it', async () => {

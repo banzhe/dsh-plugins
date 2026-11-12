@@ -38,29 +38,49 @@ interface ProjectionSchema {
 }
 
 /**
+ * The read face one registration yields: the handle the service keeps, folding
+ * the Session's logged events with the unit that registration carried.
+ */
+interface ProjectionHandle {
+  stateOf(session: FakeSession): string | null
+  readerFor(session: FakeSession): () => string | null
+  dispose(): Promise<void>
+}
+
+/**
  * The projection registry the working-directory service registers into.
  *
- * The service reads its recorded directory from `sessionProjections.stateOf`,
- * so this folds the events the Session logged under the schema the service
- * registered — the same answer the real registry gives.
+ * The service awaits its registration and reads the recorded directory through
+ * the returned handle, so this folds the events the Session logged under the
+ * schema the service registered — the same answer the real registry gives. The
+ * registry-level read stays on the surface, deprecated, answering the same way
+ * by key.
  * @returns the registry a test context provides.
  */
 function projectionRegistry(): {
-  register(config: ProjectionSchema & { key: string }): { key: string }
+  register(config: ProjectionSchema & { key: string }): Promise<ProjectionHandle>
   stateOf(session: FakeSession, key: string): string | null
 } {
   const schemas = new Map<string, ProjectionSchema>()
+  const fold = (schema: ProjectionSchema, session: FakeSession): string | null => {
+    let state = schema.init(session.header)
+    for (const event of session.events) state = schema.apply(state, event)
+    return state
+  }
   return {
     register(config) {
       schemas.set(config.key, config)
-      return { key: config.key }
+      return Promise.resolve({
+        stateOf: (session: FakeSession) => fold(config, session),
+        readerFor: (session: FakeSession) => () => fold(config, session),
+        dispose: async () => {
+          if (schemas.get(config.key) === config) schemas.delete(config.key)
+        },
+      })
     },
     stateOf(session, key) {
       const schema = schemas.get(key)
-      if (schema === undefined) return null
-      let state = schema.init(session.header)
-      for (const event of session.events) state = schema.apply(state, event)
-      return state
+      return schema === undefined ? null : fold(schema, session)
     },
   }
 }

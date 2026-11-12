@@ -9,7 +9,7 @@
  * @module @banzhe/dsh-devcontainer/prompt
  */
 
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 import { win32, posix } from 'node:path'
 import { hostPathStyle } from './paths.ts'
 import type { RepoContainerSpec } from './types.ts'
@@ -97,7 +97,7 @@ export function missingContainerContextText(hostWorkdir: string, preset: string)
  * @param text - the container context text.
  * @returns true when the assembly was changed.
  */
-export function applyContainerContext(assembly: PromptAssembly, text: string): boolean {
+export function applyContainerContext(assembly: PromptPresentation, text: string): boolean {
   const contribution = assembly.contexts.find(entry => entry.name === WORKING_DIRECTORY_CONTEXT)
   if (contribution === undefined) {
     assembly.contexts.unshift({ name: WORKING_DIRECTORY_CONTEXT, text, interpolate: false })
@@ -113,7 +113,7 @@ export function applyContainerContext(assembly: PromptAssembly, text: string): b
  * @param assembly - the assembly to read.
  * @returns the host directory the `working-directory:current` context names, or undefined.
  */
-export function hostDirectoryFromContext(assembly: PromptAssembly): string | undefined {
+export function hostDirectoryFromContext(assembly: PromptPresentation): string | undefined {
   const contribution = assembly.contexts.find(entry => entry.name === WORKING_DIRECTORY_CONTEXT)
   if (contribution === undefined) return undefined
   const match = /Current working directory: (".*?")\./.exec(contribution.text)

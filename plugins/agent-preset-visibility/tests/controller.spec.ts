@@ -34,7 +34,6 @@ function fakeForm(options: {
     user: undefined,
     revision: 0,
     writable: options.writable ?? true,
-    mode: 'host',
   }
   const listeners = new Set<() => void>()
   const writes: string[][] = []

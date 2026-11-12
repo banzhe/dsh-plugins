@@ -25,14 +25,18 @@ const t = ((key: AppBadgeKey, params?: Record<string, unknown>) => {
 /**
  * The standard-kit props every slot component receives. The row ignores them,
  * but the composed props type requires them: ui-session and ui-workspace merge
- * `GlobalStandardProps` onto every slot key, so a fixture cast must supply all
- * four selectors or the component's own props type rejects the cast.
+ * `GlobalStandardProps` onto every slot key, so a fixture cast must supply every
+ * member or the component's own props type rejects the cast.
  */
 const STANDARD_PROPS = {
   useSessions: (() => {}) as never,
   useSessionStatus: (() => {}) as never,
   useSessionRetainInfo: (() => {}) as never,
+  useSessionAccess: (() => {}) as never,
   useWorkspaces: (() => {}) as never,
+  useWorkspaceAccess: (() => {}) as never,
+  // A menu binding shaped like the public UseContextMenu, which neither component reads.
+  useContextMenu: () => ({ getTriggerProps: () => ({}) }),
 }
 
 interface Harness {

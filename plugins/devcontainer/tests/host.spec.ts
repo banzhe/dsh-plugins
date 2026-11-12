@@ -8,7 +8,7 @@ import {
   DEVCONTAINER_ENV_KEY, DEVCONTAINER_ENV_VALUE, DEVCONTAINER_PRESET_ENV_KEY,
   SBX_ENV_KEY, SBX_ENV_VALUE, SBX_PRESET_ENV_KEY,
 } from '../src/refusal.ts'
-import type { AssembleContext, PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type { AssembleContext, PromptAssembly, PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 import { liveHostMounts, liveSandboxTemplate, repoRegistry } from '../src/registry.ts'
 import { cleanupTemporaryDirectories, makeRepo } from './support.ts'
 
@@ -269,7 +269,7 @@ function guarded(presetOf: (session: unknown) => string | null, options: { requi
       await Promise.resolve()
       const built = assembly(workdir)
       const context = { agent: { session: { header: { id: 'session-1' } } } } as unknown as AssembleContext
-      const assembled: PromptAssembly = await root.waterfall(
+      const assembled: PromptPresentation = await root.waterfall(
         'system-prompt/assemble',
         built,
         context,

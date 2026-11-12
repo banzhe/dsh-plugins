@@ -19,7 +19,7 @@
 import type { Context, Volatile } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { PromptAssembly } from '@deepseek-ai/dsh-system-prompt'
+import type { PromptPresentation } from '@deepseek-ai/dsh-system-prompt'
 // Type-only: the `settings/document-updated` event this row follows.
 import type {} from '@deepseek-ai/dsh-settings'
 import type {} from '@deepseek-ai/dsh-working-directory'
@@ -157,7 +157,7 @@ function serviceOf(ctx: Context, service: string): unknown {
 }
 
 /** The host directory one assembly is about. */
-function hostDirectoryOf(ctx: Context, assembly: PromptAssembly, agent: Agent | undefined): string | undefined {
+function hostDirectoryOf(ctx: Context, assembly: PromptPresentation, agent: Agent | undefined): string | undefined {
   if (agent === undefined) return hostDirectoryFromContext(assembly)
   const workingDirectory = serviceOf(ctx, 'workingDirectory') as { get(session: Agent['session']): string } | undefined
   return workingDirectory === undefined
