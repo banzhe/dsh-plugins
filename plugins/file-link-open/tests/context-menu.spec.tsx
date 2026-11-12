@@ -1,352 +1,292 @@
 // @vitest-environment jsdom
 /**
- * The always-mounted right-click menu: one root for the plugin's whole
- * lifetime, with open/close, the cursor, the target link, the viewed session's
- * CWD and the two app probes all arriving as React state.
+ * The wiring this plugin contributes: ONE entry into the official file
+ * context menu (its id, target and order), the keyed icon renderer its rows
+ * point at, and the probe round behind both.
  *
- * `react-dom/client` is mocked for exactly one reason: the spec counts how many
- * times the plugin builds its root and calls `render` on it. Everything else —
- * the Cordis context, the locale and slot doubles, the ui-primitives stand-in —
- * is the real wiring, so a regression back to "render the menu again on every
- * event" fails here instead of in the browser.
+ * The Cordis context is real; the `slots`, `contextMenus` and `sessions`
+ * services are doubles, so the spec can inspect exactly what was registered,
+ * resolve it on demand, and drive each Session's workspace root. The rows
+ * themselves are `tests/actions.spec.ts`'s subject.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { OPEN_IN_APP_APPS_ROUTE } from '@deepseek-ai/dsh-host-open-in-app/shared'
-import * as React from 'react'
+import { act, createElement, type FunctionComponent } from 'react'
+import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { apply } from '../src/client.tsx'
-import { INFO_ROUTE } from '../src/routes.ts'
+import { apply, inject } from '../src/client.tsx'
+import { APP_ICON_KEY } from '../src/client/actions.ts'
+import { INFO_ROUTE, LAUNCH_ROUTE } from '../src/routes.ts'
+import { ContextMenusDouble } from './context-menus-double.ts'
 import { LocaleDouble } from './locale-double.ts'
+import { SessionsDouble } from './sessions-double.ts'
 import { SlotsDouble } from './slots-double.ts'
-import { clipboardWrites } from './ui-primitives-double.tsx'
+import { clipboard, clipboardWrites } from './ui-primitives-double.tsx'
 
-// React only suppresses its "not configured to support act(...)" warning when
-// this flag is set; without it every `act` call below logs a false alarm.
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-const { act } = React
+const SESSION = 'sess-1'
+const CWD = '/work/demo'
 
-interface Root {
-  render(node: unknown): void
-  unmount(): void
+/** One canned answer; a route the spec never listed answers 404. */
+interface Answer {
+  readonly status: number
+  readonly body: unknown
 }
 
-/** Root builds and `render` calls the plugin made, reset per spec. */
-const counts = vi.hoisted<{ created: number, rendered: number }>(() => ({ created: 0, rendered: 0 }))
-
-/** The real `createRoot`, so the spec's own roots stay out of the counters. */
-const actuals = vi.hoisted<{ createRoot: ((container: Element) => Root) | null }>(() => ({ createRoot: null }))
-
-vi.mock('react-dom/client', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react-dom/client')>()
-  actuals.createRoot = actual.createRoot as unknown as (container: Element) => Root
-  return {
-    ...actual,
-    createRoot: (container: Element): Root => {
-      counts.created += 1
-      const root = actual.createRoot(container)
-      return {
-        render: (node: unknown) => {
-          counts.rendered += 1
-          root.render(node as never)
-        },
-        unmount: () => { root.unmount() },
-      }
-    },
-  }
-})
-
-type FetchResult = { ok: boolean, status: number, json: () => Promise<unknown> }
-type FetchImpl = (url: string) => Promise<unknown>
-
-/** A fetch that answers each route once, 404 for the rest. */
-function routesFetch(routes: Record<string, unknown>): FetchImpl {
-  return async (url) => {
-    const body = routes[url]
-    return {
-      ok: body !== undefined,
-      status: body === undefined ? 404 : 200,
-      json: async () => body ?? null,
-    } satisfies FetchResult
-  }
+interface Call {
+  readonly url: string
+  readonly init?: RequestInit
 }
 
-/** A fetch that stays pending until the spec answers each route, as a slow host does. */
-function deferredFetch() {
-  const pending = new Map<string, (body: unknown) => void>()
-  const impl: FetchImpl = url => new Promise((resolve) => {
-    pending.set(url, (body) => {
-      resolve({
-        ok: body !== undefined,
-        status: body === undefined ? 404 : 200,
-        json: async () => body ?? null,
-      } satisfies FetchResult)
-    })
-  })
-  const respond = async (url: string, body: unknown): Promise<void> => {
-    const settle = pending.get(url)
-    if (settle === undefined) throw new Error(`no pending fetch for ${url}`)
-    pending.delete(url)
-    await act(async () => { settle(body) })
-  }
-  return { impl, respond }
+/** The parsed JSON body of a posted call; the rows always post a JSON string. */
+function bodyOf(call: Call): unknown {
+  const raw = call.init?.body
+  return typeof raw === 'string' ? (JSON.parse(raw) as unknown) : null
 }
 
 interface Bench {
   readonly slots: SlotsDouble
+  readonly menus: ContextMenusDouble
+  readonly sessions: SessionsDouble
+  /** Live answers; a spec may add one to model a host that recovers. */
+  readonly answers: Record<string, Answer>
+  /** Every fetch the plugin made, in order. */
+  readonly calls: Call[]
+  /** Bodies posted to one route, parsed. */
+  readonly posts: (url: string) => unknown[]
   dispose(): void
 }
 
 const benches: Bench[] = []
-const extraRoots: { root: Root, container: HTMLElement }[] = []
+const roots: { root: Root, container: HTMLElement }[] = []
 
-/** Boot the browser half over a real Cordis context plus the three doubles. */
-async function bench(fetchImpl: FetchImpl = routesFetch({})): Promise<Bench> {
-  vi.stubGlobal('fetch', vi.fn(fetchImpl))
+const OK = (body: unknown): Answer => ({ status: 200, body })
+
+/** Boot the browser half over a real Cordis context plus the service doubles. */
+async function bench(answers: Record<string, Answer> = {}): Promise<Bench> {
+  const calls: Call[] = []
+  const live = { ...answers }
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    calls.push(init === undefined ? { url } : { url, init })
+    const answer = live[url]
+    if (answer === undefined) return { ok: false, status: 404, json: async () => null } as unknown as Response
+    return {
+      ok: answer.status >= 200 && answer.status < 300,
+      status: answer.status,
+      json: async () => answer.body,
+    } as unknown as Response
+  }))
   const ctx = new Context()
   ctx.provide('locale', new LocaleDouble() as never)
+  const sessions = new SessionsDouble()
+  sessions.setCwd(SESSION, CWD)
+  ctx.provide('sessions', sessions as never)
   const slots = new SlotsDouble(ctx)
-  let dispose: () => void = () => {}
-  await act(async () => {
-    dispose = apply(ctx)
-  })
-  const handle: Bench = { slots, dispose }
+  const menus = new ContextMenusDouble(ctx)
+  apply(ctx)
+  const handle: Bench = {
+    slots,
+    menus,
+    sessions,
+    answers: live,
+    calls,
+    posts: (url) => calls
+      .filter(call => call.url === url && call.init?.method === 'POST')
+      .map(bodyOf),
+    dispose: () => { void ctx.fiber.dispose() },
+  }
   benches.push(handle)
+  // Let the activation probe settle before a test reads the calls.
+  await act(async () => { await Promise.resolve() })
   return handle
 }
 
-const CONTEXT_CONTAINER = '[data-flo-context]'
-const MENU = '[data-test-menu]'
-const MENU_STATE = '[data-test-menu-state]'
-
-function contextContainer(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(CONTEXT_CONTAINER)
+/** The rows for one clicked destination, as the registry would ask for them. */
+async function rowsFor(b: Bench, target: { path: string, line?: number, sessionId?: string }) {
+  return await b.menus.resolve('file-link-open', { sessionId: SESSION, ...target })
 }
 
-function menu(): HTMLElement | null {
-  return document.querySelector<HTMLElement>(MENU)
+const ids = (rows: readonly { id: string }[]): string[] => rows.map(entry => entry.id)
+
+/** One row; throws so a spec cannot silently pass against a missing row. */
+function row(rows: readonly { id: string, run?: () => void | Promise<void> }[], id: string) {
+  const found = rows.find(candidate => candidate.id === id)
+  if (found === undefined) throw new Error(`no row "${id}"`)
+  return found
 }
 
-function menuState(): string | null {
-  return document.querySelector<HTMLElement>(MENU_STATE)?.dataset.testMenuState ?? null
-}
-
-function menuRows(): (string | null)[] {
-  return [...document.querySelectorAll<HTMLElement>('[data-test-menu-item]')]
-    .map(row => row.dataset.testMenuItem ?? null)
-}
-
-function menuItem(id: string): HTMLElement {
-  const row = document.querySelector<HTMLElement>(`[data-test-menu-item="${id}"]`)
-  if (row === null) throw new Error(`no menu row "${id}"`)
-  return row
-}
-
-/** The official renderer's file link, as the target walk sees one. */
-function fileLink(path: string): HTMLButtonElement {
-  const button = document.createElement('button')
-  button.type = 'button'
-  button.className = 'md_fileMention md_fileLink'
-  button.title = path
-  button.textContent = path
-  document.body.appendChild(button)
-  return button
-}
-
-/** A link whose line rides the same fiber prop the official renderer puts it on. */
-function withLine(button: HTMLButtonElement, path: string, line: number): HTMLButtonElement {
-  ;(button as unknown as Record<string, unknown>)['__reactFiber$spec'] = {
-    memoizedProps: { file: { path, line } },
-    return: null,
-  }
-  return button
-}
-
-async function rightClick(target: Element, x: number, y: number): Promise<void> {
-  await act(async () => {
-    target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: x, clientY: y }))
-  })
-}
-
-async function click(target: Element): Promise<void> {
-  await act(async () => { (target as HTMLElement).click() })
-}
-
-interface RecorderProps {
-  sessionId: string
-  useSessions: (selector: (sessionState: { byId: Record<string, { cwd?: string }> }) => string | undefined) => string | undefined
-}
-
-interface Recorder {
-  /** Publish the viewed session's cwd, as the host's session store would. */
-  publish(cwd: string | undefined): Promise<void>
-  unmount(): Promise<void>
-}
-
-/**
- * Mount the plugin's own header cell (the registration it made on the slot
- * double) and drive the CWD the host would publish through its standard props.
- */
-async function mountRecorder(b: Bench): Promise<Recorder> {
-  const Cell = b.slots.entry('file-link-open').component as React.FunctionComponent<RecorderProps>
-  const createRoot = actuals.createRoot
-  if (createRoot === null) throw new Error('react-dom/client was never loaded')
-  const container = document.createElement('div')
-  document.body.appendChild(container)
-  const root = createRoot(container)
-  extraRoots.push({ root, container })
-  let byId: Record<string, { cwd?: string }> = {}
-  const useSessions: RecorderProps['useSessions'] = selector => selector({ byId })
-  const draw = async (cwd: string | undefined): Promise<void> => {
-    byId = cwd === undefined ? {} : { 'sess-1': { cwd } }
-    await act(async () => {
-      root.render(React.createElement(Cell, { sessionId: 'sess-1', useSessions }))
-    })
-  }
-  await draw(undefined)
-  return {
-    publish: draw,
-    unmount: async () => {
-      await act(async () => { root.unmount() })
-      container.remove()
-    },
-  }
+const APPS_ANSWER = OK({ apps: ['vscode', 'cursor', 'explorer'] })
+const INFO_ANSWER = OK({ available: ['vscode', 'cursor'] })
+const ANSWERS = {
+  [OPEN_IN_APP_APPS_ROUTE]: APPS_ANSWER,
+  [INFO_ROUTE]: INFO_ANSWER,
+  [LAUNCH_ROUTE]: OK({ ok: true }),
 }
 
 beforeEach(() => {
-  counts.created = 0
-  counts.rendered = 0
+  clipboard.accepts = true
+  clipboardWrites.length = 0
 })
 
 afterEach(async () => {
-  const open = benches.splice(0, benches.length)
-  for (const b of open) {
-    await act(async () => { b.dispose() })
-  }
-  const roots = extraRoots.splice(0, extraRoots.length)
-  for (const { root, container } of roots) {
-    await act(async () => { root.unmount() })
-    container.remove()
-  }
-  clipboardWrites.length = 0
-  document.body.innerHTML = ''
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
+  const open = roots.splice(0, roots.length)
+  for (const entry of open) {
+    await act(async () => { entry.root.unmount() })
+    entry.container.remove()
+  }
+  const live = benches.splice(0, benches.length)
+  for (const b of live) b.dispose()
 })
 
-describe('mounted context menu', () => {
-  it('builds its one root at activation and starts closed', async () => {
+describe('contribution', () => {
+  it('waits on the locale, slot, context-menu and sessions services', async () => {
     await bench()
-    expect(counts).toEqual({ created: 1, rendered: 1 })
-    expect(contextContainer()).not.toBeNull()
-    expect(menuState()).toBe('closed')
-    expect(menu()).toBeNull()
+    expect(inject).toEqual(['locale', 'slots', 'contextMenus', 'sessions'])
   })
 
-  it('opens at the cursor on the right-clicked link, still on that one root', async () => {
-    await bench(routesFetch({
-      [OPEN_IN_APP_APPS_ROUTE]: { apps: ['vscode', 'explorer'] },
-      [INFO_ROUTE]: { available: ['vscode'] },
-    }))
-    const button = fileLink('src/a.ts')
-    await rightClick(button, 120, 240)
-
-    expect(menuState()).toBe('open')
-    const panel = menu()
-    expect(panel).not.toBeNull()
-    // The rect handed to Menu is the cursor the plugin stored.
-    expect(panel?.dataset.testMenuX).toBe('120')
-    expect(panel?.dataset.testMenuY).toBe('240')
-    // The app probes ride the same state: this session's probes answered them.
-    expect(menuRows()).toEqual(['flo:fm:explorer', 'flo:app:vscode', 'flo:copy-rel', 'flo:copy-abs'])
-    expect(counts).toEqual({ created: 1, rendered: 1 })
+  it('registers ONE file menu contribution under the plugin id', async () => {
+    const b = await bench()
+    expect(b.menus.contribution('file-link-open')).toMatchObject({
+      id: 'file-link-open', target: 'file', order: 200,
+    })
   })
 
-  it('names the target line in a heading row when the link carried one', async () => {
-    await bench()
-    await rightClick(withLine(fileLink('src/a.ts'), 'src/a.ts', 24), 10, 20)
-    const heading = document.querySelector<HTMLElement>('[data-test-menu-label="flo:line"]')
-    expect(heading?.textContent).toBe('Line 24')
-    expect(counts.rendered).toBe(1)
+  it('registers only its icon renderer on the official slots', async () => {
+    const b = await bench()
+    expect(b.slots.entry(APP_ICON_KEY).options).toMatchObject({
+      name: 'contextMenu.icon', key: APP_ICON_KEY,
+    })
+    expect(b.slots.injectKeys()).toEqual(['contextMenu.icon'])
+  })
+})
+
+describe('resolution', () => {
+  it('reads both app probes once per plugin life', async () => {
+    const b = await bench(ANSWERS)
+    await rowsFor(b, { path: 'src/a.ts' })
+    await rowsFor(b, { path: 'src/a.ts' })
+    expect(b.calls.map(call => call.url)).toEqual([OPEN_IN_APP_APPS_ROUTE, INFO_ROUTE])
+    expect(b.calls.map(call => call.init?.headers)).toEqual([
+      { accept: 'application/json' },
+      { accept: 'application/json' },
+    ])
   })
 
-  it('closes on the menu\'s own onClose, still on that one root', async () => {
-    await bench()
-    await rightClick(fileLink('src/a.ts'), 30, 40)
-    expect(menuState()).toBe('open')
-
-    await click(document.querySelector('[data-test-menu-close]') as HTMLElement)
-    expect(menuState()).toBe('closed')
-    expect(menu()).toBeNull()
-    expect(counts).toEqual({ created: 1, rendered: 1 })
-    // The stored target survives the close, so a second open re-anchors from
-    // fresh coordinates rather than a rebuilt tree.
-    await rightClick(fileLink('src/b.ts'), 50, 60)
-    expect(menu()?.dataset.testMenuX).toBe('50')
-    expect(counts).toEqual({ created: 1, rendered: 1 })
+  it('builds the editor rows from both probe answers, and no row the official menu owns', async () => {
+    const b = await bench(ANSWERS)
+    const rows = await rowsFor(b, { path: 'src/a.ts', line: 24 })
+    expect(ids(rows)).toEqual(['line', 'app:vscode', 'app:cursor', 'copy-rel'])
   })
 
-  it('closes on selection and copies the path it resolved', async () => {
-    await bench()
-    await rightClick(fileLink('src/a.ts'), 5, 6)
-    await click(menuItem('flo:copy-rel'))
+  it('offers the copy row alone when the host answers neither route', async () => {
+    const b = await bench()
+    const rows = await rowsFor(b, { path: 'src/a.ts' })
+    expect(ids(rows)).toEqual(['copy-rel'])
+  })
 
-    expect(menuState()).toBe('closed')
+  it('shares one probe round between openings that ask at the same time', async () => {
+    const b = await bench(ANSWERS)
+    const before = b.calls.length
+    await Promise.all([rowsFor(b, { path: 'src/a.ts' }), rowsFor(b, { path: 'src/b.ts' })])
+    expect(b.calls.length).toBe(before)
+  })
+
+  it('asks again after a round that could not answer, so a retry shows the rows', async () => {
+    const b = await bench()
+    expect(ids(await rowsFor(b, { path: 'src/a.ts' }))).toEqual(['copy-rel'])
+    Object.assign(b.answers, ANSWERS)
+    expect(ids(await rowsFor(b, { path: 'src/a.ts' }))).toEqual(['app:vscode', 'app:cursor', 'copy-rel'])
+    // Activation, the failed opening, and the retry — three rounds, none shared.
+    expect(b.calls.filter(call => call.url === OPEN_IN_APP_APPS_ROUTE)).toHaveLength(3)
+  })
+
+  it('refuses to build rows for an aborted occurrence', async () => {
+    const b = await bench(ANSWERS)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(b.menus.contribution('file-link-open').resolve({ sessionId: SESSION, path: 'src/a.ts' }, controller.signal))
+      .rejects.toThrow(/abort/i)
+  })
+})
+
+describe('row execution', () => {
+  it('posts the launch with the Session-absolute path and the named line', async () => {
+    const b = await bench(ANSWERS)
+    const rows = await rowsFor(b, { path: 'src/a.ts', line: 24 })
+    await act(async () => { await row(rows, 'app:vscode').run?.() })
+    expect(b.posts(LAUNCH_ROUTE)).toEqual([{ app: 'vscode', path: '/work/demo/src/a.ts', line: 24 }])
+  })
+
+  it('resolves each Session against its own workspace root', async () => {
+    const b = await bench(ANSWERS)
+    b.sessions.setCwd('sess-2', '/work/other')
+    await act(async () => { await row(await rowsFor(b, { path: 'src/a.ts' }), 'app:vscode').run?.() })
+    await act(async () => { await row(await rowsFor(b, { path: 'src/a.ts', sessionId: 'sess-2' }), 'app:vscode').run?.() })
+    expect(b.posts(LAUNCH_ROUTE)).toEqual([
+      { app: 'vscode', path: '/work/demo/src/a.ts' },
+      { app: 'vscode', path: '/work/other/src/a.ts' },
+    ])
+  })
+
+  it('copies the workspace-relative path', async () => {
+    const b = await bench(ANSWERS)
+    const rows = await rowsFor(b, { path: 'src/a.ts', line: 24 })
+    await act(async () => { await row(rows, 'copy-rel').run?.() })
     expect(clipboardWrites).toEqual(['src/a.ts'])
-    expect(counts.rendered).toBe(1)
   })
 
-  it('takes the viewed session\'s CWD as state, and keeps the menu open under it', async () => {
-    const b = await bench()
-    const recorder = await mountRecorder(b)
-    const button = fileLink('src/a.ts')
-    await rightClick(button, 70, 80)
-
-    await recorder.publish('/work/demo')
-    // A CWD change is not a dismiss: the open menu stays open, re-anchored.
-    expect(menuState()).toBe('open')
-
-    await click(menuItem('flo:copy-abs'))
-    expect(clipboardWrites).toEqual(['/work/demo/src/a.ts'])
-    expect(menuState()).toBe('closed')
-    expect(counts).toEqual({ created: 1, rendered: 1 })
+  it('rejects a refused launch so the shared menu reports it', async () => {
+    const b = await bench({ ...ANSWERS, [LAUNCH_ROUTE]: { status: 502, body: { code: 'launch-failed' } } })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const rows = await rowsFor(b, { path: 'src/a.ts', line: 24 })
+    await expect(row(rows, 'app:vscode').run?.()).rejects.toThrow('502')
+    expect(warn).toHaveBeenCalledTimes(1)
   })
 
-  it('recomputes its rows when an app probe lands while the menu is open', async () => {
-    const probe = deferredFetch()
-    await bench(probe.impl)
-    await rightClick(fileLink('src/a.ts'), 1, 2)
-    // Nothing has answered yet: only the two path rows are offerable.
-    expect(menuRows()).toEqual(['flo:copy-rel', 'flo:copy-abs'])
-
-    await probe.respond(OPEN_IN_APP_APPS_ROUTE, { apps: ['vscode', 'explorer'] })
-    await probe.respond(INFO_ROUTE, { available: ['vscode'] })
-
-    expect(menuRows()).toEqual(['flo:fm:explorer', 'flo:app:vscode', 'flo:copy-rel', 'flo:copy-abs'])
-    expect(counts).toEqual({ created: 1, rendered: 1 })
+  it('rejects a refused clipboard write so the shared menu reports it', async () => {
+    const b = await bench(ANSWERS)
+    clipboard.accepts = false
+    const rows = await rowsFor(b, { path: 'src/a.ts' })
+    await expect(row(rows, 'copy-rel').run?.()).rejects.toThrow(/clipboard/)
   })
+})
 
-  it('leaves the native menu for a right-click that names no file link', async () => {
+describe('row icon', () => {
+  async function renderIcon(icon: { key: string, src?: string }): Promise<HTMLElement> {
+    const b = benches[0]
+    if (b === undefined) throw new Error('no bench')
+    const Icon = b.slots.entry(APP_ICON_KEY).component as FunctionComponent<{ icon: { key: string, src?: string } }>
+    const container = document.createElement('div')
+    document.body.appendChild(container)
+    const root = createRoot(container)
+    roots.push({ root, container })
+    await act(async () => { root.render(createElement(Icon, { icon })) })
+    return container
+  }
+
+  it('renders the application image the row named', async () => {
     await bench()
-    const paragraph = document.createElement('p')
-    paragraph.textContent = 'plain text'
-    document.body.appendChild(paragraph)
-    await rightClick(paragraph, 3, 4)
-    expect(menu()).toBeNull()
-    expect(counts.rendered).toBe(1)
+    const container = await renderIcon({ key: APP_ICON_KEY, src: 'open-in-app/icon/vscode' })
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('open-in-app/icon/vscode')
   })
 
-  it('unmounts its root and takes the container away on dispose', async () => {
-    const b = await bench()
-    await rightClick(fileLink('src/a.ts'), 9, 9)
-    const container = contextContainer()
-    await act(async () => { b.dispose() })
-    benches.splice(benches.indexOf(b), 1)
+  it('falls back to the native-open glyph when the image fails', async () => {
+    await bench()
+    const container = await renderIcon({ key: APP_ICON_KEY, src: 'open-in-app/icon/vscode' })
+    const img = container.querySelector('img')
+    if (img === null) throw new Error('no image')
+    await act(async () => { img.dispatchEvent(new Event('error')) })
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('[data-test-icon-fallback]')).not.toBeNull()
+  })
 
-    expect(contextContainer()).toBeNull()
-    expect(container?.isConnected).toBe(false)
-    // A right-click after unload reaches nothing at all.
-    await rightClick(fileLink('src/b.ts'), 1, 1)
-    expect(menu()).toBeNull()
-    expect(counts).toEqual({ created: 1, rendered: 1 })
+  it('falls back immediately when no image was named', async () => {
+    await bench()
+    const container = await renderIcon({ key: APP_ICON_KEY })
+    expect(container.querySelector('img')).toBeNull()
+    expect(container.querySelector('[data-test-icon-fallback]')).not.toBeNull()
   })
 })

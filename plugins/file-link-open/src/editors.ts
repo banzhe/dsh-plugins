@@ -11,10 +11,10 @@
  * key the client's translator is called with, so a new id without a label is a
  * compile error rather than a menu reading `app.nvim`.
  *
- * The official catalog carries more entries. File managers (finder/explorer/
- * filemanager) are excluded on purpose: a file-manager shell-open with the file
- * path opens the file in its default app, so the browser half launches those
- * through the official route with the file's DIRECTORY instead.
+ * The official catalog carries more entries; this list holds only the editors
+ * the launch route can open at a line. File managers are not here at all: the
+ * official `open-in-app.file` contribution already reveals a file's directory,
+ * so this plugin contributes no second row for it.
  */
 export const EDITOR_IDS = [
   'cursor', 'vscode', 'vscodeinsiders', 'windsurf', 'zed', 'sublimetext',

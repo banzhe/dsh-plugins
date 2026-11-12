@@ -1,102 +1,106 @@
 /**
- * @banzhe/dsh-file-link-open — Client half. A right-click context menu over
- * file links rendered inside session messages: open in a detected editor, open
- * the containing folder in the platform file manager, or copy the path.
+ * @banzhe/dsh-file-link-open — Client half. Contributes the "open in…" rows for
+ * a file into the official `file` context menu: open the file in a detected
+ * editor, at the named line, reusing the editor's window, or copy its
+ * workspace-relative path.
  *
- * Pure event delegation on `document`; left-click keeps the official preview
- * behavior untouched. The viewed session's working directory is published by a
- * null cell in the official `conversation.session.header.utilities` slot (the
- * seat the official open-in-app button consumes); relative paths resolve
- * against it.
+ * The menu itself belongs to `@deepseek-ai/dsh-client-ui-context-menu`: this
+ * plugin registers a contribution against the `file` target and builds rows,
+ * so it inherits the official popup's positioning, keyboard walk, and the
+ * shared failure feedback. The target arrives with the destination already
+ * parsed (`sessionId`, `path`, `line`) because the official renderer binds it
+ * that way, and the Session's workspace root is read from `ctx.sessions` at
+ * resolve time — two panes of one window may show two Sessions.
+ *
+ * The official `open-in-app.file` contribution (order 100) owns "reveal in file
+ * manager" and "copy path" for this same target; this plugin deliberately
+ * contributes neither.
  *
  * Implementation derived from https://github.com/cholf5/dsh-plugin-file-actions
  */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-// Type-only: declares the 'conversation.session.header.utilities' SlotMap key.
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls the SlotRegistry service merge (ctx.slots).
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-// Type-only: the Session standard props (sessionId, useSessions) the cell reads.
-import type {} from '@deepseek-ai/dsh-client-ui-session/client'
-import * as React from 'react'
-import * as ReactDOMClient from 'react-dom/client'
-import { Menu, writeClipboard, type MenuEntry } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: the 'contextMenu.icon' SlotMap key and a component's props share.
+import type { PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import { useState, type ReactNode } from 'react'
+import { IconRightUpOutlineRegular, writeClipboard } from '@deepseek-ai/dsh-client-ui-primitives'
 import {
-  OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_ICON_PREFIX_ROUTE, OPEN_IN_APP_OPEN_ROUTE,
+  OPEN_IN_APP_APPS_ROUTE, OPEN_IN_APP_ICON_PREFIX_ROUTE,
   type OpenInAppAppsPayload,
 } from '@deepseek-ai/dsh-host-open-in-app/shared'
-import { classifyContextTarget, type LinkTarget } from './client/target.ts'
-import { EDITOR_IDS, type EditorId } from './editors.ts'
+import {
+  APP_ICON_KEY, buildFileActions,
+  type AppProbes, type ContextMenuIcon, type FileMenuAction, type FileTarget,
+} from './client/actions.ts'
+import { en, NS, zh, type LocaleKey, type Translator } from './client/locales.ts'
 import { INFO_ROUTE, LAUNCH_ROUTE } from './routes.ts'
 
-export const NS = 'fileLinkOpen'
+export type { FileTarget }
 
-export const zh = {
-  copyRelativePath: '复制相对路径',
-  copyAbsolutePath: '复制绝对路径',
-  atLine: '第 {line} 行',
-  'app.vscode': 'VS Code',
-  'app.vscodeinsiders': 'VS Code Insiders',
-  'app.cursor': 'Cursor',
-  'app.windsurf': 'Windsurf',
-  'app.zed': 'Zed',
-  'app.sublimetext': 'Sublime Text',
-  'app.androidstudio': 'Android Studio',
-  'app.intellij': 'IntelliJ IDEA',
-  'app.pycharm': 'PyCharm',
-  'app.webstorm': 'WebStorm',
-  'app.phpstorm': 'PhpStorm',
-  'app.goland': 'GoLand',
-  'app.rider': 'Rider',
-  'app.rustrover': 'RustRover',
-  'app.finder': '访达',
-  'app.explorer': '文件资源管理器',
-  'app.filemanager': '文件管理器',
-} as const
-
-export const en = {
-  copyRelativePath: 'Copy relative path',
-  copyAbsolutePath: 'Copy absolute path',
-  atLine: 'Line {line}',
-  'app.vscode': 'VS Code',
-  'app.vscodeinsiders': 'VS Code Insiders',
-  'app.cursor': 'Cursor',
-  'app.windsurf': 'Windsurf',
-  'app.zed': 'Zed',
-  'app.sublimetext': 'Sublime Text',
-  'app.androidstudio': 'Android Studio',
-  'app.intellij': 'IntelliJ IDEA',
-  'app.pycharm': 'PyCharm',
-  'app.webstorm': 'WebStorm',
-  'app.phpstorm': 'PhpStorm',
-  'app.goland': 'GoLand',
-  'app.rider': 'Rider',
-  'app.rustrover': 'RustRover',
-  'app.finder': 'Finder',
-  'app.explorer': 'File Explorer',
-  'app.filemanager': 'Files',
-} as const
-
-export type LocaleKey = keyof typeof en
-
-declare module '@deepseek-ai/dsh-client-ui-slots' {
-  interface LocaleNamespaceMap {
-    fileLinkOpen: LocaleKey
-  }
+/**
+ * The `contextMenus` service, restated for this package's own type check.
+ *
+ * `@deepseek-ai/dsh-client-ui-context-menu` owns this service; the workspace
+ * catalog carries no entry for that package, so this Bundle restates the one
+ * member it uses instead of depending on it. These declarations merge with the
+ * owner's if the dependency is ever added. What is mirrored, from
+ * `@deepseek-ai/dsh-client-ui-context-menu` `src/client/types.ts` as shipped in
+ * DSH `0.2.2-rc.2`: `MenuAction` carries `id`, `label`, `icon`,
+ * `disabled`, `separatorBefore`, `failureLabel` and `run`; `MenuContribution`
+ * carries `id`, `target`, `order` and `resolve(target, signal)`. The owner
+ * package is not a workspace dependency, so no type-only `satisfies` can pin
+ * that mirror at compile time; `tests/context-menu.spec.tsx` pins the parts
+ * that would duplicate the official rows.
+ */
+export interface FileContextMenus {
+  register(contribution: {
+    readonly id: string
+    readonly target: 'file'
+    readonly order: number
+    resolve: (target: FileTarget, signal: AbortSignal) => readonly FileMenuAction[] | Promise<readonly FileMenuAction[]>
+  }): () => void
 }
 
 /**
- * Unlike editors these ride the official probe alone: their launch is the
- * official POST /open-in-app/open with the file's DIRECTORY, so the official
- * route itself guarantees "menu shows it, click works" and this plugin's own
- * resolution has nothing to confirm.
+ * The `sessions` service, restated for this package's own type check.
+ *
+ * `@deepseek-ai/dsh-api-session-controller` owns this service and is not a
+ * workspace dependency of this Bundle; the one member used here is the Host
+ * catalog snapshot, whose `byId[sessionId].cwd` is the Session's workspace
+ * root. Mirrored from that package's `src/client/contract/sessions.ts`
+ * (`list: ObservableSnapshot<SessionListState>`) as shipped in DSH `0.2.2-rc.2`.
  */
-const FILE_MANAGER_IDS = ['finder', 'explorer', 'filemanager'] as const
+export interface SessionsService {
+  readonly list: {
+    getSnapshot(): { readonly byId: Readonly<Record<string, { readonly cwd?: string } | undefined>> }
+  }
+}
 
-/** One file-manager id; `FILE_MANAGER_IDS.includes` does not narrow by itself. */
-type FileManagerId = (typeof FILE_MANAGER_IDS)[number]
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** The official menu registry this plugin contributes rows to. */
+    contextMenus: FileContextMenus
+    /** The client Session catalog; read for the clicked Session's workspace root. */
+    sessions: SessionsService
+  }
+}
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface LocaleNamespaceMap {
+    'file-link-open': LocaleKey
+  }
+
+  interface SlotMap {
+    /** Keyed glyph or image selected by a menu row's icon key (owner: ui-context-menu). */
+    'contextMenu.icon': { kind: 'keyed'; scope: 'root'; inline: true; owner: { icon: ContextMenuIcon } }
+  }
+}
+
+/** How long a file menu waits for the first probe answer before opening with the rows it already has. */
+const FIRST_ANSWER_WAIT_MS = 300
 
 /** Fetch one JSON body with its status; never rejects. The body stays `unknown`: each caller narrows the shape it expects. */
 async function fetchJson(url: string, options?: RequestInit): Promise<{ ok: boolean, status: number, data: unknown }> {
@@ -122,50 +126,6 @@ function postJson(url: string, body: unknown) {
   })
 }
 
-function isWindowsStyledPath(value: string) {
-  return /^[A-Za-z]:[/\\]/.test(value) || value.startsWith('\\\\')
-}
-
-/** Browser-safe workspace path resolution, mirroring @deepseek-ai/dsh-util-workspace-path. */
-function resolveWorkspacePath(cwd: string | null | undefined, p: string) {
-  if (p.startsWith('/') || isWindowsStyledPath(p)) return p
-  if (cwd === null || cwd === undefined || cwd === '') return p
-  const separator = isWindowsStyledPath(cwd) && cwd.includes('\\') ? '\\' : '/'
-  const base = cwd.replace(/[/\\]+$/, '')
-  const relative = p.replace(/^[/\\]+/, '')
-  return base + separator + relative
-}
-
-/**
- * Strip the workspace root off an absolute path, mirroring the official
- * relativizeToCwd plus the separator normalization its own fileAddressFor
- * applies: newer hosts may present paths absolutely, and old sessions may
- * record the root in the other separator spelling, so the prefix check runs on
- * slash-normalized forms while the slice keeps the original spelling of the
- * remainder.
- */
-function relativizeToCwd(text: string, cwd: string | null | undefined) {
-  if (cwd === null || cwd === undefined || cwd === '') return text
-  const root = cwd.replace(/[/\\]+$/, '').replaceAll('\\', '/')
-  const normalized = text.replaceAll('\\', '/')
-  if (normalized.startsWith(root + '/')) return text.slice(root.length + 1)
-  return text
-}
-
-function dirnameOf(p: string) {
-  const normalized = p.replaceAll('\\', '/')
-  const index = normalized.lastIndexOf('/')
-  if (index <= 0) return index === 0 ? '/' : normalized
-  if (index === 2 && normalized[1] === ':') return normalized.slice(0, 3)
-  return normalized.slice(0, index)
-}
-
-interface AppState {
-  officialApps: string[] | null
-  /** Null/undefined `available` means the host reported nothing, not "nothing available". */
-  info: { available?: string[] | null | undefined } | null
-}
-
 function stringArrayOf(value: unknown): string[] | null {
   if (!Array.isArray(value)) return null
   const out: string[] = []
@@ -183,26 +143,41 @@ function appsOf(data: unknown): string[] | null {
 }
 
 /** This plugin's own `/info` payload. */
-function infoOf(data: unknown): AppState['info'] {
+function infoOf(data: unknown): AppProbes['info'] {
   if (typeof data !== 'object' || data === null) return null
   const available = (data as { available?: unknown }).available
   return { available: available === undefined ? undefined : stringArrayOf(available) }
 }
 
-function AppIcon(props: { id: string, size: number }) {
-  const [failed, setFailed] = React.useState(false)
-  if (failed) {
-    return (
-      <svg width={props.size} height={props.size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} aria-hidden>
-        <rect x={3} y={3} width={18} height={18} rx={5} />
-      </svg>
-    )
-  }
+/**
+ * Settle when `pending` settles, after `ms`, or on abort — whichever comes
+ * first, with its timer never outliving the wait. The official file menu holds
+ * a first answer for the same reason: the shared popup opens once its
+ * contributions have prepared, so an unanswered probe must not hold it open.
+ */
+function settleWithin(pending: Promise<void>, ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((settle) => {
+    const done = (): void => { clearTimeout(timer); signal.removeEventListener('abort', done); settle() }
+    const timer = setTimeout(done, ms)
+    signal.addEventListener('abort', done, { once: true })
+    void pending.then(done)
+  })
+}
+
+/**
+ * One application's icon for a menu row, falling back to the shipped
+ * native-open glyph so a missing or broken image never leaves a blank cell.
+ * @param props.icon - keyed icon metadata the row carried (its `src` names the image).
+ * @returns the application image, or the fallback glyph.
+ */
+function AppMenuIcon({ icon }: Pick<PropsRuntime<'contextMenu.icon'>, 'icon'>): ReactNode {
+  const [failed, setFailed] = useState(false)
+  if (icon.src === undefined || failed) return <IconRightUpOutlineRegular size={16} />
   return (
     <img
-      src={OPEN_IN_APP_ICON_PREFIX_ROUTE + '/' + props.id}
-      width={props.size}
-      height={props.size}
+      src={icon.src}
+      width={16}
+      height={16}
       alt=""
       aria-hidden
       draggable={false}
@@ -211,272 +186,82 @@ function AppIcon(props: { id: string, size: number }) {
   )
 }
 
-type Translator = (key: LocaleKey, params?: Record<string, string>) => string
-
-/**
- * Build the menu entries as the official `Menu` item union, so the compiler
- * checks the shape this plugin hands to `<Menu items>`. A link that named a
- * line gets a non-selectable heading naming it, so the target is visible before
- * anything launches.
- */
-function buildItems(state: AppState, t: Translator, line: number | null): MenuEntry[] {
-  const items: MenuEntry[] = []
-  if (line !== null) items.push({ type: 'label', id: 'flo:line', text: t('atLine', { line: String(line) }) })
-  const fileManagers = (state.officialApps ?? [])
-    .filter((id): id is FileManagerId => (FILE_MANAGER_IDS as readonly string[]).includes(id))
-  // An editor is shown only when BOTH the official probe and this plugin's own
-  // resolution verified it: the two resolver copies (the host dsh's and the
-  // plugin's pinned one) may differ in version, and this intersection makes the
-  // "menu shows it, click 400s" failure impossible. Older hosts without
-  // `available` keep the official intersection only.
-  let editors: EditorId[] = []
-  if (state.info !== null) {
-    const matched = (state.officialApps ?? [])
-      .filter((id): id is EditorId => (EDITOR_IDS as readonly string[]).includes(id))
-    const available = state.info.available
-    editors = available === null || available === undefined
-      ? matched
-      : matched.filter(id => available.includes(id))
-  }
-  fileManagers.forEach((id) => {
-    items.push({ id: 'flo:fm:' + id, icon: <AppIcon id={id} size={16} />, label: t(`app.${id}`) })
-  })
-  editors.forEach((id) => {
-    items.push({ id: 'flo:app:' + id, icon: <AppIcon id={id} size={16} />, label: t(`app.${id}`) })
-  })
-  if (fileManagers.length > 0 || editors.length > 0) items.push({ type: 'separator', id: 'flo:sep-copies' })
-  items.push(
-    { id: 'flo:copy-rel', label: t('copyRelativePath') },
-    { id: 'flo:copy-abs', label: t('copyAbsolutePath') },
-  )
-  return items
-}
-
-function dispatchSelection(id: string, filePath: string, line: number | null, cwd: string | null, deps: { close(): void }) {
-  const absolute = resolveWorkspacePath(cwd, filePath)
-  // Every path closes the menu immediately: the detached launches take seconds
-  // to settle on the host, and holding the menu open for that round trip reads
-  // as "the menu never closes". Failures land in the console instead of an
-  // in-menu error row (there is no menu left to host one).
-  if (id === 'flo:copy-rel') {
-    deps.close()
-    void writeClipboard(relativizeToCwd(filePath, cwd))
-    return
-  }
-  if (id === 'flo:copy-abs') {
-    deps.close()
-    void writeClipboard(absolute)
-    return
-  }
-  if (id.startsWith('flo:fm:')) {
-    const manager = id.slice(7)
-    deps.close()
-    void postJson(OPEN_IN_APP_OPEN_ROUTE, { app: manager, path: dirnameOf(absolute) }).then((result) => {
-      if (!result.ok) {
-        console.warn('file-link-open: open in %s failed (%s)', manager, result.status, result.data)
-      }
-    })
-    return
-  }
-  if (id.startsWith('flo:app:')) {
-    const app = id.slice(8)
-    deps.close()
-    // The line rides the launch request only; copying stays a pure path so a
-    // pasted path keeps working in a terminal, a script, or another editor.
-    void postJson(LAUNCH_ROUTE, {
-      app,
-      path: absolute,
-      ...(line === null ? {} : { line }),
-    }).then((result) => {
-      if (!result.ok) {
-        console.warn('file-link-open: launch %s failed (%s)', app, result.status, result.data)
-      }
-    })
-  }
-}
-
-interface ContextState {
-  open: boolean
-  x: number
-  y: number
-  path: string | null
-  line: number | null
-  cwd: string | null
-}
-
-/** Everything the mounted menu draws from: the interaction state and the two app probes. */
-interface ContextMenuSnapshot {
-  readonly menu: ContextState
-  readonly apps: AppState
-}
-
-const closedContext = (): ContextState => ({ open: false, x: 0, y: 0, path: null, line: null, cwd: null })
-
 export function apply(ctx: ClientContext) {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'file-link-open: dictionaries')
   const t = ctx.locale.bind(NS) as Translator
 
+  const probes: { officialApps: readonly string[] | null, info: AppProbes['info'] } = {
+    officialApps: null,
+    info: null,
+  }
   /**
-   * The menu's whole state, written only through `commit` below. The controller
-   * mounted at activation mirrors this snapshot into React state, so the root
-   * tree is built ONCE: opening, closing, the cursor, the target link, a CWD
-   * change and an app probe landing later are all state updates, never another
-   * `render`. `cwd` is published by the recorder cell further down.
+   * One probe round, both routes at once; concurrent openings share it. A round
+   * that could not answer either route clears the memo, so the next right-click
+   * asks again instead of offering the copy row alone for the rest of the
+   * page's life. A dismissed opening clears it too, because the answer it was
+   * waiting for is no longer being shown to anyone.
    */
-  let snapshot: ContextMenuSnapshot = {
-    menu: closedContext(),
-    apps: { officialApps: null, info: null },
+  let probing: Promise<void> | undefined
+  const probeOnce = async (): Promise<void> => {
+    const [apps, info] = await Promise.all([
+      fetchJson(OPEN_IN_APP_APPS_ROUTE, { headers: { accept: 'application/json' } }),
+      fetchJson(INFO_ROUTE, { headers: { accept: 'application/json' } }),
+    ])
+    probes.officialApps = apps.ok ? appsOf(apps.data) : null
+    probes.info = info.ok ? infoOf(info.data) : null
+    if (!apps.ok || !info.ok) probing = undefined
   }
-  const listeners = new Set<() => void>()
+  const probe = (): Promise<void> => (probing ??= probeOnce())
+  // Warm both probes at activation, so the first right-click answers from the
+  // memoized read instead of waiting on them.
+  void probe()
 
-  function commit(next: ContextMenuSnapshot) {
-    if (next === snapshot) return
-    snapshot = next
-    for (const listener of listeners) listener()
-  }
+  /** The clicked Session's workspace root, read at resolve time rather than published by a header cell. */
+  const cwdOf = (sessionId: string): string | undefined => ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
 
-  /**
-   * Functional updates, so a probe resolving mid-interaction cannot overwrite
-   * the open it raced with — and an unchanged state notifies nobody.
-   */
-  function updateMenu(updater: (prev: ContextState) => ContextState) {
-    const menu = updater(snapshot.menu)
-    if (menu !== snapshot.menu) commit({ menu, apps: snapshot.apps })
-  }
-
-  function updateApps(updater: (prev: AppState) => AppState) {
-    const apps = updater(snapshot.apps)
-    if (apps !== snapshot.apps) commit({ menu: snapshot.menu, apps })
-  }
-
-  function openContextMenu(x: number, y: number, link: LinkTarget) {
-    updateMenu(prev => ({ ...prev, open: true, x, y, path: link.path, line: link.line }))
-  }
-
-  /** Idempotent: `Menu`'s own onClose and every selection both land here. */
-  function closeContextMenu() {
-    updateMenu(prev => (prev.open ? { ...prev, open: false } : prev))
+  const launch = async (appId: string, absolutePath: string, line: number | null): Promise<void> => {
+    // The line rides the launch request only; copying stays a pure path so a
+    // pasted path keeps working in a terminal, a script, or another editor.
+    const result = await postJson(LAUNCH_ROUTE, {
+      app: appId,
+      path: absolutePath,
+      ...(line === null ? {} : { line }),
+    })
+    if (result.ok) return
+    console.warn('file-link-open: launch %s failed (%s)', appId, result.status, result.data)
+    throw new Error(`file-link-open: launch ${appId} failed with HTTP ${String(result.status)}`)
   }
 
-  function setCwd(cwd: string | null) {
-    updateMenu(prev => (prev.cwd === cwd ? prev : { ...prev, cwd }))
+  const copy = async (text: string): Promise<void> => {
+    if (await writeClipboard(text)) return
+    // The helper never throws, so a refused write is the only failure there is.
+    throw new Error('file-link-open: the clipboard refused the write')
   }
 
-  const contextContainer = document.createElement('div')
-  contextContainer.setAttribute('data-flo-context', '1')
-  // An in-flow body child puts the Menu anchor's ~21px line box under the
-  // viewport-height #root shell and scrolls the whole page; fixed + zero size
-  // keeps it out of document height while the portaled panel (itself
-  // position:fixed) still anchors at the cursor.
-  contextContainer.style.position = 'fixed'
-  contextContainer.style.top = '0'
-  contextContainer.style.left = '0'
-  contextContainer.style.width = '0'
-  contextContainer.style.height = '0'
-  contextContainer.style.overflow = 'hidden'
-  document.body.appendChild(contextContainer)
-  const contextRoot = ReactDOMClient.createRoot(contextContainer)
+  ctx.slots.inject('contextMenu.icon', () => ctx.slots.register({
+    name: 'contextMenu.icon',
+    key: APP_ICON_KEY,
+  }, AppMenuIcon))
 
-  /**
-   * The always-mounted right-click menu over one message file link, anchored at
-   * the cursor through Menu's getAnchorRect (portal mode; the viewport clamp
-   * keeps the panel on screen). Every input it draws from is state: the open
-   * flag, the cursor, the target link, the CWD and the app probe results.
-   */
-  function ContextMenuController() {
-    const [view, setView] = React.useState<ContextMenuSnapshot>(snapshot)
-
-    React.useEffect(() => {
-      // The snapshot is the single writer of this state; a probe that landed
-      // between the first render and this effect is caught up by `notify`.
-      const notify = () => { setView(snapshot) }
-      listeners.add(notify)
-      notify()
-      return () => { listeners.delete(notify) }
-    }, [])
-
-    const menu = view.menu
-    const open = menu.open && menu.path !== null
-    const items = open
-      ? buildItems(view.apps, t, menu.line)
-      : []
-    return (
-      <Menu
-        open={open}
-        autoFocus
-        portal
-        align="start"
-        side="bottom"
-        items={items}
-        onSelect={(id: string) => {
-          if (menu.path === null) return
-          dispatchSelection(id, menu.path, menu.line, menu.cwd, { close: closeContextMenu })
-        }}
-        onClose={closeContextMenu}
-        getAnchorRect={() => {
-          const rect = { left: menu.x, right: menu.x, top: menu.y, bottom: menu.y }
-          return { ...rect, width: 0, height: 0, x: menu.x, y: menu.y, toJSON: () => ({}) }
-        }}
-        anchor={<span data-flo-context-anchor="1" />}
-      />
-    )
-  }
-
-  // The ONE build of the root tree. Everything afterwards is state.
-  contextRoot.render(<ContextMenuController />)
-
-  function onContextMenu(event: MouseEvent) {
-    const link = classifyContextTarget(event.target)
-    if (link === null) return
-    event.preventDefault()
-    openContextMenu(event.clientX, event.clientY, link)
-  }
-
-  document.addEventListener('contextmenu', onContextMenu)
-
-  /**
-   * Renders nothing: the cell exists for its standard Session props (sessionId
-   * + useSessions — the same seats the official open-in-app button consumes), to
-   * publish the viewed session's workspace directory. A subagent aside rendering
-   * its own header last would win; aside sessions share the workspace in
-   * practice.
-   */
-  function SessionCwdRecorder(props: { sessionId: string, useSessions: (selector: (sessionState: { byId: Record<string, { cwd?: string }> }) => string | undefined) => string | undefined }) {
-    const cwd = props.useSessions((sessionState) => sessionState.byId[props.sessionId]?.cwd)
-    React.useEffect(() => {
-      setCwd(cwd === undefined || cwd === '' ? null : cwd)
-    }, [cwd])
-    return null
-  }
-
-  // The official session-header utilities seat. ctx.slots.inject runs the
-  // callback per declaration lifetime and unwinds the registration when this
-  // plugin's fiber unloads — no manual disposer.
-  ctx.slots.inject('conversation.session.header.utilities', () =>
-    ctx.slots.register({
-      name: 'conversation.session.header.utilities',
-      id: 'file-link-open',
-      order: 100,
-      locale: NS,
-    }, SessionCwdRecorder))
-
-  void fetchJson(OPEN_IN_APP_APPS_ROUTE).then((result) => {
-    const apps = result.ok ? appsOf(result.data) : null
-    if (apps === null) return
-    updateApps(prev => ({ ...prev, officialApps: apps }))
-  })
-  void fetchJson(INFO_ROUTE).then((result) => {
-    const info = result.ok ? infoOf(result.data) : null
-    if (info === null) return
-    updateApps(prev => ({ ...prev, info }))
-  })
-
-  return function dispose() {
-    document.removeEventListener('contextmenu', onContextMenu)
-    listeners.clear()
-    contextRoot.unmount()
-    contextContainer.remove()
-  }
+  ctx.effect(() => ctx.contextMenus.register({
+    id: 'file-link-open',
+    target: 'file',
+    order: 200,
+    resolve: async (target, signal) => {
+      // A cold probe is not allowed to hold the shared popup open; after the
+      // warm-up above this settles in a microtask.
+      await settleWithin(probe(), FIRST_ANSWER_WAIT_MS, signal)
+      if (signal.aborted) probing = undefined
+      signal.throwIfAborted()
+      return buildFileActions(probes, target, {
+        t,
+        cwdOf,
+        icon: (appId: string): ContextMenuIcon => ({ key: APP_ICON_KEY, src: `${OPEN_IN_APP_ICON_PREFIX_ROUTE}/${appId}` }),
+        launch,
+        copy,
+      })
+    },
+  }), 'file-link-open: file context menu')
 }
 
-export const inject = ['locale', 'slots']
+export const inject = ['locale', 'slots', 'contextMenus', 'sessions']

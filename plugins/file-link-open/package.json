@@ -1,7 +1,7 @@
 {
   "name": "@banzhe/dsh-file-link-open",
   "version": "0.2.3",
-  "description": "Right-click context menu over file links in session messages: open the file in a detected editor/IDE, open its containing folder in the platform file manager, or copy its relative/absolute path. App resolution reuses the official open-in-app catalog resolver; visibility follows the official open-in-app probe; icons come from the official icon route.",
+  "description": "Right-click context menu over file links in session messages: open the file in a detected editor/IDE, at the line the link names, or copy its workspace-relative path. App resolution reuses the official open-in-app catalog resolver; visibility follows the official open-in-app probe; icons come from the official icon route.",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/banzhe/dsh-plugins.git",
@@ -40,7 +40,6 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-client-locale",
-        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-client-ui-renderer"
       ]
     },

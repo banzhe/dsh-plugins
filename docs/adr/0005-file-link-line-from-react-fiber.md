@@ -1,5 +1,7 @@
 # File-link line number from the React fiber
 
+> Retired: the line now arrives on the official `file` context-menu target (`ContextMenuTargetMap['file'].line`), so the fiber walk this ADR decided was deleted with `src/client/target.ts`, `tests/link-target.spec.tsx` and `tests/official-renderer-contract.spec.ts`. The design and its accepted trade below are history, not shipped code.
+
 A markdown file link may name a line — `[source](src/a.ts#L24)`, or the range form `#L24-L30`. The official renderer parses that fragment, but it consumes the result inside its own component: `MarkdownFileLink` passes `{ line }` to the `openFile` delegate and never writes the line to an attribute. At the time of this decision the button's `title` carried the path and nothing else, so the DOM supplied the path but never the line. (That premise was later weakened — see the amendment below.)
 
 The line is read from the link button's React fiber instead — the nearest ancestor fiber whose `memoizedProps.file` is a destination object whose `path` equals the button's own `title`. Measured against the installed renderer: one hop from the button to `MarkdownFileLink` (React `memo`, fiber tag 15). Requiring the path to match the button's `title` is what makes it exact rather than a guess: an unrelated ancestor that happens to own a prop named `file` (a deliverable card, for instance) is rejected, and the walk is bounded to 6 hops so a rename cannot turn a right-click into a tree traversal.
