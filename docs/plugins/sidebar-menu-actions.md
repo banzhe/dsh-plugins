@@ -2,60 +2,72 @@
 
 Moved out of the plugin's README, which now covers only features and installation.
 
-## DOM contract (Workspace menu graft)
+## Contribution contract
 
-DSH upgrades may move these; the tests build fixtures from the same
-description. All selectors are read on the live document:
+The rows are data contributions to the official Workspace context menu, not DOM
+grafts. The menu belongs to `@deepseek-ai/dsh-client-ui-context-menu`, which the
+Web application bundle mounts; this plugin injects the `contextMenus` service and
+registers one contribution against the `workspace` target family that
+`ui-workspace` declares and its row "..." trigger captures.
 
-| Fact | Selector / rule |
+| Fact | Value |
 |---|---|
-| Real Workspace header row | `[data-row-key^="workspace:"]`, non-empty suffix after `workspace:` (ungrouped bucket has an empty suffix and no menu) |
-| The "..." trigger | the row's **first** `button` (the second is New session) |
-| Arming gestures | capture `pointerdown`, or `keydown` of `Enter`/`Space`, with the target inside that first button |
-| Open menu portal | a `div[role="menu"]` added as a direct child of `document.body` |
-| Menu rows | one wrapper div per `button[role="menuitem"]` inside the `div[role="presentation"]` viewport; rename first, danger delete last; each button has an icon span (`span[class*="itemIcon"]`, wrapping the keyed `span[data-slot="contextMenu.icon"]`) then a label span (`span[class*="itemLabel"]`) |
-| Injected rows | clones of the rename wrapper; the icon slot (or the icon span when the row carries no slot) gets the inline glyph, the label span gets the dictionary text, marker `data-menu-actions="vscode"` / `="explorer"` / `="copy-path"` (per-row idempotency guard), each inserted **before** the delete wrapper in that order |
-| Menu close | `document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape'}))` — the primitive listens for it while open |
-| Injection guards | arm consumed on the first portal-menu appearance; injected only when the armed trigger is still connected and `document.activeElement` is the trigger, `document.body`, or inside that menu |
+| Contribution id | `sidebar-menu-actions.workspace` (unique within the `workspace` family) |
+| Target | `workspace` — the captured row's `workspaceId`, `path`, and `displayTitle` |
+| Order | `110`: after the shipped rename row (100), before the official `open-in-app.workspace` reveal row (200) and the shipped danger delete row (300) — the position the rows had as grafts |
+| Row ids | `vscode`, `explorer`, `copy-path`, in that order |
+| Row icons | keyed `contextMenu.icon` registrations `sidebar-menu-actions.vscode`, `sidebar-menu-actions.explorer`, `sidebar-menu-actions.copy-path` |
+| Trigger | the row's own "..." button (the official `contextMenu.button` factory, or the row's right-click / Shift+F10); the ungrouped bucket has no Workspace id and therefore no menu |
 
-A stale arm from a cancelled press therefore never reaches a Session row's
-menu (Session rows key `data-row-key="session:..."`, which never matches).
+The plugin owns no element, stylesheet, document listener, observer, or timer.
+Every registration is released through `ctx.effect` or `ctx.slots.inject`, so
+disabling the Bundle withdraws the rows, their glyphs, and their dictionaries
+with the rest of its fiber.
 
-## Why DOM surgery
+## Availability gate
 
-The shipped menu is hard-coded — ui-workspace's `ProjectRowItem` renders
-`[{rename},{delete}]` as data rows with **no slot** to register into — so the
-plugin grafts rows into the open portal menu by DOM instead.
+The two launch rows need the Host: **Open in VS Code** and **Open in File
+Browser** are built only for a catalog id the Host resolved. One warm
+`GET open-in-app/apps` per page feeds them (`probe.ts`):
+
+- The read starts at activation. A menu resolution waits at most 300 ms for it;
+  a round still in flight after that keeps running and answers the next opening,
+  so a probe that settles late still adds the rows to a later menu. Only an
+  answered read costs no request: while one is in flight every menu shares it.
+- A dismissed menu stops waiting and reports its own abort reason; it never
+  cancels the shared read, and it does not ask again — a resolution that is
+  already aborted returns before any request or wait.
+- A round that cannot answer (non-2xx, a body without `apps`, or a rejected
+  fetch) clears the memo, so the next opening asks again instead of losing the
+  rows for the rest of the page's life.
+- One `console.warn` per unanswered catalog id says which row is missing; a
+  catalog that could not be read logs one line with the HTTP status or message.
+- **The file-browser row is Windows-only with no platform sniff.** The official
+  open-in-app catalog declares `explorer` on `win32` alone, so a Windows Host
+  reports it and any other Host reports `vscode` only. Its launcher is the
+  catalog's own entry — the OS's open verb for a directory — which honors
+  whichever file browser the user configured as the default, rather than naming
+  `explorer.exe`.
+- **Copy workspace path** needs nothing from the Host and is always built.
 
 ## Behaviour notes
 
-- The **Copy workspace path** row is browser-local (one `writeClipboard` call)
-  and is always grafted.
-- The two launch rows need the Host: **Open in VS Code** and **Open in File
-  Browser**. One `GET open-in-app/apps` per page sets the set of catalog ids
-  their grafts read; a fetch error, a non-2xx answer, or a missing id leaves
-  that one row out (plus one `console.warn` per missing id). The copy row is
-  unaffected, and a probe that settles after a menu was already opened still
-  adds the rows to the next one.
-- The **file-browser row is Windows-only with no platform sniff**. The official
-  open-in-app catalog declares `explorer` on `win32` alone, so the probe reports
-  it only on a Windows Host. Its launcher is the catalog's `shell-open` entry —
-  the OS's open verb for a directory — which honors whichever file browser the
-  user has configured as the default, rather than naming `explorer.exe`. A
-  macOS or Linux Host reports `vscode` but never `explorer`, so exactly that one
-  row stays out.
-- Workspace path resolution reads `ctx.workspaces.list` at click time; a row
-  whose Workspace vanished dispatches Escape and sends/writes nothing.
-- Launch failures (non-2xx or rejected fetch) show `toast.vscodeFailed` /
-  `toast.fileBrowserFailed` with the HTTP status or error message, after the
-  menu has closed; a refused clipboard write shows `toast.copyFailed` the same
-  way.
-- Notices are the shipped `Toast` primitive rendered by the plugin's
-  `shell.overlay` entry: one at a time, each replacing the last, and a repeat
-  of the same text restarts the banner rather than extending it. The plugin
-  owns no element, stylesheet, or timer of its own.
-- Labels and notices follow the app locale through the `menu-actions`
-  namespace (zh/en).
+- The Workspace directory is resolved when a row RUNS, not when the menu opened:
+  the contribution reads the `ctx.workspaces` snapshot by the captured id. A
+  Workspace that left the registry launches and copies nothing; the shared menu
+  closes on selection either way, exactly like a shipped row.
+- A launch POSTs open-in-app's `{app, path}`. Both failure shapes — a non-2xx
+  answer and a rejected request — are caught inside the row, so the row never
+  rejects into the menu's own failure notice: one `console.warn` and one
+  `toast.vscodeFailed` / `toast.fileBrowserFailed` notice carry the HTTP status
+  or error message.
+- A copy is browser-local and reports itself: `toast.pathCopied` on success, and
+  `toast.copyFailed` after a refused clipboard write.
+- Notices are the shared context-menu toast (`ctx.contextMenus.notify`), so the
+  plugin renders no banner of its own and two rows can never raise two toasts for
+  one selection.
+- Labels and notices follow the app locale through the `menu-actions` namespace
+  (zh/en).
 
 ## Live patch (dev loop)
 

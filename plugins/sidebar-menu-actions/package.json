@@ -40,7 +40,9 @@
       "platform": "web",
       "inject": [
         "@deepseek-ai/dsh-api-workspace-controller",
-        "@deepseek-ai/dsh-client-locale"
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-context-menu",
+        "@deepseek-ai/dsh-client-ui-renderer"
       ]
     },
     "bundle": {
