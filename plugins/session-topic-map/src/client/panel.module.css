@@ -130,11 +130,6 @@
   stroke-width: 1.2;
 }
 
-.edge[data-kind='merge'] {
-  stroke-dasharray: 4 3;
-  stroke: var(--dsw-alias-state-business-primary);
-}
-
 .node {
   cursor: pointer;
 }

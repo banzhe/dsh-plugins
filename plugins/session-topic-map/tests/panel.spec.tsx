@@ -98,6 +98,14 @@ function buttonWithText(container: HTMLElement, text: string): HTMLButtonElement
   return Array.from(container.querySelectorAll('button')).find((button) => button.textContent?.trim() === text)
 }
 
+function nodeGroup(container: HTMLElement, id: string): SVGGElement | null {
+  return container.querySelector<SVGGElement>(`[data-session-topic-map-node="${id}"]`)
+}
+
+function rectPosition(group: SVGGElement | null): { readonly x: string | null; readonly y: string | null } {
+  const rect = group?.querySelector('rect')
+  return { x: rect?.getAttribute('x') ?? null, y: rect?.getAttribute('y') ?? null }
+}
 async function settle(ms = 0): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms)
@@ -258,6 +266,103 @@ describe('SessionTopicMapBody', () => {
     expect(postCalls(harness)).toHaveLength(before)
   })
 
+  it('renders one independent node per topic, each keyed n-<seq>#<topic>', async () => {
+    const batch: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha', 'beta'] }] }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    expect(container.querySelectorAll('[data-session-topic-map-node]')).toHaveLength(2)
+    expect(nodeGroup(container, 'n-2#alpha')).not.toBeNull()
+    expect(nodeGroup(container, 'n-2#beta')).not.toBeNull()
+  })
+
+  it('percent-encodes non-ASCII and spaced topics in the node id', async () => {
+    const batch: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['主题 a'] }] }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    expect(nodeGroup(container, 'n-2#%E4%B8%BB%E9%A2%98%20a')).not.toBeNull()
+  })
+
+  it('renders each node as a focusable button labelled with the focus copy', async () => {
+    const batch: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha'] }] }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    const group = nodeGroup(container, 'n-2#alpha')
+    expect(group?.getAttribute('role')).toBe('button')
+    expect(group?.getAttribute('tabindex')).toBe('0')
+    expect(group?.getAttribute('aria-label')).toBe(t('node.focus'))
+    expect(group?.querySelector('rect')?.getAttribute('rx')).toBe('8')
+  })
+
+  it('labels a node with its single topic and a bare #seq meta text', async () => {
+    const batch: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha'] }] }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    const texts = Array.from(nodeGroup(container, 'n-2#alpha')?.querySelectorAll('text') ?? []).map((el) => el.textContent ?? '')
+    expect(texts).toContain('alpha')
+    expect(texts).toContain('#2')
+    expect(texts.some((text) => text.includes('·'))).toBe(false)
+  })
+
+  it('truncates topic labels longer than 10 characters to 9 characters plus an ellipsis', async () => {
+    const batch: AnalysisBatch = {
+      fromSeq: 1,
+      toSeq: 4,
+      turn: 1,
+      contributions: [{ seq: 2, turn: 1, topics: ['abcdefghijkl', 'abcdefghij'] }],
+    }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    const longTexts = Array.from(nodeGroup(container, 'n-2#abcdefghijkl')?.querySelectorAll('text') ?? []).map((el) => el.textContent ?? '')
+    expect(longTexts).toContain('abcdefghi…')
+    expect(longTexts).not.toContain('abcdefghijkl')
+
+    const exactTexts = Array.from(nodeGroup(container, 'n-2#abcdefghij')?.querySelectorAll('text') ?? []).map((el) => el.textContent ?? '')
+    expect(exactTexts).toContain('abcdefghij')
+  })
+
+  it('places topics of the same reply on the same row (y) in different lanes (x)', async () => {
+    const batch: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha', 'beta'] }] }
+    harness.stateGraphFor = () => applyAnalysis(EMPTY_PROGRESS_GRAPH, batch)
+
+    await mount('s1')
+
+    const alpha = rectPosition(nodeGroup(container, 'n-2#alpha'))
+    const beta = rectPosition(nodeGroup(container, 'n-2#beta'))
+    expect(alpha.y).not.toBeNull()
+    expect(alpha.y).toBe(beta.y)
+    expect(alpha.x).not.toBeNull()
+    expect(beta.x).not.toBeNull()
+    expect(alpha.x).not.toBe(beta.x)
+  })
+
+  it('keeps a topic in one lane across replies, moves it down by seq, and links it with a branch edge but no merge edge', async () => {
+    const batchOne: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha'] }] }
+    const batchTwo: AnalysisBatch = { fromSeq: 5, toSeq: 8, turn: 2, contributions: [{ seq: 6, turn: 2, topics: ['alpha'] }] }
+    harness.stateGraphFor = () => applyAnalysis(applyAnalysis(EMPTY_PROGRESS_GRAPH, batchOne), batchTwo)
+
+    await mount('s1')
+
+    const first = rectPosition(nodeGroup(container, 'n-2#alpha'))
+    const second = rectPosition(nodeGroup(container, 'n-6#alpha'))
+    expect(first.x).not.toBeNull()
+    expect(first.y).not.toBeNull()
+    expect(second.y).not.toBeNull()
+    expect(second.x).toBe(first.x)
+    expect(Number(second.y)).toBeGreaterThan(Number(first.y))
+
+    expect(container.querySelectorAll('path[data-kind="branch"]').length).toBeGreaterThan(0)
+    expect(container.querySelector('[data-kind="merge"]')).toBeNull()
+  })
   it('draws one box per node and focuses the transcript row of that node own turn', async () => {
     const batchOne: AnalysisBatch = { fromSeq: 1, toSeq: 4, turn: 1, contributions: [{ seq: 2, turn: 1, topics: ['alpha'] }] }
     const batchTwo: AnalysisBatch = { fromSeq: 5, toSeq: 8, turn: 2, contributions: [{ seq: 6, turn: 2, topics: ['beta'] }] }

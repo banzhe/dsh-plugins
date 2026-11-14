@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import type { StreamChunk } from '@deepseek-ai/dsh-llm'
 import { DomainFacility } from '@deepseek-ai/dsh-storage-domain'
 import { describe, expect, it, vi } from 'vitest'
-import { SESSION_TOPIC_TABLE, sessionTopicDomainSpec, storedRecord as recordOf } from '../src/domain.ts'
+import { SESSION_TOPIC_TABLE, sessionTopicDomainSpec, storedRecord as recordOf, type LegacyV2TopicRecord } from '../src/domain.ts'
 import { applyAnalysis, EMPTY_PROGRESS_GRAPH } from '../src/progress-graph.ts'
 import { apply, inject, name } from '../src/routes.ts'
 import { ANALYZE_PATH, MODELS_PATH, STATE_PATH } from '../src/shared.ts'
@@ -233,8 +233,19 @@ function bench(): Bench {
   }
 }
 
-function storedRecord(benchmark: Bench): { schemaVersion?: number } | undefined {
-  return benchmark.tables.get(SESSION_TOPIC_TABLE)?.get('s-1') as { schemaVersion?: number } | undefined
+interface StoredRecordView {
+  readonly schemaVersion?: number
+  readonly turnsVerified?: boolean
+  readonly updatedAt?: string
+  readonly graph?: {
+    readonly checkpoint: number
+    readonly turn: number
+    readonly nodes: readonly { readonly id: string, readonly turn: number }[]
+  }
+}
+
+function storedRecord(benchmark: Bench): StoredRecordView | undefined {
+  return benchmark.tables.get(SESSION_TOPIC_TABLE)?.get('s-1') as StoredRecordView | undefined
 }
 
 const ANALYZE_BODY = (sessionId: string, confirm: unknown = true): string => JSON.stringify({ sessionId, provider: 'p', model: 'm', confirm })
@@ -242,7 +253,18 @@ const ANALYZE_BODY = (sessionId: string, confirm: unknown = true): string => JSO
 interface StateGraph {
   readonly checkpoint: number
   readonly turn: number
-  readonly nodes: readonly { readonly id: string, readonly turn: number, readonly topics: readonly string[] }[]
+  readonly nodes: readonly {
+    readonly id: string
+    readonly seq: number
+    readonly turn: number
+    readonly topic: string
+    readonly parents: readonly string[]
+  }[]
+  readonly edges: readonly {
+    readonly from: string
+    readonly to: string
+    readonly kind: string
+  }[]
 }
 
 function graphOf(fake: FakeResponse): StateGraph {
@@ -352,7 +374,8 @@ describe('session topic map routes', () => {
       const payload = jsonOf(fake) as { graph: StateGraph, analyzed: { fromSeq: number, toSeq: number, messages: number, topics: number } }
       expect(payload.analyzed).toEqual({ fromSeq: 0, toSeq: 1, messages: 1, topics: 1 })
       expect(payload.graph.checkpoint).toBe(1)
-      expect(payload.graph.nodes.map(node => node.topics)).toEqual([['主题图']])
+      expect(payload.graph.nodes.map(node => node.topic)).toEqual(['主题图'])
+      expect(payload.graph.nodes[0]?.id).toBe('n-1#%E4%B8%BB%E9%A2%98%E5%9B%BE')
       expect(benchmark.send).toHaveBeenCalledTimes(1)
 
       const state = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
@@ -463,7 +486,7 @@ describe('session topic map routes', () => {
       const second = await benchmark.boot()
       const state = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
       expect(graphOf(state).checkpoint).toBe(1)
-      expect(graphOf(state).nodes.map(node => node.topics)).toEqual([['主题图']])
+      expect(graphOf(state).nodes.map(node => node.topic)).toEqual(['主题图'])
 
       benchmark.appendTo('s-1', { type: 'user/message', seq: 2, turn: 2, text: '第二轮' })
       benchmark.setAnswer('{"topics":[{"label":"第二轮主题","seq":2}]}')
@@ -542,8 +565,8 @@ describe('answers that name no in-range topic', () => {
     benchmark.appendTo('s-1', { type: 'user/message', seq: 1, turn: 1, text: '乙' })
     const fake = await benchmark.call(ANALYZE_PATH, 'POST', '', { body: ANALYZE_BODY('s-1'), contentType: 'application/json' })
     expect(fake.statusCode).toBe(200)
-    const payload = jsonOf(fake) as { graph: { nodes: { topics: string[] }[] } }
-    expect(payload.graph.nodes.map(node => node.topics)).toEqual([['范围内']])
+    const payload = jsonOf(fake) as { graph: { nodes: { topic: string }[] } }
+    expect(payload.graph.nodes.map(node => node.topic)).toEqual(['范围内'])
   })
 })
 
@@ -558,7 +581,7 @@ describe('state re-anchoring of stored turns', () => {
       contributions: [{ seq: 2, turn: 1, topics: ['a'] }],
     })
     const current = recordOf(graph, STORED_AT, mode !== 'unverified')
-    const record = mode === 'omitted' ? { schemaVersion: 2 as const, graph: current.graph, updatedAt: STORED_AT } : current
+    const record = mode === 'omitted' ? { schemaVersion: 3 as const, graph: current.graph, updatedAt: STORED_AT } : current
     const domain = await benchmark.facility.open(sessionTopicDomainSpec)
     await domain.table(SESSION_TOPIC_TABLE).put('s-1', record)
     await domain.close()
@@ -582,7 +605,7 @@ describe('state re-anchoring of stored turns', () => {
     expect(jsonOf(fake).updatedAt).toBe(STORED_AT)
     expect(benchmark.readSessionCount()).toBe(1)
 
-    const stored = storedRecord(benchmark) as { turnsVerified?: boolean, updatedAt?: string, graph?: { nodes: { turn: number }[] } } | undefined
+    const stored = storedRecord(benchmark)
     expect(stored?.turnsVerified).toBe(true)
     expect(stored?.updatedAt).toBe(STORED_AT)
     expect(stored?.graph?.nodes[0]?.turn).toBe(3)
@@ -620,7 +643,7 @@ describe('state re-anchoring of stored turns', () => {
     const fake = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
     expect(fake.statusCode).toBe(200)
     expect(graphOf(fake).nodes[0]?.turn).toBe(1)
-    const stored = storedRecord(benchmark) as { turnsVerified?: boolean } | undefined
+    const stored = storedRecord(benchmark)
     expect(stored?.turnsVerified).not.toBe(true)
   })
 
@@ -642,7 +665,7 @@ describe('state re-anchoring of stored turns', () => {
   })
 })
 describe('legacy version-1 records', () => {
-  it('answers the empty graph for a stored version-1 record and replaces it with a version-2 record after analysis', async () => {
+  it('answers the empty graph for a stored version-1 record and replaces it with a version-3 record after analysis', async () => {
     const benchmark = bench()
     benchmark.setAnswer('{"topics":[{"label":"新主题","seq":2}]}')
     const legacy = {
@@ -668,11 +691,179 @@ describe('legacy version-1 records', () => {
     benchmark.appendTo('s-1', { type: 'user/message', seq: 2, turn: 2, text: '新消息' })
     const fake = await benchmark.call(ANALYZE_PATH, 'POST', '', { body: ANALYZE_BODY('s-1'), contentType: 'application/json' })
     expect(fake.statusCode).toBe(200)
-    const payload = jsonOf(fake) as { graph: { nodes: { id: string, topics: readonly string[] }[] } }
-    expect(payload.graph.nodes).toEqual([expect.objectContaining({ id: 'n-2', topics: ['新主题'] })])
+    const payload = jsonOf(fake) as { graph: { nodes: { id: string, topic: string }[] } }
+    expect(payload.graph.nodes).toEqual([expect.objectContaining({ id: 'n-2#%E6%96%B0%E4%B8%BB%E9%A2%98', topic: '新主题' })])
 
     const stored = benchmark.tables.get(SESSION_TOPIC_TABLE)?.get('s-1') as { schemaVersion?: number } | undefined
-    expect(stored?.schemaVersion).toBe(2)
+    expect(stored?.schemaVersion).toBe(3)
+  })
+})
+
+describe('legacy version-2 migration and v3 topic isolation', () => {
+  const V2_UPDATED_AT = '2026-01-03T00:00:00.000Z'
+
+  async function seedV2(benchmark: Bench, options: { turnsVerified?: boolean, checkpoint?: number, turn?: number } = {}): Promise<void> {
+    const v2: LegacyV2TopicRecord = {
+      schemaVersion: 2,
+      ...(options.turnsVerified !== undefined ? { turnsVerified: options.turnsVerified } : {}),
+      graph: {
+        nodes: [
+          { id: 'n-1', seq: 1, turn: 1, topics: ['主题甲', '主题乙'], parents: [] },
+          { id: 'n-2', seq: 2, turn: 1, topics: ['主题甲'], parents: ['n-1'] },
+        ],
+        edges: [{ from: 'n-1', to: 'n-2', kind: 'branch' }],
+        checkpoint: options.checkpoint ?? 2,
+        turn: options.turn ?? 1,
+      },
+      updatedAt: V2_UPDATED_AT,
+    }
+    const domain = await benchmark.facility.open(sessionTopicDomainSpec)
+    await domain.table(SESSION_TOPIC_TABLE).put('s-1', v2)
+    await domain.close()
+  }
+
+  it('migrates a verified v2 record to v3 on state read with no log or model call, preserving turnsVerified, updatedAt, checkpoint, and turn', async () => {
+    const benchmark = bench()
+    await seedV2(benchmark, { turnsVerified: true, checkpoint: 5, turn: 3 })
+    await benchmark.boot()
+
+    const state = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
+    expect(state.statusCode).toBe(200)
+    expect(benchmark.readSessionCount()).toBe(0)
+    expect(benchmark.send).not.toHaveBeenCalled()
+    expect(jsonOf(state).updatedAt).toBe(V2_UPDATED_AT)
+
+    const graph = graphOf(state)
+    expect(graph.checkpoint).toBe(5)
+    expect(graph.turn).toBe(3)
+    expect(graph.nodes.map(node => node.id)).toEqual([
+      'n-1#%E4%B8%BB%E9%A2%98%E7%94%B2',
+      'n-1#%E4%B8%BB%E9%A2%98%E4%B9%99',
+      'n-2#%E4%B8%BB%E9%A2%98%E7%94%B2',
+    ])
+    expect(graph.edges).toEqual([
+      { from: 'n-1#%E4%B8%BB%E9%A2%98%E7%94%B2', to: 'n-2#%E4%B8%BB%E9%A2%98%E7%94%B2', kind: 'branch' },
+    ])
+
+    const persisted = storedRecord(benchmark)
+    expect(persisted?.schemaVersion).toBe(3)
+    expect(persisted?.turnsVerified).toBe(true)
+    expect(persisted?.updatedAt).toBe(V2_UPDATED_AT)
+    expect(persisted?.graph?.checkpoint).toBe(5)
+    expect(persisted?.graph?.turn).toBe(3)
+    expect(persisted?.graph?.nodes).toHaveLength(3)
+
+    const again = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
+    expect(again.statusCode).toBe(200)
+    expect(benchmark.readSessionCount()).toBe(0)
+  })
+
+  it('re-anchors turns and migrates an unverified v2 record to v3 on state read', async () => {
+    const benchmark = bench()
+    await seedV2(benchmark)
+    await benchmark.boot()
+    benchmark.appendTo('s-1', { type: 'turn/start', seq: 0, turn: 4, text: '' })
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 1, turn: 4, text: '问' })
+    benchmark.appendTo('s-1', { type: 'assistant/message', seq: 2, turn: 4, text: '答' })
+
+    const state = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
+    expect(state.statusCode).toBe(200)
+    expect(benchmark.readSessionCount()).toBe(1)
+    expect(benchmark.send).not.toHaveBeenCalled()
+    expect(jsonOf(state).updatedAt).toBe(V2_UPDATED_AT)
+    expect(graphOf(state).nodes.map(node => node.turn)).toEqual([4, 4, 4])
+
+    const persisted = storedRecord(benchmark)
+    expect(persisted?.schemaVersion).toBe(3)
+    expect(persisted?.turnsVerified).toBe(true)
+    expect(persisted?.updatedAt).toBe(V2_UPDATED_AT)
+  })
+
+  it('migrates an unverified v2 record to v3 with turnsVerified false when the log cannot be read, then verifies once readable', async () => {
+    const benchmark = bench()
+    await seedV2(benchmark, { turnsVerified: false, checkpoint: 2, turn: 1 })
+    await benchmark.boot()
+    benchmark.setSessionsReadable(false)
+
+    const state = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
+    expect(state.statusCode).toBe(200)
+    expect(jsonOf(state).updatedAt).toBe(V2_UPDATED_AT)
+    expect(graphOf(state).nodes.map(node => node.turn)).toEqual([1, 1, 1])
+
+    const persisted = storedRecord(benchmark)
+    expect(persisted?.schemaVersion).toBe(3)
+    expect(persisted?.turnsVerified).toBe(false)
+    expect(persisted?.updatedAt).toBe(V2_UPDATED_AT)
+
+    benchmark.setSessionsReadable(true)
+    benchmark.appendTo('s-1', { type: 'turn/start', seq: 0, turn: 7, text: '' })
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 1, turn: 7, text: '问' })
+    benchmark.appendTo('s-1', { type: 'assistant/message', seq: 2, turn: 7, text: '答' })
+
+    const recovered = await benchmark.call(STATE_PATH, 'GET', '?sessionId=s-1')
+    expect(recovered.statusCode).toBe(200)
+    expect(graphOf(recovered).nodes.map(node => node.turn)).toEqual([7, 7, 7])
+    expect(storedRecord(benchmark)?.turnsVerified).toBe(true)
+  })
+
+  it('migrates a v2 record on POST /analyze when no new events sit past checkpoint, with no model call', async () => {
+    const benchmark = bench()
+    await seedV2(benchmark, { turnsVerified: true, checkpoint: 2, turn: 1 })
+    await benchmark.boot()
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 1, turn: 1, text: '一' })
+    benchmark.appendTo('s-1', { type: 'assistant/message', seq: 2, turn: 1, text: '二' })
+
+    const fake = await benchmark.call(ANALYZE_PATH, 'POST', '', { body: ANALYZE_BODY('s-1'), contentType: 'application/json' })
+    expect(fake.statusCode).toBe(200)
+    expect(benchmark.send).not.toHaveBeenCalled()
+    expect((jsonOf(fake).analyzed as { messages: number }).messages).toBe(0)
+    const persisted = storedRecord(benchmark)
+    expect(persisted?.schemaVersion).toBe(3)
+    expect(persisted?.updatedAt).toBe(V2_UPDATED_AT)
+    expect(persisted?.graph?.checkpoint).toBe(2)
+    expect(persisted?.graph?.turn).toBe(1)
+  })
+
+  it('continues incremental analysis directly from a v2 record without re-analyzing prior messages', async () => {
+    const benchmark = bench()
+    await seedV2(benchmark, { turnsVerified: true, checkpoint: 2, turn: 1 })
+    await benchmark.boot()
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 1, turn: 1, text: '旧甲' })
+    benchmark.appendTo('s-1', { type: 'assistant/message', seq: 2, turn: 1, text: '旧乙' })
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 3, turn: 2, text: '继续主题乙' })
+    benchmark.setAnswer('{"topics":[{"label":"主题乙","seq":3}]}')
+
+    const fake = await benchmark.call(ANALYZE_PATH, 'POST', '', { body: ANALYZE_BODY('s-1'), contentType: 'application/json' })
+    expect(fake.statusCode).toBe(200)
+    expect(benchmark.send).toHaveBeenCalledTimes(1)
+    const prompt = JSON.stringify(benchmark.send.mock.calls[0]?.[0])
+    expect(prompt).toContain('继续主题乙')
+    expect(prompt).not.toContain('旧甲')
+    expect(prompt).toContain('主题乙')
+
+    const graph = graphOf(fake)
+    expect(graph.checkpoint).toBe(3)
+    expect(graph.edges).toEqual([
+      { from: 'n-1#%E4%B8%BB%E9%A2%98%E7%94%B2', to: 'n-2#%E4%B8%BB%E9%A2%98%E7%94%B2', kind: 'branch' },
+      { from: 'n-1#%E4%B8%BB%E9%A2%98%E4%B9%99', to: 'n-3#%E4%B8%BB%E9%A2%98%E4%B9%99', kind: 'branch' },
+    ])
+    expect(storedRecord(benchmark)?.schemaVersion).toBe(3)
+  })
+
+  it('creates independent per-(seq, topic) nodes when one message advances multiple topics', async () => {
+    const benchmark = bench()
+    await benchmark.boot()
+    benchmark.appendTo('s-1', { type: 'user/message', seq: 0, turn: 1, text: '同时推进甲和乙' })
+    benchmark.setAnswer('{"topics":[{"label":"甲","seq":0},{"label":"乙","seq":0}]}')
+
+    const fake = await benchmark.call(ANALYZE_PATH, 'POST', '', { body: ANALYZE_BODY('s-1'), contentType: 'application/json' })
+    expect(fake.statusCode).toBe(200)
+    const graph = graphOf(fake)
+    expect(graph.nodes.map(node => ({ id: node.id, topic: node.topic, parents: node.parents }))).toEqual([
+      { id: 'n-0#%E7%94%B2', topic: '甲', parents: [] },
+      { id: 'n-0#%E4%B9%99', topic: '乙', parents: [] },
+    ])
+    expect(graph.edges).toEqual([])
   })
 })
 

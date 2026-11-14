@@ -59,8 +59,8 @@ interface ModelChoice {
   readonly model: string
 }
 
-/** Longest topic list a box draws before it is truncated. */
-const MAX_DRAWN_TOPICS = 10
+/** Longest topic label a box draws before it is truncated. */
+const MAX_DRAWN_TOPIC = 10
 
 /** The provider's first model, which is the one a pick starts on. */
 function firstChoiceOf(provider: TopicProvider): ModelChoice | null {
@@ -76,9 +76,8 @@ function firstChoiceOfAny(providers: readonly TopicProvider[]): ModelChoice | nu
   return null
 }
 
-function drawnTopics(topics: readonly string[]): string {
-  const joined = topics.join(' · ')
-  return joined.length <= MAX_DRAWN_TOPICS ? joined : joined.slice(0, MAX_DRAWN_TOPICS - 1) + '…'
+function drawnTopic(topic: string): string {
+  return topic.length <= MAX_DRAWN_TOPIC ? topic : topic.slice(0, MAX_DRAWN_TOPIC - 1) + '…'
 }
 
 /**
@@ -96,9 +95,9 @@ function describeFailure(t: SessionTopicMapBodyProps['t'], failure: TopicFailure
   return t('failure.body')
 }
 
-/** The meta row: the reply's own seq and how many topics it advanced. */
-function metaOf(node: { readonly seq: number; readonly topics: readonly string[] }, count: string): string {
-  return ['#' + String(node.seq), count].join(' · ')
+/** The meta row: the reply's own seq. */
+function metaOf(node: { readonly seq: number }): string {
+  return '#' + String(node.seq)
 }
 
 /**
@@ -354,10 +353,8 @@ export function SessionTopicMapBody({ t, sessionId }: SessionTopicMapBodyProps):
                   }}
                 >
                   <rect x={node.x} y={node.y} width={node.width} height={node.height} rx={8} />
-                  <text className={css.nodeLabel} x={node.x + 10} y={node.y + 19}>{drawnTopics(node.topics)}</text>
-                  <text className={css.nodeMeta} x={node.x + 10} y={node.y + 34}>
-                    {metaOf(node, t('node.count', { count: node.topics.length }))}
-                  </text>
+                  <text className={css.nodeLabel} x={node.x + 10} y={node.y + 19}>{drawnTopic(node.topic)}</text>
+                  <text className={css.nodeMeta} x={node.x + 10} y={node.y + 34}>{metaOf(node)}</text>
                 </g>
               ))}
             </svg>

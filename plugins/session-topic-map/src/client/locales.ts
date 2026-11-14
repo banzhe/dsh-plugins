@@ -25,7 +25,6 @@ export const zh = {
   'failure.network': '无法连接 Host，请检查连接。',
   'failure.http': 'Host 拒绝了这次请求（HTTP {status}）。',
   'failure.body': 'Host 返回了无法识别的响应。',
-  'node.count': '{count} 个主题',
   'node.focus': '定位这条消息',
 } as const
 
@@ -55,6 +54,5 @@ export const en: Record<SessionTopicMapKey, string> = {
   'failure.network': 'The Host could not be reached.',
   'failure.http': 'The Host refused the request (HTTP {status}).',
   'failure.body': 'The Host sent an unreadable response.',
-  'node.count': '{count} topics',
   'node.focus': 'Jump to this message',
 }

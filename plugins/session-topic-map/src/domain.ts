@@ -2,43 +2,40 @@
  * Where one Session's progress graph lives.
  *
  * Persistence is per Session — one record keyed by the Session id — because a
- * graph is derived from that Session's own log and nothing else: a second Session
- * has its own conversation, its own checkpoint, and its own topics.
+ * graph is derived from that Session's own log and nothing else.
  *
- * The stored record carries its own `schemaVersion`. Version 2 keys nodes by
- * message seq and stores each node's topics; version 1 keyed them by topic label
- * and stored per-topic sources, which is a different graph, not a different
- * spelling of this one. A version-1 record is therefore accepted by the schema
- * (so opening the domain over old media still succeeds) but recognized and never
- * read as the current schema: {@link currentGraphOf} answers `null` for it and
- * the Session starts from an empty graph, which the next successful analysis
- * overwrites with a version-2 record. The domain keeps its version stamp because
- * the stored layout did not change and refusing the old medium would fail the
- * whole open.
+ * The stored record carries its own `schemaVersion`:
+ * - Version 3 (current) stores independent per-`(seq, topic)` nodes with `branch` edges.
+ * - Version 2 (legacy, migratable) keyed nodes by message `seq` with `topics[]`;
+ *   {@link currentGraphOf} projects it purely into a version-3 graph without
+ *   calling a model or reading the Session log, and {@link needsGraphMigration}
+ *   reports that it should be re-persisted in version-3 format.
+ * - Version 1 (legacy, unreadable) keyed nodes by topic label with per-topic
+ *   sources; {@link currentGraphOf} answers `null` for it.
  *
  * @module @banzhe/dsh-session-topic-map/src/domain
  */
 
 import { z } from 'zod'
 import { defineDomain, domainTable } from '@deepseek-ai/dsh-storage-domain'
-import type { ProgressGraph } from './progress-graph.ts'
+import { normalizeTopic, type ProgressEdge, type ProgressGraph, type ProgressNode } from './progress-graph.ts'
 
-/** Record format this build writes; anything else is legacy derived data. */
-export const TOPIC_RECORD_VERSION = 2
+/** Record format this build writes; earlier versions are legacy derived data. */
+export const TOPIC_RECORD_VERSION = 3
 
 const nodeSchema = z.object({
-  /** `n-<seq>`, derived from the message the node stands for. */
+  /** `n-<seq>#<encodeURIComponent(topic)>`, derived from the message and topic. */
   id: z.string().min(1),
   seq: z.number().int().min(0),
   turn: z.number().int().min(0),
-  topics: z.array(z.string().min(1)).min(1),
+  topic: z.string().min(1),
   parents: z.array(z.string().min(1)),
 })
 
 const edgeSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
-  kind: z.enum(['branch', 'merge']),
+  kind: z.literal('branch'),
 })
 
 const graphSchema = z.object({
@@ -54,19 +51,41 @@ const currentRecordSchema = z.object({
   graph: graphSchema,
   /** ISO-8601 instant of the last successful analysis; nothing branches on it. */
   updatedAt: z.string().min(1),
-  /**
-   * Whether every node's turn has been checked against the Session log. An
-   * earlier build derived turns from turn boundaries alone, which could store a
-   * turn the transcript never shows; such a record lacks the flag and is
-   * re-anchored from the log the next time it is read.
-   */
+  turnsVerified: z.boolean().optional(),
+})
+
+/** Version-2 node schema kept for pure projection migration to version 3. */
+const legacyV2NodeSchema = z.object({
+  id: z.string().min(1),
+  seq: z.number().int().min(0),
+  turn: z.number().int().min(0),
+  topics: z.array(z.string().min(1)).min(1),
+  parents: z.array(z.string().min(1)),
+})
+
+const legacyV2EdgeSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  kind: z.enum(['branch', 'merge']),
+})
+
+const legacyV2GraphSchema = z.object({
+  nodes: z.array(legacyV2NodeSchema),
+  edges: z.array(legacyV2EdgeSchema),
+  checkpoint: z.number().int().min(-1),
+  turn: z.number().int().min(0),
+})
+
+const legacyV2RecordSchema = z.object({
+  schemaVersion: z.literal(2),
+  graph: legacyV2GraphSchema,
+  updatedAt: z.string().min(1),
   turnsVerified: z.boolean().optional(),
 })
 
 /**
  * A version-1 record: same table and same cursor fields, a graph this build does
- * not read. Its nodes and edges stay opaque on purpose — the only fact this
- * build needs is that the record is not version 2.
+ * not read.
  */
 const legacyGraphSchema = z.object({
   nodes: z.array(z.unknown()),
@@ -76,16 +95,29 @@ const legacyGraphSchema = z.object({
 })
 
 const legacyRecordSchema = z.object({
+  schemaVersion: z.literal(1).optional(),
   graph: legacyGraphSchema,
   updatedAt: z.string().min(1),
 })
 
-const recordSchema = z.union([currentRecordSchema, legacyRecordSchema])
+const recordSchema = z.union([currentRecordSchema, legacyV2RecordSchema, legacyRecordSchema])
 
 /** One Session's record as this build writes it. */
 export type CurrentTopicRecord = z.infer<typeof currentRecordSchema>
 
-/** A record an earlier build wrote; recognized, never restored as a graph. */
+/** Version-2 node kept for legacy migration. */
+export type LegacyV2Node = z.infer<typeof legacyV2NodeSchema>
+
+/** Version-2 edge kept for legacy migration. */
+export type LegacyV2Edge = z.infer<typeof legacyV2EdgeSchema>
+
+/** Version-2 graph kept for legacy migration. */
+export type LegacyV2Graph = z.infer<typeof legacyV2GraphSchema>
+
+/** Version-2 record recognized and migrated on read. */
+export type LegacyV2TopicRecord = z.infer<typeof legacyV2RecordSchema>
+
+/** Version-1 record recognized, never restored as a graph. */
 export type LegacyTopicRecord = z.infer<typeof legacyRecordSchema>
 
 /** Anything the table may hold. */
@@ -110,11 +142,11 @@ export const sessionTopicDomainSpec = defineDomain({
 })
 
 /**
- * Detach a graph into the record form the table stores.
+ * Detach a version-3 graph into the record form the table stores.
  * @param graph - the graph to store.
  * @param updatedAt - ISO-8601 instant of this write.
  * @param turnsVerified - whether every node's turn was checked against the log.
- * @returns a version-2 record holding fresh mutable arrays.
+ * @returns a version-3 record holding fresh mutable arrays.
  */
 export function storedRecord(graph: ProgressGraph, updatedAt: string, turnsVerified = true): CurrentTopicRecord {
   return {
@@ -125,7 +157,7 @@ export function storedRecord(graph: ProgressGraph, updatedAt: string, turnsVerif
         id: node.id,
         seq: node.seq,
         turn: node.turn,
-        topics: [...node.topics],
+        topic: node.topic,
         parents: [...node.parents],
       })),
       edges: graph.edges.map(edge => ({ from: edge.from, to: edge.to, kind: edge.kind })),
@@ -137,16 +169,75 @@ export function storedRecord(graph: ProgressGraph, updatedAt: string, turnsVerif
 }
 
 function isCurrentRecord(record: TopicGraphRecord): record is CurrentTopicRecord {
-  const version: number = 'schemaVersion' in record ? record.schemaVersion : 0
-  return version === TOPIC_RECORD_VERSION
+  return 'schemaVersion' in record && record.schemaVersion === TOPIC_RECORD_VERSION
+}
+
+function isV2Record(record: TopicGraphRecord): record is LegacyV2TopicRecord {
+  return 'schemaVersion' in record && record.schemaVersion === 2
 }
 
 /**
- * The graph a stored record carries, when this build may read it.
+ * Pure projection from a version-2 graph to the independent-topic version-3 graph.
+ * Sorts nodes by seq ascending, splits each node's topics into individual nodes,
+ * and rebuilds parents and `branch` edges strictly within each topic.
+ */
+function migrateV2Graph(legacy: LegacyV2Graph): ProgressGraph {
+  const ordered = [...legacy.nodes].sort((left, right) => left.seq - right.seq)
+  const seenIds = new Set<string>()
+  const latestByTopic = new Map<string, string>()
+  const nodes: ProgressNode[] = []
+  const edges: ProgressEdge[] = []
+
+  for (const legacyNode of ordered) {
+    for (const rawTopic of legacyNode.topics) {
+      const topic = normalizeTopic(rawTopic)
+      if (topic === '') continue
+      const id = `n-${legacyNode.seq}#${encodeURIComponent(topic)}`
+      if (seenIds.has(id)) continue
+      seenIds.add(id)
+
+      const parent = latestByTopic.get(topic)
+      const hasParent = parent !== undefined && parent !== id
+      const parents = hasParent ? [parent] : []
+      if (hasParent) {
+        edges.push(Object.freeze({ from: parent, to: id, kind: 'branch' as const }))
+      }
+      latestByTopic.set(topic, id)
+      nodes.push(Object.freeze({
+        id,
+        seq: legacyNode.seq,
+        turn: legacyNode.turn,
+        topic,
+        parents: Object.freeze(parents),
+      }))
+    }
+  }
+
+  return Object.freeze({
+    nodes: Object.freeze(nodes),
+    edges: Object.freeze(edges),
+    checkpoint: legacy.checkpoint,
+    turn: legacy.turn,
+  })
+}
+
+/**
+ * Whether a stored record is a version-2 graph that should be migrated to version 3.
  * @param record - the stored record, if any.
- * @returns the graph for a version-2 record; `null` for a legacy record or none.
+ * @returns `true` only for a version-2 record.
+ */
+export function needsGraphMigration(record: TopicGraphRecord | undefined): boolean {
+  return record !== undefined && isV2Record(record)
+}
+
+/**
+ * The version-3 graph a stored record carries or projects to.
+ * @param record - the stored record, if any.
+ * @returns the graph directly for version 3, pure-projected for version 2, or `null` for version 1 or none.
  */
 export function currentGraphOf(record: TopicGraphRecord | undefined): ProgressGraph | null {
-  if (record === undefined || !isCurrentRecord(record)) return null
-  return record.graph
+  if (record === undefined) return null
+  if (isCurrentRecord(record)) return record.graph
+  if (isV2Record(record)) return migrateV2Graph(record.graph)
+  return null
 }

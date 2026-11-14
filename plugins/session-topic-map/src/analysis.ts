@@ -211,8 +211,8 @@ export function parseAnalysisOutput(raw: string, allowedSeqs: ReadonlySet<number
 /**
  * Turn the model's topics into the batch {@link applyAnalysis} applies.
  *
- * Topics are grouped by the message that reported them, because one message is
- * ONE progress point however many subjects it covers. Turns come from this run's
+ * Topics are grouped by the message that reported them, and each reported
+ * topic becomes an independent `(seq, topic)` node when applied. Turns come from this run's
  * own transcript, never from the model: the anchor a click uses must be the one
  * the Session log recorded.
  *

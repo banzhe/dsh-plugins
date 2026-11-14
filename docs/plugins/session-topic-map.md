@@ -57,18 +57,21 @@ Turns are taken from the log rather than inferred: an `assistant/message` carrie
 
 `src/progress-graph.ts` is the whole domain model and holds no I/O. Its one transition, `applyAnalysis`, takes the batch that produced it:
 
-- **One node per message.** A node is identified by the message seq (`n-<seq>`) and carries the topics that message advanced. A reply that covers subjects A and B is one node with two topics — one progress point, not two.
-- **Progress is per topic.** A node continues each of its topics from that topic's latest earlier node. A later reply that continues only A links from A's node; a reply that continues A and B together links from both and is drawn as a convergence; after that, A and B can be continued separately again.
+- **One independent node per `(seq, topic)`.** A node is identified by `n-<seq>#<encodeURIComponent(topic)>` and carries a single normalized `topic`. A reply that advances multiple topics creates multiple independent topic nodes at the same `seq` and `turn`.
+- **Progress is strictly per topic.** Each node links only to the latest earlier node of that same topic, forming an independent progression chain with `branch` edges.
 - **Parents are derived, never accumulated.** Every transition recomputes the links from the nodes and their topics, so a replay of the same batch yields the same graph and no link can survive from a version of the answer that no longer holds.
-- **Edges restate the links.** A node with one parent contributes a `branch` edge; a node with two or more contributes `merge` edges, one per parent.
-- Sources are not stored: the node *is* the message, so its seq and turn are the anchor.
+- **Top-to-bottom lane grid layout (`src/client/graph-layout.ts`).** Distinct `seq` values map to ascending vertical rows (`y`), so multiple independent topic nodes from the same reply sit side by side on the same row; each topic occupies a fixed horizontal lane (`x`) in first-appearance order, and links follow same-topic `branch` edges downward.
+- Sources are not stored: each node carries the message's `seq` and `turn` as its anchor.
 - The module never mutates its input, and a batch whose range is already covered returns the graph unchanged.
 
 ## Storage
 
-One `storageDomain` table (`session_topic_map` / `graphs`) keyed by Session id. The record carries `schemaVersion: 2` and a zod schema mirroring the graph; `invalidRecords: 'backup-and-skip'` is right for this data because a graph is derived from the Session log and can be re-derived, so one unreadable record must not fail the whole domain. The record is written only after the run's answer parsed, so storage never holds a graph the analysis did not produce.
+One `storageDomain` table (`session_topic_map` / `graphs`) keyed by Session id. The record carries `schemaVersion: 3` and a zod schema mirroring the v3 independent-topic graph; `invalidRecords: 'backup-and-skip'` is right for this data because a graph is derived from the Session log and can be re-derived, so one unreadable record must not fail the whole domain. The record is written only after the run's answer parsed, so storage never holds a graph the analysis did not produce.
 
-A version-1 record — the earlier shape, where nodes were keyed by topic label and carried per-topic sources — is still accepted by the record schema so that opening the domain over old media cannot fail. It is never read as the current schema: `currentGraphOf` answers `null` for it, the Session starts from the empty graph, and the next successful analysis overwrites the record with version 2. The domain keeps its version stamp because the stored layout did not change; a stamp bump would only make `open` reject the old medium.
+Earlier records remain accepted by the record schema so opening the domain over existing media cannot fail:
+
+- A version-2 record (per-`seq` nodes with `topics[]`) is pure-projected on read by `currentGraphOf` into the version-3 independent-topic graph without calling a model, and `needsGraphMigration` flags it to be re-persisted as version 3.
+- A version-1 record (keyed by topic label with per-topic sources) is never read as a graph: `currentGraphOf` answers `null` for it, the Session starts from the empty graph, and the next successful analysis overwrites the record with version 3. The domain keeps its version stamp because the stored table layout did not change.
 
 ## DOM jump
 
@@ -111,7 +114,7 @@ Stable hooks for browser automation — all on this plugin's own DOM, so no chat
 | `[data-session-topic-map-error]`, `[data-session-topic-map-retry]` | failure banner and its retry control |
 | `[data-session-topic-map-status]` | last run's span, or the stored checkpoint |
 | `[data-session-topic-map-graph]` | the SVG |
-| `[data-session-topic-map-node="n-<seq>"]` | one reply box |
+| `[data-session-topic-map-node="n-<seq>#<topic>"]` | one independent topic node box (`topic` URI-encoded) |
 | `[data-chat-turn="<turn>"][data-session-topic-map-focus]` | the outlined transcript row |
 
 Calling the routes directly needs the same browser trust the UI has (origin header plus the boot cookie):

@@ -18,7 +18,7 @@ import type {} from '@deepseek-ai/dsh-storage-domain'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { ANALYSIS_SYSTEM_PROMPT, allowedSeqsOf, buildBatch, correctTurns, parseAnalysisOutput, planAnalysis, renderAnalysisPrompt } from './analysis.ts'
-import { currentGraphOf, SESSION_TOPIC_TABLE, sessionTopicDomainSpec, storedRecord } from './domain.ts'
+import { currentGraphOf, needsGraphMigration, SESSION_TOPIC_TABLE, sessionTopicDomainSpec, storedRecord } from './domain.ts'
 import type { TopicGraphRecord } from './domain.ts'
 import { callTopicAnalysis } from './model-call.ts'
 import {
@@ -257,18 +257,21 @@ async function stateHandler(deps: RouteDeps, req: RouteRequest, res: RouteRespon
 }
 
 /**
- * Re-anchor a stored graph to the turns the log records, once per record.
+ * Re-anchor a stored graph to the turns the log records, and migrate a
+ * version-2 record to version 3, once per record.
  *
  * An earlier build derived a node's turn from turn boundaries alone, so a stored
  * graph can carry a turn the transcript never shows. Reading is the moment to fix
  * that: the log is read, the nodes are corrected in place (no model call), and
- * the record is written back marked as verified. A log that cannot be read leaves
- * the stored graph untouched rather than failing the request.
+ * the record is written back marked as verified. A version-2 record projected by
+ * {@link currentGraphOf} is written back in version-3 format here as well,
+ * preserving its verification state, timestamp, checkpoint, and turn without
+ * calling a model.
  *
  * @param deps - the plugin's route dependencies.
  * @param sessionId - the Session whose record is being read.
- * @param stored - the graph the record holds.
- * @param record - the record itself, for its verification flag.
+ * @param stored - the version-3 graph the record holds or projects to.
+ * @param record - the record itself, for its verification flag and version.
  * @returns the graph to answer with.
  */
 async function anchoredGraph(
@@ -278,23 +281,29 @@ async function anchoredGraph(
   record: TopicGraphRecord | undefined,
 ): Promise<ProgressGraph> {
   const verified = record !== undefined && 'turnsVerified' in record && record.turnsVerified === true
-  if (verified) return stored
-  let events: readonly SessionEvent[]
-  try {
-    events = (await deps.ctx.sessionQuery.readSession(SessionId(sessionId))).events
+  const migrate = needsGraphMigration(record)
+  if (verified && !migrate) return stored
+
+  let next = stored
+  let turnsVerified = verified
+  if (!verified) {
+    try {
+      const events = (await deps.ctx.sessionQuery.readSession(SessionId(sessionId))).events
+      next = correctTurns(stored, events) ?? stored
+      turnsVerified = true
+    }
+    catch {
+      if (!migrate) return stored
+    }
   }
-  catch {
-    return stored
-  }
-  const corrected = correctTurns(stored, events)
-  const next = corrected ?? stored
+
   try {
     const updatedAt = record?.updatedAt ?? new Date().toISOString()
-    await deps.graphs.put(sessionId, storedRecord(next, updatedAt))
+    await deps.graphs.put(sessionId, storedRecord(next, updatedAt, turnsVerified))
   }
   catch {
-    // The correction is an improvement, not a precondition: a failed write must
-    // not turn a readable state into an error.
+    // Migration and turn correction are improvements, not preconditions: a
+    // failed write must not turn a readable state into an error.
   }
   return next
 }
@@ -337,6 +346,15 @@ async function analyzeHandler(deps: RouteDeps, req: RouteRequest, res: RouteResp
   const graph: ProgressGraph = correctTurns(stored, events) ?? stored
   const plan = planAnalysis(graph, events)
   if (plan === null) {
+    if (needsGraphMigration(record)) {
+      try {
+        const updatedAt = record?.updatedAt ?? new Date().toISOString()
+        await deps.graphs.put(request.sessionId, storedRecord(graph, updatedAt, true))
+      }
+      catch {
+        // Migration write failure must not turn a readable response into an error.
+      }
+    }
     const result: TopicAnalyzeResult = {
       graph,
       analyzed: { fromSeq: graph.checkpoint + 1, toSeq: graph.checkpoint, messages: 0, topics: 0 },

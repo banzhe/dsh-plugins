@@ -313,7 +313,23 @@ describe('turnsBySeqOf and correctTurns', () => {
     expect(corrected).not.toBeNull()
     expect(Object.isFrozen(corrected)).toBe(true)
     expect(corrected?.nodes[0]).toBe(graph.nodes[0])
-    expect(corrected?.nodes[1]?.id).toBe('n-2')
+    expect(corrected?.nodes[1]?.id).toBe('n-2#a')
     expect(corrected?.nodes[1]?.turn).toBe(3)
+  })
+
+  it('corrects every independent topic node that shares a seq', () => {
+    const events = [turnStart(0, 4), userMessage(1, '问'), assistantMessage(2, 4, '答')]
+    const graph = applyAnalysis(EMPTY_PROGRESS_GRAPH, {
+      fromSeq: 0,
+      toSeq: 2,
+      turn: 1,
+      contributions: [{ seq: 2, turn: 1, topics: ['alpha', 'beta'] }],
+    })
+    const corrected = correctTurns(graph, events)
+    expect(corrected).not.toBeNull()
+    expect(corrected?.nodes.map(node => [node.id, node.turn])).toEqual([
+      ['n-2#alpha', 4],
+      ['n-2#beta', 4],
+    ])
   })
 })

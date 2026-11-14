@@ -1,13 +1,11 @@
 /**
- * The progress graph: what the conversation has been about, one node per reply.
+ * The progress graph: independent topic progressions across a Session.
  *
- * A node stands for one message — in practice one assistant reply — and carries
- * the topics that reply advanced. A reply that covers two subjects is therefore
- * ONE node with two topics, not two nodes: the conversation has one progress
- * point there. Progression is linked per topic: a later node that continues a
- * topic continues it from that topic's latest node, so topics can diverge, meet
- * in one reply again, and diverge again, with the shape of the conversation
- * visible as branches and merges.
+ * Each `(seq, topic)` pair is its own node, linked only to the latest earlier
+ * node of that same topic so every topic forms an independent chain with
+ * `branch` edges. One reply may still advance multiple topics in
+ * `TopicContribution.topics`; each reported topic becomes a separate node at the
+ * same `seq` and `turn`.
  *
  * Everything here is pure: no clock, no storage, no model. {@link applyAnalysis}
  * is the single transition and it takes the whole batch that produced it, so a
@@ -17,28 +15,28 @@
  * @module @banzhe/dsh-session-topic-map/src/progress-graph
  */
 
-/** One message that advanced topics. */
+/** One topic advancement at a specific message. */
 export interface ProgressNode {
-  /** Identity derived from the message seq: `n-<seq>`. */
+  /** Identity derived from the message seq and normalized topic: `n-${seq}#${encodeURIComponent(topic)}`. */
   readonly id: string
   /** Event seq of the message this node stands for. */
   readonly seq: number
   /** Turn of that message, so a click can find it in the transcript. */
   readonly turn: number
-  /** Normalized topic labels this reply advanced, in first-reported order. */
-  readonly topics: readonly string[]
-  /** Ids of the nodes this one continues, ordered ascending by the parent's seq. */
+  /** Normalized topic label this node advances. */
+  readonly topic: string
+  /** Ids of the preceding node in the same topic (empty for the first node of a topic). */
   readonly parents: readonly string[]
 }
 
-/** One continuation link. */
+/** One continuation link within a topic. */
 export interface ProgressEdge {
   /** Parent node id. */
   readonly from: string
   /** Child node id. */
   readonly to: string
-  /** `merge` when the child continues more than one topic, otherwise `branch`. */
-  readonly kind: 'branch' | 'merge'
+  /** Same-topic continuation edge. */
+  readonly kind: 'branch'
 }
 
 /** The whole graph for one Session, with the analysis cursor that produced it. */
@@ -107,11 +105,11 @@ interface MutableNode {
   id: string
   seq: number
   turn: number
-  topics: string[]
+  topic: string
   parents: string[]
 }
 
-/** One node per message seq: two contributions from the same message are one node. */
+/** One node per `(seq, topic)`: duplicate entries for the same pair are ignored. */
 function applyContributions(
   nodes: readonly ProgressNode[],
   contributions: readonly TopicContribution[],
@@ -122,30 +120,26 @@ function applyContributions(
       id: node.id,
       seq: node.seq,
       turn: node.turn,
-      topics: [...node.topics],
+      topic: node.topic,
       parents: [...node.parents],
     }
     byId.set(copy.id, copy)
     return copy
   })
   for (const contribution of [...contributions].sort((left, right) => left.seq - right.seq)) {
-    const id = `n-${contribution.seq}`
     const topics = topicsOfContribution(contribution.topics)
-    const existing = byId.get(id)
-    if (existing === undefined) {
+    for (const topic of topics) {
+      const id = `n-${contribution.seq}#${encodeURIComponent(topic)}`
+      if (byId.has(id)) continue
       const node: MutableNode = {
         id,
         seq: contribution.seq,
         turn: contribution.turn,
-        topics,
+        topic,
         parents: [],
       }
       ordered.push(node)
       byId.set(id, node)
-      continue
-    }
-    for (const topic of topics) {
-      if (!existing.topics.includes(topic)) existing.topics.push(topic)
     }
   }
   ordered.sort((left, right) => left.seq - right.seq)
@@ -153,31 +147,25 @@ function applyContributions(
 }
 
 /**
- * Recompute every node's parents from its topics.
+ * Recompute every node's parent from its own topic.
  *
- * A node continues each of its topics from that topic's latest earlier node. The
- * whole set is derived, never accumulated, so replaying a batch and rebuilding
- * from the same nodes always yields the same links.
+ * Each node continues its topic from that topic's latest earlier node.
  */
 function linkParents(nodes: readonly MutableNode[]): void {
   const latest = new Map<string, MutableNode>()
-  const seqOf = new Map<string, number>(nodes.map(node => [node.id, node.seq]))
   for (const node of nodes) {
-    const candidates = new Set<string>()
-    for (const topic of node.topics) {
-      const previous = latest.get(topic)
-      if (previous !== undefined && previous.id !== node.id) candidates.add(previous.id)
-    }
-    node.parents = [...candidates].sort((left, right) => (seqOf.get(left) ?? 0) - (seqOf.get(right) ?? 0))
-    for (const topic of node.topics) latest.set(topic, node)
+    const previous = latest.get(node.topic)
+    node.parents = previous !== undefined && previous.id !== node.id ? [previous.id] : []
+    latest.set(node.topic, node)
   }
 }
 
 function edgesOf(nodes: readonly MutableNode[]): readonly ProgressEdge[] {
   const edges: ProgressEdge[] = []
   for (const node of nodes) {
-    const kind = node.parents.length > 1 ? 'merge' : 'branch'
-    for (const parent of node.parents) edges.push({ from: parent, to: node.id, kind })
+    for (const parent of node.parents) {
+      edges.push(Object.freeze({ from: parent, to: node.id, kind: 'branch' as const }))
+    }
   }
   return Object.freeze(edges)
 }
@@ -187,7 +175,7 @@ function freezeNode(node: MutableNode): ProgressNode {
     id: node.id,
     seq: node.seq,
     turn: node.turn,
-    topics: Object.freeze([...node.topics]),
+    topic: node.topic,
     parents: Object.freeze([...node.parents]),
   })
 }
@@ -218,13 +206,15 @@ export function applyAnalysis(graph: ProgressGraph, batch: AnalysisBatch): Progr
  * The node a topic currently ends at.
  * @param graph - the current graph.
  * @param topic - any label spelling of the topic.
- * @returns the node with the greatest seq carrying that topic, or `undefined`.
+ * @returns the node with the greatest seq for that topic, or `undefined`.
  */
 export function latestNodeOf(graph: ProgressGraph, topic: string): ProgressNode | undefined {
   const normalized = normalizeTopic(topic)
   let found: ProgressNode | undefined
   for (const node of graph.nodes) {
-    if (node.topics.includes(normalized)) found = node
+    if (node.topic === normalized && (found === undefined || node.seq >= found.seq)) {
+      found = node
+    }
   }
   return found
 }
@@ -237,9 +227,7 @@ export function latestNodeOf(graph: ProgressGraph, topic: string): ProgressNode 
 export function topicsOf(graph: ProgressGraph): readonly string[] {
   const seen: string[] = []
   for (const node of graph.nodes) {
-    for (const topic of node.topics) {
-      if (!seen.includes(topic)) seen.push(topic)
-    }
+    if (!seen.includes(node.topic)) seen.push(node.topic)
   }
   return seen
 }
