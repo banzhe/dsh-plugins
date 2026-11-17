@@ -37,6 +37,8 @@ const STANDARD_PROPS = {
   useSessionAccess: (() => {}) as never,
   useWorkspaces: (() => {}) as never,
   useWorkspaceAccess: (() => {}) as never,
+  // The remote-access client mount augments GlobalStandardProps with this hook.
+  useRemoteAccess: (() => false) as never,
   // A menu binding shaped like the public UseContextMenu, which neither component reads.
   useContextMenu: () => ({ getTriggerProps: () => ({}) }),
 }

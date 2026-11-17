@@ -1,0 +1,10 @@
+# Full replacement, not a shadow: the shipped ui-workspace row owns the
+# `uiWorkspace` service and both `sidebar.workspaces` / `conversation.hero.workspace`
+# slot declarations, so exactly one of the two rows may be active. This layer is
+# applied after the web-app bundle that declares `ui-workspace`.
+- id: ui-workspace
+  disabled: true
+
+- insert:
+    - id: workspace-personal
+      name: '@banzhe/dsh-workspace'
