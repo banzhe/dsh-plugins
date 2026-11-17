@@ -1,8 +1,8 @@
-/* The attention region sits above the browsing list, inside the sidebar's own
+/* The In work region sits above the browsing list, inside the sidebar's own
    scroll area. Chrome comes from the sidebar's tokens, so the region reads as
-   part of that region: no card, no shadow, one hairline where it ends. Only
-   grouping, the state dot and the group counts are drawn here; state colors come
-   from ui-primitives' StateDot, never hand-picked. */
+   part of that region: no card, no shadow, one hairline where it ends. Only the
+   two group folds, the state dot and their counts are drawn here; state colors
+   come from ui-primitives' StateDot, never hand-picked. */
 
 .section {
   display: flex;
@@ -13,34 +13,38 @@
   margin-bottom: 4px;
 }
 
-.header {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  height: 26px;
-  padding: 0 6px;
-  border: none;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-secondary);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  text-align: left;
-  cursor: pointer;
-}
-
-.header:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.header:focus-visible,
+.groupHeader:focus-visible,
 .row:focus-visible,
 .unpin:focus-visible {
   outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
   outline-offset: -2px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.groupHeader:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
 }
 
 .chevron {
@@ -49,7 +53,7 @@
   color: var(--dsw-alias-label-tertiary);
 }
 
-.label {
+.groupLabel {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -57,48 +61,18 @@
   white-space: nowrap;
 }
 
-/* The count reads light-on-dark like the shipped panel's badge: the sidebar's
-   own fill behind the label color, so it stays legible in both themes. */
-.badge {
+.groupCount {
   flex: none;
-  min-width: 16px;
-  padding: 0 4px;
-  border-radius: 8px;
-  background: var(--dsw-alias-label-primary);
-  color: var(--dsw-alias-bg-layer-3);
-  font-size: 11px;
-  line-height: 16px;
+  min-width: 14px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 10px;
   text-align: center;
 }
 
-.empty {
-  margin: 0;
-  padding: 2px 6px 2px 24px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.groups {
+.groupBody {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.groupTitle {
-  display: flex;
-  align-items: baseline;
-  gap: 4px;
-  margin: 4px 0 0;
-  padding: 0 6px 0 24px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 11px;
-  font-weight: 500;
-}
-
-.groupCount {
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
+  gap: 1px;
 }
 
 .list {

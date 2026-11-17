@@ -1,10 +1,10 @@
 /**
- * The attention region at the top of the browsing list: pinned Sessions, running
- * work, and finishes the user has not looked at yet, folded from state other
- * plugins already own. Collapsible; the header keeps the activity count visible
- * while the groups are folded away.
+ * The In work region at the top of the browsing list: two independent, collapsible
+ * groups — running Sessions and unread or pinned-idle Sessions — folded from state
+ * other plugins already own. Each group header carries its own count; the region
+ * draws no header of its own and renders nothing while both groups are empty.
  *
- * The region renders no state of its own beyond that fold choice: opening a row
+ * The region renders no state of its own beyond the two fold choices: opening a row
  * goes through the Workspace owner's guarded open (the same call the tree rows
  * make), which selects the Session as the main view and lets ui-session clear its
  * unread flag; releasing a pin is the same Host call the sidebar's row action
@@ -18,7 +18,7 @@ import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
-import { attentionSections, type AttentionModel, type AttentionRow } from './model.ts'
+import type { AttentionModel, AttentionRow } from './model.ts'
 import css from './AttentionSection.module.css'
 
 /** Props the browsing region hands down; every member is already bound to its source. */
@@ -34,20 +34,17 @@ export interface AttentionSectionProps {
   readonly t: PropsLocale<'workspace'>['t']
 }
 
-type Group = 'pinned' | 'running' | 'unread'
+type Group = 'running' | 'unread'
 
 /**
  * The dot one row draws, or none. A container row stands for work below it, so it
- * carries no state of its own; a turn blocked on the user outranks both the
- * spinner and the done dot.
+ * carries no state of its own; a turn blocked on the user outranks the group's own
+ * state; a running row spins and an unread row is done.
  */
 function dotStateOf(group: Group, row: AttentionRow, waiting: ReadonlySet<SessionId>): StateDotState | undefined {
   if (row.container === true) return undefined
   if (waiting.has(row.id)) return 'warning'
-  if (group === 'running') return 'ongoing'
-  // A pinned row is listed because the user pinned it, not because it reports
-  // anything: nothing happened, so nothing is marked.
-  return group === 'unread' ? 'done' : undefined
+  return group === 'running' ? 'ongoing' : 'done'
 }
 
 /**
@@ -83,7 +80,7 @@ function UnpinControl({ sessionId, unpin, label, useSessionAccess }: {
  * @param props - the rows, the group they belong to, and the callbacks they need.
  * @returns the group's list.
  */
-function GroupRows({ rows, group, waiting, open, unpin, label, unpinLabel, useSessionAccess }: {
+function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, useSessionAccess }: {
   readonly rows: readonly AttentionRow[]
   readonly group: Group
   readonly waiting: ReadonlySet<SessionId>
@@ -124,7 +121,7 @@ function GroupRows({ rows, group, waiting, open, unpin, label, unpinLabel, useSe
             </div>
             {row.children !== undefined && (
               <div className={css.children}>
-                <GroupRows
+                <Rows
                   rows={row.children}
                   group={group}
                   waiting={waiting}
@@ -144,72 +141,80 @@ function GroupRows({ rows, group, waiting, open, unpin, label, unpinLabel, useSe
 }
 
 /**
- * The attention region.
- * @param props - the model hook, the access hook, the two Host actions, and the locale seat.
- * @returns the collapsible region, or its empty state.
+ * One independent fold: a group header with its visible count, and its rows when
+ * expanded. The count is part of the button's visible text, so it also names the
+ * count to a screen reader.
  */
-export function AttentionSection({ useAttention, useSessionAccess, open, unpin, t }: AttentionSectionProps): ReactNode {
-  const model = useAttention(current => current)
+function GroupCollapse({ title, count, children }: {
+  readonly title: string
+  readonly count: number
+  readonly children: ReactNode
+}): ReactNode {
   const [expanded, setExpanded] = useState(true)
-  const groups = useMemo(() => attentionSections(model), [model])
-  const waiting = useMemo(() => new Set<SessionId>(model.waiting.map(row => row.id)), [model])
-  // The label names the row's own action only; the release control beside it
-  // carries the pin's own name.
-  const label = (title: string, pinned: boolean): string =>
-    pinned ? t('attention.row.openPinned', { title }) : t('attention.row.open', { title })
-  const entries: readonly { readonly group: Group; readonly title: string; readonly rows: readonly AttentionRow[] }[] = [
-    { group: 'pinned', title: t('attention.section.pinned'), rows: groups.pinned },
-    { group: 'running', title: t('attention.section.running'), rows: groups.running },
-    { group: 'unread', title: t('attention.section.unread'), rows: groups.unread },
-  ]
-  const empty = model.running.length === 0 && model.unread.length === 0
   return (
-    <section className={css.section} data-attention-section="">
-      {/* The title and the count are the control's visible text, so they are also
-          its accessible name; the fold state rides aria-expanded, not the name. */}
+    <section className={css.group}>
       <button
         type="button"
-        className={css.header}
+        className={css.groupHeader}
         aria-expanded={expanded}
         onClick={() => { setExpanded(current => !current) }}
       >
         <span className={css.chevron} aria-hidden="true">
           {expanded ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
         </span>
-        <span className={css.label}>{t('attention.title')}</span>
+        <span className={css.groupLabel}>{title}</span>
         {' '}
-        {/* Always rendered: a zero is the readout that the region is alive and the
-            list is simply empty, which a vanishing badge cannot say. */}
-        <span className={css.badge}>{model.total}</span>
+        <span className={css.groupCount}>{count}</span>
       </button>
-      {expanded && (empty
-        ? <p className={css.empty}>{t('attention.empty')}</p>
-        : (
-            <div className={css.groups}>
-              {entries.filter(entry => entry.rows.length > 0).map(entry => (
-                <section key={entry.group}>
-                  {/* The count is decoration beside the group's name: a screen
-                      reader announces the group, and the same number is already
-                      in the header's total. */}
-                  <h3 className={css.groupTitle}>
-                    {entry.title}
-                    {' '}
-                    <span className={css.groupCount} aria-hidden="true">{entry.rows.length}</span>
-                  </h3>
-                  <GroupRows
-                    rows={entry.rows}
-                    group={entry.group}
-                    waiting={waiting}
-                    open={open}
-                    unpin={unpin}
-                    label={label}
-                    unpinLabel={t('attention.row.unpin')}
-                    useSessionAccess={useSessionAccess}
-                  />
-                </section>
-              ))}
-            </div>
-          ))}
+      {expanded && <div className={css.groupBody}>{children}</div>}
+    </section>
+  )
+}
+
+/**
+ * The In work region: the two group folds that have entries, and nothing at all
+ * while both are empty.
+ * @param props - the model hook, the access hook, the two Host actions, and the locale seat.
+ * @returns the region's folds, or null when neither group lists a Session.
+ */
+export function AttentionSection({ useAttention, useSessionAccess, open, unpin, t }: AttentionSectionProps): ReactNode {
+  const model = useAttention(current => current)
+  const waiting = useMemo(() => new Set<SessionId>(model.waiting.map(row => row.id)), [model])
+  // The label names the row's own action only; the release control beside it
+  // carries the pin's own name.
+  const label = (title: string, pinned: boolean): string =>
+    pinned ? t('attention.row.openPinned', { title }) : t('attention.row.open', { title })
+  if (model.running.length === 0 && model.unread.length === 0) return null
+  return (
+    <section className={css.section} data-attention-section="">
+      {model.running.length > 0 && (
+        <GroupCollapse title={t('attention.section.running')} count={model.running.length}>
+          <Rows
+            rows={model.running}
+            group="running"
+            waiting={waiting}
+            open={open}
+            unpin={unpin}
+            label={label}
+            unpinLabel={t('attention.row.unpin')}
+            useSessionAccess={useSessionAccess}
+          />
+        </GroupCollapse>
+      )}
+      {model.unread.length > 0 && (
+        <GroupCollapse title={t('attention.section.unread')} count={model.unread.length}>
+          <Rows
+            rows={model.unread}
+            group="unread"
+            waiting={waiting}
+            open={open}
+            unpin={unpin}
+            label={label}
+            unpinLabel={t('attention.row.unpin')}
+            useSessionAccess={useSessionAccess}
+          />
+        </GroupCollapse>
+      )}
     </section>
   )
 }

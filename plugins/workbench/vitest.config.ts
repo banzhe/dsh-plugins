@@ -19,7 +19,7 @@ import { defineConfig } from 'vitest/config'
  *
  * The attention region is the half this fork owns end to end, so it is pinned
  * separately: its thresholds sit just under the coverage this suite reaches today
- * (98 statements / 92 branches / 100 functions / 100 lines), which keeps a
+ * (98 statements / 95 branches / 100 functions / 100 lines), which keeps a
  * regression in the fold or the region from hiding behind the copied code.
  */
 export default defineConfig({

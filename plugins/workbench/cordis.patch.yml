@@ -6,5 +6,5 @@
   disabled: true
 
 - insert:
-    - id: workspace-personal
-      name: '@banzhe/dsh-workspace'
+    - id: workbench-personal
+      name: '@banzhe/dsh-workbench'

@@ -26,6 +26,7 @@ CONTEXT.md                              # glossary
 | `session-title-rules` | Rules-based Session title provider (`emoji 主题`) replacing the built-in first-prompt provider |
 | `sidebar-menu-actions` | Workspace row-menu extension: inserts **Open in VS Code**, **Open in File Browser** (Windows), and **Copy workspace path** into the Workspace "..." menu |
 | `web-icons` | Serves the Web launcher icon set (favicon, PWA manifest icons, apple-touch-icon) from a Bundle-owned snapshot |
+| `workbench` | Sidebar Workspace browsing region, hero picker and the **In work** list; a maintained fork that replaces the shipped `ui-workspace` row |
 
 ## Add a plugin
 

@@ -7,11 +7,6 @@ import { AttentionSection } from '../src/client/attention/AttentionSection.tsx'
 import type { AttentionModel, AttentionRow } from '../src/client/attention/model.ts'
 
 const MESSAGES: Record<string, string> = {
-  'attention.title': 'Attention',
-  'attention.empty': 'No sessions need attention',
-  'attention.expand': 'Expand sessions needing attention',
-  'attention.collapse': 'Collapse sessions needing attention',
-  'attention.section.pinned': 'Pinned',
   'attention.section.running': 'Running',
   'attention.section.unread': 'Unread',
   'attention.row.open': 'Open session {title}',
@@ -35,7 +30,7 @@ const row = (id: string, extra: Partial<AttentionRow> = {}): AttentionRow => ({
   ...extra,
 })
 
-const empty: AttentionModel = { running: [], unread: [], waiting: [], total: 0 }
+const empty: AttentionModel = { running: [], unread: [], waiting: [] }
 
 // React only honors act() when it is told it runs in a test environment.
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -53,9 +48,11 @@ interface Harness {
   readonly open: ReturnType<typeof vi.fn>
   readonly unpin: ReturnType<typeof vi.fn>
   text(): string
-  header(): HTMLButtonElement
+  region(): Element | null
+  header(index: number): HTMLButtonElement
+  headers(): HTMLButtonElement[]
   button(label: string): HTMLButtonElement
-  badge(): string
+  lists(): string[][]
 }
 
 /** The access hook the row actions' gate provides; `allowed` selects the fixture's answer. */
@@ -79,10 +76,12 @@ function mount(model: AttentionModel, options: { allowed?: boolean } = {}): Harn
       t,
     }))
   })
-  const header = (): HTMLButtonElement => {
-    const found = host.querySelector('button[aria-expanded]')
-    if (found === null) throw new Error('no fold header')
-    return found as HTMLButtonElement
+  const headers = (): HTMLButtonElement[] =>
+    [...host.querySelectorAll('button[aria-expanded]')] as HTMLButtonElement[]
+  const header = (index: number): HTMLButtonElement => {
+    const found = headers()[index]
+    if (found === undefined) throw new Error('no fold header at index ' + String(index))
+    return found
   }
   const button = (label: string): HTMLButtonElement => {
     const found = [...host.querySelectorAll('button')].find(node => node.getAttribute('aria-label') === label)
@@ -94,46 +93,82 @@ function mount(model: AttentionModel, options: { allowed?: boolean } = {}): Harn
     open,
     unpin,
     text: () => host.textContent ?? '',
+    region: () => host.querySelector('[data-attention-section]'),
     header,
+    headers,
     button,
-    badge: () => host.querySelector('[class*="badge"]')?.textContent?.trim() ?? '',
+    lists: () => [...host.querySelectorAll('ul')].map(list =>
+      [...list.children].map(item => item.textContent ?? '')),
   }
 }
 
-describe('attention region', () => {
-  it('names its fold control by the visible title and count', () => {
+describe('In work region', () => {
+  it('draws nothing at all while both groups are empty', () => {
     const view = mount(empty)
-    expect(view.header().textContent).toContain('Attention')
-    expect(view.header().textContent).toContain('0')
-    expect(view.header().textContent).not.toContain('sessions needing attention')
-    expect(view.header().getAttribute('aria-expanded')).toBe('true')
+    expect(view.region()).toBeNull()
+    expect(view.text()).toBe('')
+    expect(view.headers()).toHaveLength(0)
   })
 
-  it('renders the empty state when nothing needs a look', () => {
-    const view = mount(empty)
-    expect(view.text()).toContain('No sessions need attention')
-    expect(view.host.querySelectorAll('h3')).toHaveLength(0)
-    expect(view.badge()).toBe('0')
-  })
-
-  it('renders pinned, running and unread groups with their counts', () => {
+  it('renders two independent folds, each with its own visible count and no region header', () => {
     const model: AttentionModel = {
-      running: [row('pin', { container: true, pinned: true }), row('run')],
-      unread: [row('done')],
+      running: [row('run'), row('pin-run', { pinned: true })],
+      unread: [row('done'), row('pin-idle', { container: true, pinned: true })],
       waiting: [],
-      total: 2,
     }
     const view = mount(model)
-    const headings = [...view.host.querySelectorAll('h3')].map(node => node.textContent)
-    expect(headings).toEqual(['Pinned 1', 'Running 1', 'Unread 1'])
-    // The count beside a group name is decoration; the header carries the total.
-    expect(view.host.querySelectorAll('h3 [aria-hidden="true"]')).toHaveLength(3)
-    expect(view.badge()).toBe('2')
-    expect(view.text()).not.toContain('No sessions need attention')
+    expect(view.headers().map(node => node.textContent)).toEqual(['Running 2', 'Unread 2'])
+    expect(view.lists()).toEqual([['run', 'pin-run'], ['done', 'pin-idle']])
+    expect(view.host.querySelectorAll('h3')).toHaveLength(0)
+    // The region holds the two folds and nothing above them: no title, no total.
+    expect([...(view.region()?.children ?? [])]).toHaveLength(2)
+    expect(view.region()?.firstElementChild?.firstElementChild?.getAttribute('aria-expanded')).toBe('true')
   })
 
-  it('opens the Session behind a row', () => {
-    const view = mount({ running: [row('run')], unread: [], waiting: [], total: 1 })
+  it('lists a pinned idle Session under unread with its release control', () => {
+    const view = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
+      waiting: [],
+    })
+    expect(view.headers().map(node => node.textContent)).toEqual(['Unread 1'])
+    expect(view.lists()).toEqual([['pin']])
+    expect(view.button('Unpin session')).toBeDefined()
+  })
+
+  it('lists a pinned running Session only under running', () => {
+    const view = mount({
+      running: [row('pin-run', { pinned: true })],
+      unread: [],
+      waiting: [],
+    })
+    expect(view.headers().map(node => node.textContent)).toEqual(['Running 1'])
+    expect(view.lists()).toEqual([['pin-run']])
+    expect(view.text()).not.toContain('Unread')
+    expect(view.host.querySelectorAll('ul > li')).toHaveLength(1)
+  })
+
+  it('collapses each group independently', () => {
+    const model: AttentionModel = {
+      running: [row('run')],
+      unread: [row('done')],
+      waiting: [],
+    }
+    const view = mount(model)
+    act(() => { view.header(0).click() })
+    expect(view.lists()).toEqual([['done']])
+    expect(view.header(0).getAttribute('aria-expanded')).toBe('false')
+    expect(view.header(1).getAttribute('aria-expanded')).toBe('true')
+    act(() => { view.header(1).click() })
+    expect(view.lists()).toEqual([])
+    expect(view.header(0).textContent).toBe('Running 1')
+    expect(view.header(1).textContent).toBe('Unread 1')
+    act(() => { view.header(0).click() })
+    expect(view.lists()).toEqual([['run']])
+  })
+
+  it('opens the Session behind a running row', () => {
+    const view = mount({ running: [row('run')], unread: [], waiting: [] })
     act(() => { view.button('Open session run').click() })
     expect(view.open).toHaveBeenCalledWith('run')
   })
@@ -141,68 +176,85 @@ describe('attention region', () => {
   it('opens an unread row too, leaving the unread flag to the host', () => {
     // Clearing the completion flag is ui-session's response to the navigation this
     // click starts; the region holds no copy of that flag to clear itself.
-    const view = mount({ running: [], unread: [row('done')], waiting: [], total: 1 })
+    const view = mount({ running: [], unread: [row('done')], waiting: [] })
     act(() => { view.button('Open session done').click() })
     expect(view.open).toHaveBeenCalledWith('done')
-    expect(view.text()).toContain('Unread')
+    expect(view.host.querySelector('[data-state="done"]')).not.toBeNull()
   })
 
   it('releases a pin without opening the row', () => {
-    const view = mount({ running: [row('pin', { container: true, pinned: true })], unread: [], waiting: [], total: 0 })
+    const view = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
+      waiting: [],
+    })
     act(() => { view.button('Unpin session').click() })
     expect(view.unpin).toHaveBeenCalledWith('pin')
     expect(view.open).not.toHaveBeenCalled()
   })
 
   it('hides the release control where the Session access refuses unpinning', () => {
-    const model: AttentionModel = {
-      running: [row('pin', { container: true, pinned: true })],
-      unread: [],
+    const view = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
       waiting: [],
-      total: 0,
-    }
-    const view = mount(model, { allowed: false })
+    }, { allowed: false })
     expect(view.text()).toContain('pin')
     expect([...view.host.querySelectorAll('button')].some(node => node.getAttribute('aria-label') === 'Unpin session'))
       .toBe(false)
   })
 
   it('marks a blocked turn with the warning dot instead of the group dot', () => {
-    const model: AttentionModel = { running: [row('run')], unread: [], waiting: [row('run')], total: 1 }
-    const view = mount(model)
+    const view = mount({
+      running: [row('run')],
+      unread: [],
+      waiting: [row('run')],
+    })
     expect(view.host.querySelector('[data-state="warning"]')).not.toBeNull()
   })
 
   it('draws no state dot on a container row', () => {
-    const model: AttentionModel = {
+    const view = mount({
       running: [row('parent', { container: true, children: [row('child')] })],
       unread: [],
       waiting: [],
-      total: 1,
-    }
-    const view = mount(model)
+    })
     expect(view.host.querySelectorAll('[data-testid="state-dot"]')).toHaveLength(1)
   })
 
-  it('collapses its groups and keeps the activity count visible', () => {
-    const model: AttentionModel = { running: [row('run')], unread: [row('done')], waiting: [], total: 2 }
-    const view = mount(model)
-    act(() => { view.header().click() })
-    expect(view.host.querySelectorAll('h3')).toHaveLength(0)
-    expect(view.text()).not.toContain('run')
-    expect(view.badge()).toBe('2')
-    expect(view.header().getAttribute('aria-expanded')).toBe('false')
-    expect(view.header().textContent).toContain('Attention')
+  it('draws no state dot on a quiet pinned row', () => {
+    const view = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
+      waiting: [],
+    })
+    expect(view.host.querySelectorAll('[data-testid="state-dot"]')).toHaveLength(0)
+  })
+
+  it('draws the ongoing dot for running and the done dot for unread', () => {
+    const view = mount({
+      running: [row('run')],
+      unread: [row('done')],
+      waiting: [],
+    })
+    expect(view.host.querySelector('[data-state="ongoing"]')).not.toBeNull()
+    expect(view.host.querySelector('[data-state="done"]')).not.toBeNull()
+  })
+
+  it('shows every entry when both groups are long', () => {
+    const running = Array.from({ length: 9 }, (_, index) => row('run' + String(index)))
+    const unread = Array.from({ length: 5 }, (_, index) => row('done' + String(index)))
+    const view = mount({ running, unread, waiting: [] })
+    expect(view.host.querySelectorAll('ul > li')).toHaveLength(14)
+    expect(view.text()).not.toContain('Showing the first')
   })
 
   it('nests a mounted subagent under its parent row', () => {
-    const model: AttentionModel = {
+    const view = mount({
       running: [row('parent', { container: true, children: [row('child')] })],
       unread: [],
       waiting: [],
-      total: 1,
-    }
-    const view = mount(model)
+    })
     expect(view.text()).toContain('parent')
     expect(view.text()).toContain('child')
   })

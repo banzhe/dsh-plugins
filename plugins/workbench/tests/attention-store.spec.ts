@@ -68,10 +68,10 @@ function harness() {
   return { list, status, pinned, archived, store: createAttentionStore(list, status, pinned, archived) }
 }
 
-describe('attention store', () => {
+describe('In work store', () => {
   it('folds the current snapshots at construction', () => {
     const { store } = harness()
-    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [], total: 0 })
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
   })
 
   it('notifies when the Session list changes', () => {
@@ -97,10 +97,10 @@ describe('attention store', () => {
     const listener = vi.fn()
     store.subscribe(listener)
     pinned.set(ids(['a']))
-    expect(store.getSnapshot().running).toEqual([{ id: 'a', title: 'a', container: true, pinned: true }])
+    expect(store.getSnapshot().unread).toEqual([{ id: 'a', title: 'a', container: true, pinned: true }])
     pinned.set(NONE)
     expect(listener).toHaveBeenCalledTimes(2)
-    expect(store.getSnapshot().running).toEqual([])
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
   })
 
   it('notifies when a Session is archived, which drops it without touching the list', () => {
@@ -147,6 +147,6 @@ describe('attention store', () => {
     archived.set(ids(['a']))
     expect(listener).not.toHaveBeenCalled()
     // The last published model stays readable: dispose detaches, it does not blank.
-    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [], total: 0 })
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
   })
 })

@@ -1,11 +1,11 @@
 {
-  "name": "@banzhe/dsh-workspace",
+  "name": "@banzhe/dsh-workbench",
   "version": "0.1.0",
-  "description": "Workspace browsing and picker Bundle: replaces the shipped ui-workspace row with a maintained fork",
+  "description": "Workspace browsing, picker and In work region Bundle: replaces the shipped ui-workspace row with a maintained fork",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/banzhe/dsh-plugins.git",
-    "directory": "plugins/workspace"
+    "directory": "plugins/workbench"
   },
   "type": "module",
   "main": "lib/index.js",

@@ -1,22 +1,24 @@
 /**
- * The attention model: which Sessions deserve a look right now, folded from
- * state other plugins own. No state is persisted and nothing is refreshed here —
- * the Session-list snapshot, the Session-status snapshot, and the Workspace
- * owner's pin and archive sets are the whole input.
+ * The In work model: Sessions that are running or need a look after finishing,
+ * folded from state other plugins own. No state is persisted and nothing is
+ * refreshed here — the Session-list snapshot, the Session-status snapshot, and the
+ * Workspace owner's pin and archive sets are the whole input.
  *
- * "Still working" outranks a finish reminder, and a pending interaction is not a
- * third bucket competing with the sections: it is the subset of listed rows whose
- * work is blocked on the user, so the header can never report a state with no row
- * behind it.
+ * Two groups, one row per Session:
+ * - `running` holds every Session with live work, pinned or not, stable newest
+ *   first.
+ * - `unread` holds non-running Sessions with a completion flag plus pinned
+ *   Sessions with no running work, even without that flag; pinned rows lead, then
+ *   newest first.
+ *
+ * A pinned running Session lists only under `running`; a pinned unread Session
+ * lists only under `unread`; no Session lists in both.
  *
  * Rows that never list: subagent children (they mount under their parent, one
  * level per delegation hop), the blank New-Session placeholder, and archived
  * Sessions. Archiving does not clear the completion flag, so the archive set is a
  * third input; it gates descendants too, or a running child under an archived
  * Session would re-mount the row the user just filed away.
- *
- * A pinned Session lists at rest as a container row and never counts: `total`
- * reads {@link reportsActivity}, so a quiet pin costs no notification.
  */
 import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -37,15 +39,14 @@ export interface AttentionRow {
   readonly pinned?: boolean
 }
 
-/** Everything the section renders, newest first per group. */
+/** Everything the region renders: two independent groups. */
 export interface AttentionModel {
+  /** Sessions with running work, pinned ones included; stable newest first. */
   readonly running: readonly AttentionRow[]
-  /** Ordinary Sessions that finished while they were not the main view. */
+  /** Finished-unread Sessions plus pinned idle Sessions; pinned rows lead, then newest. */
   readonly unread: readonly AttentionRow[]
-  /** Listed Sessions whose work is blocked on the user; always a subset of the other two. */
+  /** Listed Sessions whose work is blocked on the user; a subset of the two groups. */
   readonly waiting: readonly AttentionRow[]
-  /** Sessions that report activity: running work plus unread finishes. A quiet pin is excluded. */
-  readonly total: number
 }
 
 /** Session list source (`ctx.sessions.list`). */
@@ -60,8 +61,16 @@ interface Candidate {
   readonly row: AttentionRow
 }
 
-/** The sort is stable, so equal timestamps keep Host list order. */
+/** The running sort is stable, so equal timestamps keep Host list order. */
 function byRecency(left: Candidate, right: Candidate): number {
+  return right.updatedAt - left.updatedAt
+}
+
+/** Pinned rows lead the unread group; each side keeps the stable newest-first order. */
+function byUnreadPriority(left: Candidate, right: Candidate): number {
+  const leftPinned = left.row.pinned === true ? 0 : 1
+  const rightPinned = right.row.pinned === true ? 0 : 1
+  if (leftPinned !== rightPinned) return leftPinned - rightPinned
   return right.updatedAt - left.updatedAt
 }
 
@@ -184,12 +193,12 @@ function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
 
 /**
  * Fold one list snapshot, one status snapshot, and the archive and pin sets into
- * the section's content.
+ * the region's content.
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
  * @param archived - archived Session ids, which never list.
- * @param pinned - pinned Session ids, which list without live work.
- * @returns the model the section renders.
+ * @param pinned - pinned Session ids, which lead the unread group at rest.
+ * @returns the model the region renders.
  */
 export function deriveAttention(
   list: SessionListState,
@@ -199,7 +208,7 @@ export function deriveAttention(
 ): AttentionModel {
   const running: Candidate[] = []
   const unread: Candidate[] = []
-  const waiting: Candidate[] = []
+  const blocked = new Set<SessionId>()
   const ctx: SubtreeContext = { list, index: childIndexOf(list.byId), status }
   list.ids.forEach((id) => {
     const row = list.byId[id]
@@ -208,75 +217,41 @@ export function deriveAttention(
     if (row.origin === 'subagent' || row.blank || archived.has(id)) return
     const entry = status.get(id)
     const isPinned = pinned.has(id)
-    // A pending interaction holds the turn open, so the row already joined a
-    // section; recording it in `waiting` beside that section keeps the header
-    // from reporting a state with no row behind it.
-    const blocked = entry?.pendingInteraction !== undefined
     const node = runningSubtreeOf(row, ctx)
     if (node !== undefined) {
-      const candidate: Candidate = {
+      // The pin marks the listed row itself, never a descendant. A pinned running
+      // Session belongs here only, even when a completion flag is also set.
+      running.push({
         updatedAt: row.updatedAt,
-        // The pin marks the listed row itself, never a descendant.
         row: isPinned ? { ...node, pinned: true } : node,
-      }
-      running.push(candidate)
-      if (blocked) waiting.push(candidate)
+      })
+      if (entry?.pendingInteraction !== undefined) blocked.add(id)
       return
     }
     if (entry?.completionUnread === true) {
-      const candidate: Candidate = {
+      unread.push({
         updatedAt: row.updatedAt,
         row: { id, title: row.displayTitle, ...(isPinned ? { pinned: true } : {}) },
-      }
-      unread.push(candidate)
-      if (blocked) waiting.push(candidate)
+      })
+      if (entry.pendingInteraction !== undefined) blocked.add(id)
       return
     }
-    // A pinned Session at rest: the row the user asked for, not a notification.
+    // A pinned Session at rest belongs to the unread group even without a
+    // completion flag: the user asked to keep it in view, and it has no run.
     if (isPinned) {
-      running.push({
+      unread.push({
         updatedAt: row.updatedAt,
         row: { id, title: row.displayTitle, container: true, pinned: true },
       })
+      if (entry?.pendingInteraction !== undefined) blocked.add(id)
     }
   })
   const runningRows = running.sort(byRecency).map(candidate => candidate.row)
-  const unreadRows = unread.sort(byRecency).map(candidate => candidate.row)
+  const unreadRows = unread.sort(byUnreadPriority).map(candidate => candidate.row)
   return {
     running: runningRows,
     unread: unreadRows,
-    waiting: waiting.sort(byRecency).map(candidate => candidate.row),
-    total: runningRows.filter(reportsActivity).length + unreadRows.length,
-  }
-}
-
-/**
- * Whether one running-section row stands for work: its own run, or the runs
- * mounted below it. A container row without children is a pinned Session at rest.
- */
-export function reportsActivity(row: AttentionRow): boolean {
-  return row.container !== true || row.children !== undefined
-}
-
-/** The three groups the section renders, split by why each row is listed. */
-export interface AttentionSections {
-  /** Pinned Sessions at rest: the rows the user asked for, not notifications. */
-  readonly pinned: readonly AttentionRow[]
-  /** Sessions with running work, or nesting running work below them. */
-  readonly running: readonly AttentionRow[]
-  readonly unread: readonly AttentionRow[]
-}
-
-/**
- * Split the model into the pinned, running and unread groups the section renders.
- * @param model - one folded attention model.
- * @returns the three groups, each already newest first.
- */
-export function attentionSections(model: AttentionModel): AttentionSections {
-  return {
-    pinned: model.running.filter(row => !reportsActivity(row)),
-    running: model.running.filter(reportsActivity),
-    unread: model.unread,
+    waiting: [...runningRows, ...unreadRows].filter(row => blocked.has(row.id)),
   }
 }
 
@@ -295,17 +270,17 @@ function rowKey(row: AttentionRow): string {
   ].join('\u0002')
 }
 
-function sectionKey(rows: readonly AttentionRow[]): string {
+function rowsKey(rows: readonly AttentionRow[]): string {
   return rows.map(rowKey).join('\u0001')
 }
 
 /** Whether two models would render identically. */
 function sameModel(left: AttentionModel, right: AttentionModel): boolean {
-  return sectionKey(left.running) === sectionKey(right.running)
-    && sectionKey(left.unread) === sectionKey(right.unread)
+  return rowsKey(left.running) === rowsKey(right.running)
+    && rowsKey(left.unread) === rowsKey(right.unread)
     // The blocked marker rides this one, so a pending interaction that appears or
-    // clears while the sections stand still is a change, not a no-op.
-    && sectionKey(left.waiting) === sectionKey(right.waiting)
+    // clears while the groups stand still is a change, not a no-op.
+    && rowsKey(left.waiting) === rowsKey(right.waiting)
 }
 
 /** Read-only view of the current model, plus the plugin's disposer. */
@@ -324,10 +299,10 @@ export interface AttentionStore extends ObservableSnapshot<AttentionModel> {
  * Two folds that would render identically are not published, so a status tick
  * that only touches an unrelated Session costs no render. The caller owns the
  * lifetime through {@link AttentionStore.dispose}.
- * @param list - Session list source.
- * @param status - per-Session status source.
- * @param pinned - pinned Session ids, as the Workspace owner derives them.
- * @param archived - archived Session ids, as the Workspace owner derives them.
+ * @param list -
+ * @param status -
+ * @param pinned -
+ * @param archived -
  * @returns the model source and its disposer.
  */
 export function createAttentionStore(

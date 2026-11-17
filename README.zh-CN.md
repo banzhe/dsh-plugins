@@ -26,6 +26,7 @@ CONTEXT.md                              # 术语表
 | `session-title-rules` | 规则化的会话标题提供方（`emoji 主题`），替代内置的首条提示词提供方 |
 | `sidebar-menu-actions` | 侧栏行菜单扩展：在工作区「...」菜单里插入「在 VS Code 中打开」「在文件浏览器中打开」（Windows）「复制工作区路径」 |
 | `web-icons` | 由 Bundle 自带快照提供 Web 图标集（favicon、PWA manifest 图标等） |
+| `workbench` | 侧栏工作区浏览区、hero 选择器与**进行中**列表；维护中的 fork，替换官方 `ui-workspace` 行 |
 
 ## 新增插件
 
