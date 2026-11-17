@@ -50,6 +50,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { ShortcutCatalogEntry } from '@deepseek-ai/dsh-client-shortcuts/client'
 import type { WorkspaceShortcutState } from '../shortcuts.ts'
 import type { StartSessionOptions } from '../navigation.ts'
+import type { AttentionModel } from '../attention/model.ts'
 import type {} from './toast.ts'
 import type { createWorkspaceViewStore } from '../stores.ts'
 
@@ -255,6 +256,12 @@ export type WorkspaceBrowserInjected = {
     hostInfo: HostObservable<RemoteHostFacts>
     workspaceShortcuts: HostObservable<WorkspaceShortcutState>
     shortcuts: HostObservable<readonly ShortcutCatalogEntry[]>
+    /**
+     * The attention region's content, folded from the Session list, the Session
+     * status map and the Workspace archive/pin sets. Owned by this plugin's store
+     * so the region carries no state of its own and no second refresh path.
+     */
+    attention: HostObservable<AttentionModel>
   }
   /** Open the browser search and focus its input. */
   requestSearch: () => void
@@ -272,6 +279,8 @@ export type WorkspaceBrowserInjected = {
   startSession: (workspaceId?: WorkspaceId, options?: StartSessionOptions) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
+  /** Release one Session's pin; the attention region's only Host write. */
+  unpinSession: (sessionId: SessionId) => void
   /**
    * Search current visible conversation messages. The Host fixes the result
    * bound; `hasMore` means the query needs narrowing.

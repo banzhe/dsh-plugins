@@ -127,6 +127,16 @@ export const zh = {
   'time.months': '{n}个月',
   'time.years': '{n}年',
   'time.ago': '{t}前',
+  'attention.title': '需要关注',
+  'attention.empty': '暂无需要关注的会话',
+  'attention.expand': '展开需要关注的会话',
+  'attention.collapse': '收起需要关注的会话',
+  'attention.section.pinned': '置顶',
+  'attention.section.running': '运行中',
+  'attention.section.unread': '未读',
+  'attention.row.open': '打开会话 {title}',
+  'attention.row.openPinned': '打开置顶会话 {title}',
+  'attention.row.unpin': '取消置顶',
 } satisfies Record<string, string>
 
 /** The workspace namespace key union. */
@@ -255,6 +265,16 @@ export const en = {
   'time.months': '{n}mo',
   'time.years': '{n}y',
   'time.ago': '{t} ago',
+  'attention.title': 'Attention',
+  'attention.empty': 'No sessions need attention',
+  'attention.expand': 'Expand sessions needing attention',
+  'attention.collapse': 'Collapse sessions needing attention',
+  'attention.section.pinned': 'Pinned',
+  'attention.section.running': 'Running',
+  'attention.section.unread': 'Unread',
+  'attention.row.open': 'Open session {title}',
+  'attention.row.openPinned': 'Open pinned session {title}',
+  'attention.row.unpin': 'Unpin session',
 } satisfies Record<WorkspaceKey, string>
 
 /** Japanese copy, checked against the English keys. */
@@ -380,6 +400,16 @@ export const ja = {
   'time.months': '{n}か月',
   'time.years': '{n}年',
   'time.ago': '{t}前',
+  'attention.title': '要確認',
+  'attention.empty': '対応が必要なセッションはありません',
+  'attention.expand': '対応が必要なセッションを展開',
+  'attention.collapse': '対応が必要なセッションを折りたたむ',
+  'attention.section.pinned': 'ピン留め',
+  'attention.section.running': '実行中',
+  'attention.section.unread': '未読',
+  'attention.row.open': 'セッション {title} を開く',
+  'attention.row.openPinned': 'ピン留めしたセッション {title} を開く',
+  'attention.row.unpin': 'ピン留めを解除',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -505,6 +535,16 @@ export const es = {
   'time.months': '{n}mo',
   'time.years': '{n}y',
   'time.ago': 'Hace {t}',
+  'attention.title': 'Atención',
+  'attention.empty': 'Ninguna sesión requiere atención',
+  'attention.expand': 'Expandir las sesiones que requieren atención',
+  'attention.collapse': 'Contraer las sesiones que requieren atención',
+  'attention.section.pinned': 'Fijadas',
+  'attention.section.running': 'En ejecución',
+  'attention.section.unread': 'Sin leer',
+  'attention.row.open': 'Abrir la sesión {title}',
+  'attention.row.openPinned': 'Abrir la sesión fijada {title}',
+  'attention.row.unpin': 'Desfijar la sesión',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -630,6 +670,16 @@ export const fr = {
   'time.months': '{n}mo',
   'time.years': '{n}y',
   'time.ago': 'Il y a {t}',
+  'attention.title': 'À surveiller',
+  'attention.empty': 'Aucune session à surveiller',
+  'attention.expand': 'Développer les sessions à surveiller',
+  'attention.collapse': 'Réduire les sessions à surveiller',
+  'attention.section.pinned': 'Épinglées',
+  'attention.section.running': 'En cours',
+  'attention.section.unread': 'Non lues',
+  'attention.row.open': 'Ouvrir la session {title}',
+  'attention.row.openPinned': 'Ouvrir la session épinglée {title}',
+  'attention.row.unpin': 'Désépingler la session',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -755,6 +805,16 @@ export const de = {
   'time.months': '{n}mo',
   'time.years': '{n}y',
   'time.ago': 'Vor {t}',
+  'attention.title': 'Aufmerksamkeit',
+  'attention.empty': 'Keine Sitzung erfordert Aufmerksamkeit',
+  'attention.expand': 'Sitzungen mit Aufmerksamkeitsbedarf ausklappen',
+  'attention.collapse': 'Sitzungen mit Aufmerksamkeitsbedarf einklappen',
+  'attention.section.pinned': 'Angeheftet',
+  'attention.section.running': 'Läuft',
+  'attention.section.unread': 'Ungelesen',
+  'attention.row.open': 'Sitzung {title} öffnen',
+  'attention.row.openPinned': 'Angeheftete Sitzung {title} öffnen',
+  'attention.row.unpin': 'Anheftung der Sitzung lösen',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -880,6 +940,16 @@ export const ru = {
   'time.months': '{n}mo',
   'time.years': '{n}y',
   'time.ago': '{t} назад',
+  'attention.title': 'Требуют внимания',
+  'attention.empty': 'Нет сеансов, требующих внимания',
+  'attention.expand': 'Развернуть сеансы, требующие внимания',
+  'attention.collapse': 'Свернуть сеансы, требующие внимания',
+  'attention.section.pinned': 'Закреплённые',
+  'attention.section.running': 'Выполняется',
+  'attention.section.unread': 'Непрочитанные',
+  'attention.row.open': 'Открыть сеанс {title}',
+  'attention.row.openPinned': 'Открыть закреплённый сеанс {title}',
+  'attention.row.unpin': 'Открепить сеанс',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -1005,4 +1075,14 @@ export const pt = {
   'time.months': '{n} mês',
   'time.years': '{n}s',
   'time.ago': '{t} atrás',
+  'attention.title': 'Atenção',
+  'attention.empty': 'Nenhuma sessão precisa de atenção',
+  'attention.expand': 'Expandir as sessões que precisam de atenção',
+  'attention.collapse': 'Recolher as sessões que precisam de atenção',
+  'attention.section.pinned': 'Fixadas',
+  'attention.section.running': 'Em execução',
+  'attention.section.unread': 'Não lidas',
+  'attention.row.open': 'Abrir a sessão {title}',
+  'attention.row.openPinned': 'Abrir a sessão fixada {title}',
+  'attention.row.unpin': 'Desafixar a sessão',
 } satisfies Record<keyof typeof en, string>

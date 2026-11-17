@@ -436,7 +436,8 @@ interface LineageFrame {
   next: number
 }
 
-function sessionIsRunning(list: SessionListState, statuses: SessionStatuses, id: SessionId): boolean {
+/** Whether one Session runs, per the unified status map with the summary bit as fallback. */
+export function sessionIsRunning(list: SessionListState, statuses: SessionStatuses, id: SessionId): boolean {
   return (statuses.get(id)?.running ?? list.byId[id]?.running) === true
 }
 

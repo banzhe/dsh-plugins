@@ -48,6 +48,7 @@ import {
 import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './shortcuts.ts'
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
+import { createAttentionStore } from './attention/model.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
 import { derive } from './session-actions/derived.ts'
@@ -132,7 +133,8 @@ const NS = 'workspace'
  * declaration through `slots.inject()` instead of assuming order.
  */
 export const inject = ['contextMenus',
-  'slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts', 'remoteAccess',
+  'slots', 'sessions', 'uiSession', 'workspaces', 'locale', 'remote', 'remote.directoryPicker', 'layout', 'shortcuts',
+  'remoteAccess',
 ]
 
 /**
@@ -191,6 +193,13 @@ export function apply(ctx: Context): void {
   // Registry-global sets as Sets, rebuilt only when the Workspace snapshot changes.
   const pinnedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.pinnedSessionIds))
   const archivedSet = derive(workspaces.list, snapshot => new Set<SessionId>(snapshot.archivedSessionIds))
+  // The attention region folds four sources other plugins own — the Session list,
+  // the Session status map, and the two registry sets derived just above — and
+  // writes nothing: no unread bookkeeping, no projection refresh. It is created
+  // here, after its inputs, so it subscribes to the same Set instances the row
+  // actions read.
+  const attention = createAttentionStore(sessions.list, ctx.uiSession.sessionStatus, pinnedSet, archivedSet)
+  ctx.effect(() => () => { attention.dispose() }, 'ui-workspace: attention model')
   // Plugin-private facts the row actions and their overlay surfaces share:
   // the pending rename request and the notice on display. Each business
   // writes through its own injected callback and the surface reads through
@@ -211,6 +220,11 @@ export function apply(ctx: Context): void {
     )
     if (!result.ok) throw new Error(result.error.message)
   }
+  // The row action and the attention region issue the same Host call, so a
+  // refusal raises the same notice for both.
+  const unpinSession = (sessionId: SessionId): void => {
+    uiWorkspace.unpinSession(sessionId).catch(() => { notify({ kind: 'unpinFailed' }) })
+  }
   const pinInjected = (): PinSessionInjected => ({
     hooks: { pinned: pinnedSet, archived: archivedSet },
     // Pin failures surface as a notice: nothing else on the surface moves, so
@@ -218,9 +232,7 @@ export function apply(ctx: Context): void {
     pinSession: (sessionId) => {
       uiWorkspace.pinSession(sessionId).catch(() => { notify({ kind: 'pinFailed' }) })
     },
-    unpinSession: (sessionId) => {
-      uiWorkspace.unpinSession(sessionId).catch(() => { notify({ kind: 'unpinFailed' }) })
-    },
+    unpinSession: unpinSession,
   })
   ctx.on('workspace/archive-followup-failed', (sessionId, text) => {
     if (archivedSet.getSnapshot().has(sessionId)) notify({ kind: 'archived', sessionId, message: text, tone: 'warning' })
@@ -347,13 +359,14 @@ export function apply(ctx: Context): void {
       await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
     unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
+    unpinSession,
     createWorkspace: input => workspaces.create(input),
     requestSearch: shortcutControls.search,
     requestAddWorkspace: shortcutControls.add,
     closeAddWorkspace: shortcutControls.closeAdd,
     setDirectoryBusy: shortcutControls.directoryBusy,
     hooks: { workspaceActionRequest, contextMenuTarget: ctx.contextMenus.active, directoryFlow: browserFlowSource, hostInfo,
-      workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog },
+      workspaceShortcuts: shortcutControls.state, shortcuts: ctx.shortcuts.catalog, attention },
   })
   const pickerInjected = (): WorkspacePickerInjected => ({
     createWorkspace: input => workspaces.create(input),

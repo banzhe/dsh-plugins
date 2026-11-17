@@ -40,6 +40,7 @@ import {
 import { ProjectRowItem, SearchResultItem, SessionNodeItem } from './Rows.tsx'
 import { FLAT_SESSION_ORDER_KEY, type SessionGroupBy } from '../stores.ts'
 import { WorkspacePickFlow } from '../WorkspacePicker.tsx'
+import { AttentionSection } from '../attention/AttentionSection.tsx'
 import css from './WorkspaceBrowser.module.css'
 
 /**
@@ -910,11 +911,13 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertWorkspaceBefore,
   unarchiveSession,
+  unpinSession,
   createWorkspace,
   searchSessions,
   searchResultLimit,
   useDirectoryFlow,
   useHostInfo,
+  useAttention,
   useShortcuts,
   useWorkspaceShortcuts,
   requestSearch,
@@ -1352,6 +1355,17 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div ref={wide ? bindScrollerRef : undefined} className={css.listArea} data-sidebar-list-area="">
+        {/* The attention region leads the browsing list and scrolls with it; a
+            search replaces both, so the region steps aside with the tree. */}
+        {wide && normalizedQuery === '' && (
+          <AttentionSection
+            useAttention={useAttention}
+            useSessionAccess={useSessionAccess}
+            open={guardedOpen}
+            unpin={unpinSession}
+            t={t}
+          />
+        )}
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults
