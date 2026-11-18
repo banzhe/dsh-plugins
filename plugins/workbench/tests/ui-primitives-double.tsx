@@ -15,6 +15,11 @@ export function StateDot({ state, size }: {
   return <span data-testid="state-dot" data-state={state} data-size={size ?? undefined} />
 }
 
+/** The shipped tooltip, reduced to the children it wraps. */
+export function Tooltip({ children }: { readonly children?: ReactNode }): ReactNode {
+  return <>{children}</>
+}
+
 type IconProps = { readonly size?: number }
 
 function icon(name: string) {
@@ -26,3 +31,4 @@ function icon(name: string) {
 export const IconChevronDownOutlineRegular = icon('chevron-down')
 export const IconChevronRightOutlineRegular = icon('chevron-right')
 export const IconPinOutlineRegular = icon('pin')
+export const IconPinFillRegular = icon('pin-filled')

@@ -204,6 +204,30 @@ describe('In work region', () => {
       .toBe(false)
   })
 
+  it('drops the action strip where the access refuses unpinning, keeping the resting mark', () => {
+    const refused = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
+      waiting: [],
+    }, { allowed: false })
+    // The mark reports the pin, not the permission: it stays at rest either way.
+    expect(refused.host.querySelectorAll('[data-testid="pin-filled"]')).toHaveLength(1)
+    // Nothing but the open target and the resting cell is drawn, so hovering a
+    // refused row cannot expose an empty action area.
+    const rowBox = refused.host.querySelector('ul > li > div')
+    expect(rowBox?.children).toHaveLength(2)
+  })
+
+  it('draws the action strip beside the resting mark when the access allows unpinning', () => {
+    const allowed = mount({
+      running: [],
+      unread: [row('pin', { container: true, pinned: true })],
+      waiting: [],
+    })
+    const rowBox = allowed.host.querySelector('ul > li > div')
+    expect(rowBox?.children).toHaveLength(3)
+  })
+
   it('marks a blocked turn with the warning dot instead of the group dot', () => {
     const view = mount({
       running: [row('run')],

@@ -1,8 +1,13 @@
 /* The In work region sits above the browsing list, inside the sidebar's own
-   scroll area. Chrome comes from the sidebar's tokens, so the region reads as
-   part of that region: no card, no shadow, one hairline where it ends. Only the
-   two group folds, the state dot and their counts are drawn here; state colors
-   come from ui-primitives' StateDot, never hand-picked. */
+   scroll area. It draws no chrome of its own beyond one hairline where it ends;
+   its headers and rows are the browsing list's own boxes, styled from
+   rows/Rows.module.css, so only the region's own seat, folds and the button
+   chrome the list never needs are declared here.
+
+   Both controls are buttons where the list uses divs: these rules strip that
+   chrome and nothing else, and they never touch a property the shared row box
+   sets (in particular they leave border-inline, padding, radius and
+   background-clip to the list's rules). */
 
 .section {
   display: flex;
@@ -13,141 +18,64 @@
   margin-bottom: 4px;
 }
 
-.groupHeader:focus-visible,
-.row:focus-visible,
-.unpin:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: -2px;
-}
-
 .group {
   display: flex;
   flex-direction: column;
 }
 
-.groupHeader {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  height: 24px;
-  padding: 0 6px;
-  border: none;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 500;
-  text-align: left;
-  cursor: pointer;
-}
-
-.groupHeader:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.chevron {
-  display: inline-flex;
-  align-items: center;
-  color: var(--dsw-alias-label-tertiary);
-}
-
-.groupLabel {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.groupCount {
-  flex: none;
-  min-width: 14px;
-  color: var(--dsw-alias-label-tertiary);
-  font-size: 10px;
-  text-align: center;
-}
-
 .groupBody {
   display: flex;
   flex-direction: column;
-  gap: 1px;
 }
 
+/* The browsing list spaces one row from the next by 2px. */
 .list {
   margin: 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 1px;
-}
-
-.item {
-  display: flex;
-  flex-direction: column;
-}
-
-.rowWrap {
-  display: flex;
-  align-items: center;
   gap: 2px;
 }
 
-.row {
+.groupHeader {
+  width: 100%;
+}
+
+.groupHeader:focus-visible,
+.rowButton:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+.groupHeader,
+.rowButton {
+  background-color: transparent;
+  font: inherit;
+  text-align: left;
+  appearance: none;
+}
+
+/* The header is the row box itself: it keeps the list's paint inset, which is
+   the inline border, and only drops the block borders a button adds. */
+.groupHeader {
+  border-block: 0;
+}
+
+/* The inner button is not the row box; the box's padding and radius stay outside
+   it, so it carries no border and no padding of its own. */
+.rowButton {
+  border: 0;
+  color: inherit;
+}
+
+/* The click target fills the row box; the leading cell, title and trailing cells
+   keep the list's own layout inside it. */
+.rowButton {
   flex: 1;
-  min-width: 0;
   display: flex;
   align-items: center;
-  gap: 6px;
-  height: 26px;
-  padding: 0 6px 0 24px;
-  border: none;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-primary);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.row:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.dot {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-}
-
-.title {
-  flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.unpin {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 4px;
   padding: 0;
-  border: none;
-  border-radius: var(--dsw-radius-sm);
-  background: transparent;
-  color: var(--dsw-alias-label-tertiary);
-  cursor: pointer;
-}
-
-.unpin:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-  color: var(--dsw-alias-label-primary);
+  cursor: inherit;
 }

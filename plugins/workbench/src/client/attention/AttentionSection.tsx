@@ -9,16 +9,24 @@
  * make), which selects the Session as the main view and lets ui-session clear its
  * unread flag; releasing a pin is the same Host call the sidebar's row action
  * issues, behind the same access gate.
+ *
+ * Headers and rows are the browsing list's own boxes: their classes come from
+ * rows/Rows.module.css, so a Session here measures, paints and aligns exactly like
+ * the same Session in the list below — including the leading 16x20 cell, the
+ * trailing resting cell that carries the pinned mark, and the hover action strip
+ * that holds the release control.
  */
+import clsx from 'clsx'
 import { type ReactNode, useMemo, useState } from 'react'
 import {
-  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconPinOutlineRegular, StateDot,
+  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconPinFillRegular, StateDot, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { AttentionModel, AttentionRow } from './model.ts'
+import rowStyles from '../rows/Rows.module.css'
 import css from './AttentionSection.module.css'
 
 /** Props the browsing region hands down; every member is already bound to its source. */
@@ -48,30 +56,69 @@ function dotStateOf(group: Group, row: AttentionRow, waiting: ReadonlySet<Sessio
 }
 
 /**
- * The release control for one pinned row, rendered only where the Session's
- * access snapshot allows the toggle — the same gate the row's pin button uses, so
- * a refused Session never shows a button that can only fail.
- * @param props - the Session, the Host action, the label, and the access Hook.
- * @returns the button, or null when the toggle is not allowed here.
+ * One row in a fold: the list's own row box, its click target, the resting mark a
+ * pinned Session carries at rest, and the hover action strip that releases the
+ * pin. The access gate is asked once per row — the same gate the list row's pin
+ * button uses — so a refused Session keeps its resting mark and never renders an
+ * empty action strip.
+ * @param props - the Session, its group, the callbacks it needs, and the gate.
+ * @returns the row item.
  */
-function UnpinControl({ sessionId, unpin, label, useSessionAccess }: {
-  readonly sessionId: SessionId
+function AttentionRowItem({ row, group, waiting, open, unpin, label, unpinLabel, unpinTitle, useSessionAccess }: {
+  readonly row: AttentionRow
+  readonly group: Group
+  readonly waiting: ReadonlySet<SessionId>
+  readonly open: (id: SessionId) => void
   readonly unpin: (id: SessionId) => void
-  readonly label: string
+  readonly label: (title: string, pinned: boolean) => string
+  readonly unpinLabel: string
+  readonly unpinTitle: string
   readonly useSessionAccess: WorkspaceBrowserProps['useSessionAccess']
 }): ReactNode {
-  const allowed = useSessionAccess(sessionId, 'workspace/unpinSession')
-  if (!allowed) return null
+  const canUnpin = useSessionAccess(row.id, 'workspace/unpinSession')
+  const pinned = row.pinned === true
+  const dot = dotStateOf(group, row, waiting)
   return (
-    <button
-      type="button"
-      className={css.unpin}
-      title={label}
-      aria-label={label}
-      onClick={() => { unpin(sessionId) }}
-    >
-      <IconPinOutlineRegular size={12} />
-    </button>
+    <li>
+      <div className={rowStyles.sessionRow}>
+        <button
+          type="button"
+          className={css.rowButton}
+          aria-label={label(row.title, pinned)}
+          onClick={() => { open(row.id) }}
+        >
+          {/* The list keeps its leading cell even without a dot, so a quiet pinned
+              row starts on the same edge as every other title. */}
+          <span className={rowStyles.slot}>
+            {dot !== undefined && <StateDot state={dot} size={7} />}
+          </span>
+          <span className={rowStyles.title}>{row.title}</span>
+        </button>
+        {pinned && (
+          // Resting state carries the mark the list gives a pinned row; hover swaps
+          // the cell for the action strip, exactly as in the list.
+          <span className={rowStyles.rowResting}>
+            <span className={rowStyles.pinIndicator} aria-hidden="true">
+              <IconPinFillRegular size={14} />
+            </span>
+          </span>
+        )}
+        {pinned && canUnpin && (
+          <span className={rowStyles.rowActions}>
+            <Tooltip label={unpinTitle} side="bottom" align="end" delayMs={500} portal>
+              <button
+                type="button"
+                className={clsx(rowStyles.iconButton, rowStyles.pinnedAction)}
+                aria-label={unpinLabel}
+                onClick={() => { unpin(row.id) }}
+              >
+                <IconPinFillRegular size={14} />
+              </button>
+            </Tooltip>
+          </span>
+        )}
+      </div>
+    </li>
   )
 }
 
@@ -80,7 +127,7 @@ function UnpinControl({ sessionId, unpin, label, useSessionAccess }: {
  * @param props - the rows, the group they belong to, and the callbacks they need.
  * @returns the group's list.
  */
-function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, useSessionAccess }: {
+function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, unpinTitle, useSessionAccess }: {
   readonly rows: readonly AttentionRow[]
   readonly group: Group
   readonly waiting: ReadonlySet<SessionId>
@@ -88,40 +135,25 @@ function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, useSession
   readonly unpin: (id: SessionId) => void
   readonly label: (title: string, pinned: boolean) => string
   readonly unpinLabel: string
+  readonly unpinTitle: string
   readonly useSessionAccess: WorkspaceBrowserProps['useSessionAccess']
 }): ReactNode {
   return (
     <ul className={css.list}>
-      {rows.map(row => {
-        const dot = dotStateOf(group, row, waiting)
-        return (
-          <li key={row.id} className={css.item}>
-            <div className={css.rowWrap}>
-              <button
-                type="button"
-                className={css.row}
-                aria-label={label(row.title, row.pinned === true)}
-                onClick={() => { open(row.id) }}
-              >
-                {dot !== undefined && (
-                  <span className={css.dot}>
-                    <StateDot state={dot} size={10} />
-                  </span>
-                )}
-                <span className={css.title}>{row.title}</span>
-              </button>
-              {row.pinned === true && (
-                <UnpinControl
-                  sessionId={row.id}
-                  unpin={unpin}
-                  label={unpinLabel}
-                  useSessionAccess={useSessionAccess}
-                />
-              )}
-            </div>
-          </li>
-        )
-      })}
+      {rows.map(row => (
+        <AttentionRowItem
+          key={row.id}
+          row={row}
+          group={group}
+          waiting={waiting}
+          open={open}
+          unpin={unpin}
+          label={label}
+          unpinLabel={unpinLabel}
+          unpinTitle={unpinTitle}
+          useSessionAccess={useSessionAccess}
+        />
+      ))}
     </ul>
   )
 }
@@ -129,7 +161,8 @@ function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, useSession
 /**
  * One independent fold: a group header with its visible count, and its rows when
  * expanded. The count is part of the button's visible text, so it also names the
- * count to a screen reader.
+ * count to a screen reader. The header is the list's own row box with the fold
+ * glyph in its leading cell, so header labels and row titles share an edge.
  */
 function GroupCollapse({ title, count, children }: {
   readonly title: string
@@ -141,16 +174,16 @@ function GroupCollapse({ title, count, children }: {
     <section className={css.group}>
       <button
         type="button"
-        className={css.groupHeader}
+        className={clsx(rowStyles.sessionRow, css.groupHeader)}
         aria-expanded={expanded}
         onClick={() => { setExpanded(current => !current) }}
       >
-        <span className={css.chevron} aria-hidden="true">
+        <span className={clsx(rowStyles.slot, rowStyles.chevron)} aria-hidden="true">
           {expanded ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
         </span>
-        <span className={css.groupLabel}>{title}</span>
+        <span className={rowStyles.title}>{title}</span>
         {' '}
-        <span className={css.groupCount}>{count}</span>
+        <span className={rowStyles.time}>{count}</span>
       </button>
       {expanded && <div className={css.groupBody}>{children}</div>}
     </section>
@@ -183,6 +216,7 @@ export function AttentionSection({ useAttention, useSessionAccess, open, unpin, 
             unpin={unpin}
             label={label}
             unpinLabel={t('attention.row.unpin')}
+            unpinTitle={t('actions.unpin')}
             useSessionAccess={useSessionAccess}
           />
         </GroupCollapse>
@@ -197,6 +231,7 @@ export function AttentionSection({ useAttention, useSessionAccess, open, unpin, 
             unpin={unpin}
             label={label}
             unpinLabel={t('attention.row.unpin')}
+            unpinTitle={t('actions.unpin')}
             useSessionAccess={useSessionAccess}
           />
         </GroupCollapse>
