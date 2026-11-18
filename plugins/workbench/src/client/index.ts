@@ -49,6 +49,7 @@ import { createWorkspaceShortcutControls, installWorkspaceShortcuts } from './sh
 import { UiWorkspaceService } from './navigation.ts'
 import { createWorkspaceViewStore } from './stores.ts'
 import { createAttentionStore } from './attention/model.ts'
+import { TaskbarProgressPresenter } from './attention/taskbar.ts'
 import { WorkspaceBrowser } from './rows/WorkspaceBrowser.tsx'
 import { ArchiveSessionRowButton, SessionArchiveConfirmDialog } from './session-actions/ArchiveSession.tsx'
 import { derive } from './session-actions/derived.ts'
@@ -200,6 +201,18 @@ export function apply(ctx: Context): void {
   // actions read.
   const attention = createAttentionStore(sessions.list, ctx.uiSession.sessionStatus, pinnedSet, archivedSet)
   ctx.effect(() => () => { attention.dispose() }, 'ui-workspace: attention model')
+  // The Windows taskbar pulse is a projection of the same model the region reads.
+  ctx.effect(() => {
+    const presenter = new TaskbarProgressPresenter()
+    if (!presenter.viable) return () => {}
+    const sync = (): void => { presenter.project(attention.getSnapshot()) }
+    sync()
+    const unsubscribe = attention.subscribe(sync)
+    return () => {
+      unsubscribe()
+      presenter.clear()
+    }
+  }, 'ui-workspace: windows taskbar progress')
   // Plugin-private facts the row actions and their overlay surfaces share:
   // the pending rename request and the notice on display. Each business
   // writes through its own injected callback and the surface reads through

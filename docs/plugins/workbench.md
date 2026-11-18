@@ -46,11 +46,11 @@ The store folds those three snapshots into one model and publishes it through th
 
 **Visibility.** Two placements are deliberate: a search query replaces the whole list body, so the region steps aside with the tree rather than competing with results; and the collapsed rail (`wide === false`) renders the region not at all. Both follow the browsing region's own visibility rule — the list is what the surface exists for — and neither is a gap to be fixed with more UI.
 
-**Not migrated.** The Windows taskbar pulse belonged to `@banzhe/dsh-session-attention`, which this repository no longer carries; its last source is in git history. It is not part of this region: the pulse projected the same model through an Electron channel, and a web client has no taskbar to drive. The elapsed-time column that panel showed is gone too — it required a per-Session projection read loop, and this Bundle issues no projection refresh.
+**Taskbar.** The Windows taskbar pulse the retired `@banzhe/dsh-session-attention` Bundle carried lives here now, projected from this same model: the desktop shell's progress indicator runs indeterminate while Sessions run and nothing is waiting on the user or finished-unread, and clears otherwise. Only transitions write, so an unrelated list update issues no platform call, and disposal retracts a live pulse. The channel is probed once at apply time: a browser, or a shell predating `window.setProgressBar`, has no write and the presenter stays inert. The elapsed-time column that panel showed is not carried — it required a per-Session projection read loop, and this Bundle issues no projection refresh.
 
 ## Retiring the old panel
 
-The web profile no longer installs `@banzhe/dsh-session-attention`, and the Bundle itself left this repository once this fork carried its model: the plugin directory and its implementation note are gone. Removing the Bundle, rather than disabling its row, is what takes its `shell.overlay` entry and its `cordis.patch.yml` layer with it. Its last source and tests are in git history.
+The web profile no longer installs `@banzhe/dsh-session-attention`, and the Bundle itself left this repository once this fork carried its model and its taskbar pulse: the plugin directory and its implementation note are gone. Removing the Bundle, rather than disabling its row, is what takes its `shell.overlay` entry and its `cordis.patch.yml` layer with it. Its last source and tests are in git history.
 
 ## What the fork must keep identical
 
