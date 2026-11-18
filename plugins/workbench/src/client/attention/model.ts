@@ -7,16 +7,17 @@
  *
  * Three quick groups, one row per Session, each row carrying the browsing list's
  * own row facts so a Session draws the same dot here as it does in the tree:
- * - `unread` holds non-pinned Sessions finished while unread.
- * - `pinned` holds every pinned Session, whatever its work state. The pin chooses
- *   the row's group, never its dot: a pinned row reports its own running,
- *   completion and pending-interaction state.
- * - `running` holds non-pinned Sessions that run themselves or have running
- *   subagent work below them.
+ * - `running` holds every Session that runs itself or has running subagent work
+ *   below it, pinned or not.
+ * - `unread` holds every Session finished while unread, pinned or not.
+ * - `pinned` holds the pinned Sessions left once neither of those applies, so a
+ *   pin at rest stays in view because the user asked for it.
  *
- * Every listed Session appears in exactly one of the three: the pin leads, so a
- * pinned running Session lists only under `pinned`. `waiting` names the listed
- * Sessions blocked on the user, in the groups' display order.
+ * The state leads and the pin follows it: live work outranks the finish reminder,
+ * which outranks the pin. A pinned Session lists under `running` while it works,
+ * moves to `unread` when it finishes unread, and returns to `pinned` once both are
+ * cleared. Every listed Session appears in exactly one group. `waiting` names the
+ * listed Sessions blocked on the user, in the groups' display order.
  *
  * A subagent Session gets no row here, at any depth: the Session that delegated
  * the work carries it as its own run, so one delegation adds no row and no
@@ -37,11 +38,11 @@ export type AttentionRow = SessionNode
 
 /** Everything the region renders: three independent groups plus the blocked set. */
 export interface AttentionModel {
-  /** Finished-unread Sessions with no pin; newest first. */
+  /** Finished-unread Sessions, pinned or not; pinned rows lead, then newest first. */
   readonly unread: readonly AttentionRow[]
-  /** Every pinned Session, at rest or in flight; newest first. */
+  /** Pinned Sessions at rest, with no live work and no finish reminder; newest first. */
   readonly pinned: readonly AttentionRow[]
-  /** Sessions running themselves or over running subagent work, unpinned; newest first. */
+  /** Sessions running themselves or over running subagent work, pinned or not; pinned rows lead, then newest first. */
   readonly running: readonly AttentionRow[]
   /** Listed Sessions whose work is blocked on the user, in display order. */
   readonly waiting: readonly AttentionRow[]
@@ -59,9 +60,18 @@ interface Candidate {
   readonly row: AttentionRow
 }
 
-/** Every group lists newest first; the sort is stable, so equal timestamps keep Host list order. */
+/** Newest first; the sort is stable, so equal timestamps keep Host list order. */
 function byRecency(left: Candidate, right: Candidate): number {
   return right.updatedAt - left.updatedAt
+}
+
+/**
+ * A state group's order: pinned rows lead, and each side stays newest first. The
+ * sort is stable, so equal timestamps keep Host list order.
+ */
+function byPinnedThenRecency(left: Candidate, right: Candidate): number {
+  if (left.row.pinned !== right.row.pinned) return left.row.pinned ? -1 : 1
+  return byRecency(left, right)
 }
 
 /**
@@ -70,7 +80,7 @@ function byRecency(left: Candidate, right: Candidate): number {
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
  * @param archived - archived Session ids, which never list.
- * @param pinned - pinned Session ids, which list only under `pinned`.
+ * @param pinned - pinned Session ids, which place a row only while it has nothing else to report.
  * @returns the model the region renders.
  */
 export function deriveAttention(
@@ -95,25 +105,27 @@ export function deriveAttention(
     if (entry?.pendingInteraction !== undefined) blocked.add(id)
     const node = sessionNode(row, status, descendants, pinned, archived)
     const candidate: Candidate = { updatedAt: row.updatedAt, row: node }
-    // The pin outranks the work state for placement only; the row keeps its
-    // running, completion and blocked facts for the dot it draws.
-    if (node.pinned) {
-      pinnedRows.push(candidate)
-      return
-    }
-    // Subagent work belongs to the Session that delegated it: that row spins, and
-    // the children never contribute rows of their own.
+    // The work state outranks the pin for placement only; the row keeps its
+    // running, completion and blocked facts for the dot it draws. Subagent work
+    // belongs to the Session that delegated it: that row spins, and the children
+    // never contribute rows of their own.
     if (node.running || node.runningSubagentCount > 0) {
       running.push(candidate)
       return
     }
-    // A Session listed with no completion flag has nothing to report: it stays
-    // in the tree below and takes no quick-group row.
-    if (node.completed) unread.push(candidate)
+    // A finish nobody has looked at is news too, so a pinned Session that just
+    // finished unread reports itself before the pin files it away.
+    if (node.completed) {
+      unread.push(candidate)
+      return
+    }
+    // With nothing live and nothing unread, the pin is what keeps a row in view; an
+    // unpinned Session at rest stays in the tree below and takes no row here.
+    if (node.pinned) pinnedRows.push(candidate)
   })
-  const unreadRows = unread.sort(byRecency).map(candidate => candidate.row)
+  const unreadRows = unread.sort(byPinnedThenRecency).map(candidate => candidate.row)
   const pinnedRowsSorted = pinnedRows.sort(byRecency).map(candidate => candidate.row)
-  const runningRows = running.sort(byRecency).map(candidate => candidate.row)
+  const runningRows = running.sort(byPinnedThenRecency).map(candidate => candidate.row)
   return {
     unread: unreadRows,
     pinned: pinnedRowsSorted,

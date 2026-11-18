@@ -81,6 +81,14 @@ const QUICK_GROUPS: readonly { readonly fold: QuickGroup; readonly labelKey: Wor
 ]
 
 /**
+ * The quick groups whose fold renders even while they hold nothing: the two the
+ * user scans for activity always say how much of it there is, so "Running 0" is a
+ * fact rather than a missing group. The pin group holds only what the user filed
+ * there, so it stays hidden until something is.
+ */
+const ALWAYS_SHOWN_QUICK_GROUPS: ReadonlySet<QuickGroup> = new Set(['unread', 'running'])
+
+/**
  * One fold: a header button that owns the fold state, and its body. The header is
  * the session rows' own 32px box with the tree's filled triangle in the leading
  * cell, so a fold label starts on the same edge as the titles under it. The
@@ -207,9 +215,9 @@ function GroupRows({ rows, fold, title, workspaceLabels, seats }: {
 }
 
 /**
- * The four folds: the quick groups that have entries, then the browsing list's own
- * fold, which always renders, always starts open, and keeps its content mounted
- * while folded.
+ * The four folds: the quick groups, then the browsing list's own fold, which always
+ * renders, always starts open, and keeps its content mounted while folded. An empty
+ * running or unread group still renders its header; an empty pin group does not.
  * @param props - the model hook, the row seats, the fourth fold's title, and the browsing body.
  * @returns the region's folds.
  */
@@ -241,7 +249,7 @@ export function AttentionSection({
     <div className={css.section} data-browser-folds="">
       {QUICK_GROUPS.map(({ fold, labelKey }) => {
         const rows = model[fold]
-        if (rows.length === 0) return null
+        if (rows.length === 0 && !ALWAYS_SHOWN_QUICK_GROUPS.has(fold)) return null
         const label = t(labelKey)
         return (
           <Fold key={fold} fold={fold} title={label} count={rows.length}>

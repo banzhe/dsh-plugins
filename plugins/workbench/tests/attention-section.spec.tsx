@@ -335,10 +335,10 @@ function mount(model: AttentionModel, options: Options = {}): Harness {
 }
 
 describe('In work region', () => {
-  it('keeps the workspaces fold while every quick group is empty', () => {
+  it('keeps the empty running and unread folds counted, and hides the empty pin fold', () => {
     const view = mount(EMPTY)
-    expect(view.folds()).toEqual(['workspaces'])
-    expect(view.headerTexts()).toEqual([TREE_TITLE])
+    expect(view.folds()).toEqual(['unread', 'running', 'workspaces'])
+    expect(view.headerTexts()).toEqual(['Unread 0', 'Running 0', TREE_TITLE])
     expect(view.rows()).toEqual([])
     expect(view.bodyShown()).toBe(true)
   })
@@ -351,11 +351,22 @@ describe('In work region', () => {
     expect(view.rowsIn('pinned')).toEqual(['pin'])
   })
 
-  it('hides a quick fold that has nothing to list', () => {
+  it('draws the pin fold only while it holds something, beside the empty state folds', () => {
     const view = mount(attention({ pinned: [node('pin', { pinned: true })] }))
-    expect(view.folds()).toEqual(['pinned', 'workspaces'])
-    expect(view.headerTexts()).toEqual(['Pinned 1', TREE_TITLE])
+    expect(view.folds()).toEqual(['unread', 'pinned', 'running', 'workspaces'])
+    expect(view.headerTexts()).toEqual(['Unread 0', 'Pinned 1', 'Running 0', TREE_TITLE])
     expect(view.rows()).toEqual(['pin'])
+  })
+
+  it('draws the rows of a state group in the model order, pinned rows first', () => {
+    const view = mount(attention({
+      running: [
+        node('pin-run', { running: true, pinned: true }),
+        node('run', { running: true }),
+      ],
+    }))
+    expect(view.rowsIn('running')).toEqual(['pin-run', 'run'])
+    expect(view.headerTexts()).toEqual(['Unread 0', 'Running 2', TREE_TITLE])
   })
 
   it('collapses each quick fold on its own', () => {

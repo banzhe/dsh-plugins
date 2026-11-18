@@ -107,14 +107,15 @@ describe('In work store', () => {
     expect(store.getSnapshot()).toEqual({ running: [], unread: [], pinned: [], waiting: [] })
   })
 
-  it('moves a running Session out of the running group when it is pinned', () => {
+  it('keeps a pinned running Session in the running group', () => {
     const { store, list, pinned } = harness()
     list.set(listOf([{ id: 'a', updatedAt: 1, running: true }]))
     expect(store.getSnapshot().running).toHaveLength(1)
     pinned.set(ids(['a']))
-    expect(store.getSnapshot().running).toEqual([])
-    expect(store.getSnapshot().pinned).toHaveLength(1)
-    expect(store.getSnapshot().pinned[0]).toMatchObject({ id: 'a', pinned: true })
+    // Live work outranks the pin: the row stays where its state put it, now marked pinned.
+    expect(store.getSnapshot().running).toHaveLength(1)
+    expect(store.getSnapshot().running[0]).toMatchObject({ id: 'a', pinned: true })
+    expect(store.getSnapshot().pinned).toEqual([])
   })
 
   it('publishes nothing when a source re-emits the same pins', () => {

@@ -116,32 +116,31 @@ describe('In work model', () => {
     expect(model.pinned[0]).toMatchObject({ id: 'a', title: 'Alpha', pinned: true })
   })
 
-  it('lists a pinned unread Session in the pinned group alone', () => {
+  it('lists a pinned unread Session under unread, not under the pin', () => {
     const model = deriveAttention(
       listOf([{ id: 'a', title: 'Alpha', updatedAt: 5 }]),
       statusOf({ a: { unread: true } }),
       NONE,
       pins('a'),
     )
-    expect(model.unread).toEqual([])
-    expect(model.pinned).toHaveLength(1)
-    expect(model.pinned[0]).toMatchObject({ id: 'a', title: 'Alpha', pinned: true })
+    expect(titled(model.unread)).toEqual([{ id: 'a', title: 'Alpha', pinned: true }])
+    expect(model.pinned).toEqual([])
+    expect(model.running).toEqual([])
   })
 
-  it('lists a pinned running Session in the pinned group alone', () => {
+  it('lists a pinned running Session under running, not under the pin', () => {
     const model = deriveAttention(
       listOf([{ id: 'a', title: 'Alpha', updatedAt: 5, running: true }]),
       statusOf({ a: { running: true, unread: true } }),
       NONE,
       pins('a'),
     )
-    expect(model.running).toEqual([])
+    expect(titled(model.running)).toEqual([{ id: 'a', title: 'Alpha', pinned: true }])
     expect(model.unread).toEqual([])
-    expect(model.pinned).toHaveLength(1)
-    expect(model.pinned[0]).toMatchObject({ id: 'a', title: 'Alpha', pinned: true })
+    expect(model.pinned).toEqual([])
   })
 
-  it('keeps every unpinned Session in its own activity group beside the pinned ones', () => {
+  it('places every Session by its state, and a pin at rest by the pin', () => {
     const model = deriveAttention(
       listOf([
         { id: 'pin', updatedAt: 1 },
@@ -152,12 +151,46 @@ describe('In work model', () => {
       NONE,
       pins('pin'),
     )
-    expect(ids(model.unread)).toEqual(['done'])
-    expect(ids(model.pinned)).toEqual(['pin'])
+    // A pinned Session still reports its own work, and the pin leads the group it
+    // lands in even when a newer unpinned row shares it.
+    expect(ids(model.unread)).toEqual(['pin', 'done'])
+    expect(ids(model.pinned)).toEqual([])
     expect(ids(model.running)).toEqual(['run'])
-    // One Session, one group: unpinning is what moves a row between them.
+    // One Session, one group: its state and its pin together decide which.
     expect(listed(model)).toEqual(['done', 'pin', 'run'])
     expect(model.waiting).toEqual([])
+  })
+
+  it('leads each state group with its pinned rows, newest first on both sides', () => {
+    const model = deriveAttention(
+      listOf([
+        { id: 'run-new', updatedAt: 9, running: true },
+        { id: 'run-pin-old', updatedAt: 1, running: true },
+        { id: 'done-new', updatedAt: 8 },
+        { id: 'done-pin-old', updatedAt: 2 },
+      ]),
+      statusOf({
+        'run-new': { running: true },
+        'run-pin-old': { running: true },
+        'done-new': { unread: true },
+        'done-pin-old': { unread: true },
+      }),
+      NONE,
+      pins('run-pin-old', 'done-pin-old'),
+    )
+    expect(ids(model.running)).toEqual(['run-pin-old', 'run-new'])
+    expect(ids(model.unread)).toEqual(['done-pin-old', 'done-new'])
+    expect(model.pinned).toEqual([])
+  })
+
+  it('files a pinned Session by its live state, then under the pin once both clear', () => {
+    const rows = listOf([{ id: 'a', updatedAt: 5, running: true }])
+    expect(ids(deriveAttention(rows, statusOf({ a: { running: true, unread: true } }), NONE, pins('a')).running))
+      .toEqual(['a'])
+    expect(ids(deriveAttention(rows, statusOf({ a: { unread: true } }), NONE, pins('a')).unread))
+      .toEqual(['a'])
+    expect(ids(deriveAttention(rows, statusOf({ a: {} }), NONE, pins('a')).pinned))
+      .toEqual(['a'])
   })
 
   it('orders the pinned group newest first', () => {
@@ -308,7 +341,7 @@ describe('In work model', () => {
     expect(model.unread).toEqual([])
   })
 
-  it('lists a pinned idle lead over running subagent work once, without the child rows', () => {
+  it('lists a pinned idle lead over running subagent work under running, without the child rows', () => {
     const model = deriveAttention(
       listOf([
         { id: 'lead', title: 'Lead', updatedAt: 6 },
@@ -319,9 +352,9 @@ describe('In work model', () => {
       NONE,
       pins('lead'),
     )
-    expect(model.pinned).toHaveLength(1)
-    expect(model.pinned[0]).toMatchObject({ id: 'lead', title: 'Lead', pinned: true })
-    expect(model.running).toEqual([])
+    // Running subagent work below the lead is live work: the pin does not file it away.
+    expect(titled(model.running)).toEqual([{ id: 'lead', title: 'Lead', pinned: true }])
+    expect(model.pinned).toEqual([])
     expect(model.unread).toEqual([])
   })
 
