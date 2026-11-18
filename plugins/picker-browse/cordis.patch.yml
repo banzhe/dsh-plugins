@@ -1,0 +1,9 @@
+# Full replacement, not a shadow: the shipped row renders the same two
+# directory-flow holes, so exactly one of the two may be active. This layer is
+# applied after the web-app bundle that declares it.
+- id: ui-directory-picker-browse
+  disabled: true
+
+- insert:
+    - id: picker-browse-personal
+      name: '@banzhe/dsh-picker-browse'

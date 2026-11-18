@@ -68,6 +68,9 @@ catalog:
   '@deepseek-ai/dsh-working-directory': 0.2.2-rc.2
   '@deepseek-ai/dsh-workspace': 0.2.2-rc.2
   '@deepseek-ai/schemastery': 3.19.0
+  # 上游 UI 组件的测试运行时：fork 过来的行为测试原样跑，就需要它。
+  '@testing-library/dom': ^10.4.1
+  '@testing-library/react': ^16.3.3
   '@types/node': ^22.20.0
   '@types/react': ~18.3.31
   '@types/react-dom': ~18.3.7
