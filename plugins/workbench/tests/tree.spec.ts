@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type {
   SessionListState, SessionProjectionMap, SessionSummary,
 } from '@deepseek-ai/dsh-api-session-controller/client'
@@ -918,6 +918,11 @@ describe('deriveSearchResults', () => {
 })
 
 describe('createWorkspaceViewStore', () => {
+  // The persist key is the storage identity, so every store created below shares
+  // one entry and would rehydrate whatever an earlier test wrote; each test
+  // starts from a clean entry. Non-browser runs have no localStorage to clear.
+  beforeEach(() => { globalThis.localStorage?.removeItem('dsh.workspace.view.v5') })
+
   it('stores view preferences and selects Manual when saving a drag order', () => {
     const store = createWorkspaceViewStore().create()
     expect(store.getSnapshot().groupBy).toBe('workspace')
