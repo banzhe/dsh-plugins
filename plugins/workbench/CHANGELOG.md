@@ -1,5 +1,16 @@
 # @banzhe/dsh-workbench
 
+## 0.3.0
+
+### Minor Changes
+
+- 47d7c40: Drive the Windows taskbar pulse from the In work model: the desktop shell's progress indicator runs indeterminate while Sessions are running and nothing is waiting on the user or finished-unread, and clears otherwise. A browser, or a shell whose whitelist predates the progress channel, is unaffected.
+
+### Patch Changes
+
+- 670a762: Render the In work region's headers and rows with the browsing rows' own boxes. A Session listed there now measures, paints, aligns and hovers exactly like the same Session in the list below: same leading cell, same width, and the same hover fill; pinned rows carry the list's resting mark and release their pin from the row's hover action strip.
+- e1372c0: Keep subagent Sessions out of the In work region. Both groups list top-level Sessions only: a lead Session stays under **Running** while subagents below it work, and no subagent row, nested list or per-hop row appears at any delegation depth.
+
 ## 0.2.0
 
 ### Minor Changes
