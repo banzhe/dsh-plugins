@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-picker-browse",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "In-app workspace directory picker: the browser dialog forked from the shipped ui-directory-picker-browse surface, with a drive-letter row in its header",
   "repository": {
     "type": "git",

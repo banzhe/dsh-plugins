@@ -1,5 +1,12 @@
 # @banzhe/dsh-workbench
 
+## 0.3.2
+
+### Patch Changes
+
+- 849ca3d: In work: the Running and Unread folds now render even when they hold nothing, reporting a count of 0, while an empty Pinned fold stays hidden. A pinned Session also follows its own state — it lists under Running while it works and under Unread when it finishes unread, returning to Pinned once both are cleared — and pinned rows lead those two groups.
+- 69e6fb8: In work: each quick-group row now carries the Session's Workspace name on a second line under its title, so a mixed list of Sessions from several Workspaces stays readable. Rows in the browsing list below keep their single-line layout.
+
 ## 0.3.1
 
 ### Patch Changes
