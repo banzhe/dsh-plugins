@@ -6,7 +6,7 @@
  * The channel is optional. A browser, or a shell whose whitelist predates
  * `window.setProgressBar`, has no write at all; the presenter never throws.
  */
-import type { AttentionModel } from './model.ts'
+import type { AttentionModel, AttentionRow } from './model.ts'
 
 /**
  * The Desktop shell's window bridge, as the Web UI sees it. `dshDesktop` is the
@@ -38,15 +38,40 @@ function desktopWindowProgress(): ((progress: number) => Promise<void>) | undefi
 }
 
 /**
+ * Whether one listed Session finished while nobody looked: the reminder the pulse
+ * must not talk over. A run in flight is not one, even with the flag still set on
+ * it — the flag is cleared by opening the Session, not by a new turn.
+ * @param row - one listed Session.
+ * @returns true when the row reports finished and nothing about it is live.
+ */
+function finishedUnreadAtRest(row: AttentionRow): boolean {
+  return row.completed && !isLive(row)
+}
+
+/**
+ * Whether a listed Session has work in flight: its own run, or the subagent work
+ * delegated below it.
+ * @param row - one listed Session.
+ * @returns true while the Session carries running work.
+ */
+function isLive(row: AttentionRow): boolean {
+  return row.running || row.runningSubagentCount > 0
+}
+
+/**
  * Whether the current content earns the taskbar pulse: work is in flight, and
- * nothing is blocked on the user or finished-unread. A Session listed only
- * because it is pinned sits in the unread group at rest, so it never pulses on
- * its own.
+ * nothing is blocked on the user or finished-unread. Placement never decides this:
+ * a pinned Session at rest is in view because the user asked, so it is not a new
+ * notification and never pulses on its own, while a pinned Session that runs or
+ * finished unread counts exactly like an unpinned one.
  * @param model - the current In work content.
  * @returns true when the Windows progress bar should run indeterminate.
  */
 export function shouldPulseTaskbar(model: AttentionModel): boolean {
-  return model.running.length > 0 && model.waiting.length === 0 && model.unread.length === 0
+  const listed = [...model.unread, ...model.pinned, ...model.running]
+  if (!listed.some(isLive)) return false
+  if (model.waiting.length > 0) return false
+  return !listed.some(finishedUnreadAtRest)
 }
 
 /**

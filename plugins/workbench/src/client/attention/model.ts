@@ -1,18 +1,22 @@
 /**
- * The In work model: Sessions that are running or need a look after finishing,
- * folded from state other plugins own. No state is persisted and nothing is
- * refreshed here — the Session-list snapshot, the Session-status snapshot, and the
- * Workspace owner's pin and archive sets are the whole input.
+ * The In work model: Sessions that need a look — running work, finished-unread
+ * work, and everything the user pinned — folded from state other plugins own. No
+ * state is persisted and nothing is refreshed here — the Session-list snapshot,
+ * the Session-status snapshot, and the Workspace owner's pin and archive sets are
+ * the whole input.
  *
- * Two groups, one row per Session:
- * - `running` holds every Session that runs itself or has running subagent work
- *   below it, pinned or not, stable newest first.
- * - `unread` holds non-running Sessions with a completion flag plus pinned
- *   Sessions with no running work, even without that flag; pinned rows lead, then
- *   newest first.
+ * Three quick groups, one row per Session, each row carrying the browsing list's
+ * own row facts so a Session draws the same dot here as it does in the tree:
+ * - `unread` holds non-pinned Sessions finished while unread.
+ * - `pinned` holds every pinned Session, whatever its work state. The pin chooses
+ *   the row's group, never its dot: a pinned row reports its own running,
+ *   completion and pending-interaction state.
+ * - `running` holds non-pinned Sessions that run themselves or have running
+ *   subagent work below them.
  *
- * A pinned running Session lists only under `running`; a pinned unread Session
- * lists only under `unread`; no Session lists in both.
+ * Every listed Session appears in exactly one of the three: the pin leads, so a
+ * pinned running Session lists only under `pinned`. `waiting` names the listed
+ * Sessions blocked on the user, in the groups' display order.
  *
  * A subagent Session gets no row here, at any depth: the Session that delegated
  * the work carries it as its own run, so one delegation adds no row and no
@@ -23,26 +27,23 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { runningDescendantCounts, sessionIsRunning } from '../tree.ts'
+import { runningDescendantCounts, sessionNode, type SessionNode } from '../tree.ts'
 
-/** One listed Session: enough to label a row and jump to it. */
-export interface AttentionRow {
-  readonly id: SessionId
-  /** Human-facing label, straight from the list row (`displayTitle`). */
-  readonly title: string
-  /** Listed without a live run of its own: a pinned Session at rest. */
-  readonly container?: boolean
-  /** Marks a row whose Session is pinned, whatever else lists it. */
-  readonly pinned?: boolean
-}
+/**
+ * One listed Session: the browsing list's own row facts, unchanged. Nothing in
+ * the row says which group lists it — a group is a view, not a state.
+ */
+export type AttentionRow = SessionNode
 
-/** Everything the region renders: two independent groups. */
+/** Everything the region renders: three independent groups plus the blocked set. */
 export interface AttentionModel {
-  /** Sessions running or holding running subagent work, pinned ones included; stable newest first. */
-  readonly running: readonly AttentionRow[]
-  /** Finished-unread Sessions plus pinned idle Sessions; pinned rows lead, then newest. */
+  /** Finished-unread Sessions with no pin; newest first. */
   readonly unread: readonly AttentionRow[]
-  /** Listed Sessions whose work is blocked on the user; a subset of the two groups. */
+  /** Every pinned Session, at rest or in flight; newest first. */
+  readonly pinned: readonly AttentionRow[]
+  /** Sessions running themselves or over running subagent work, unpinned; newest first. */
+  readonly running: readonly AttentionRow[]
+  /** Listed Sessions whose work is blocked on the user, in display order. */
   readonly waiting: readonly AttentionRow[]
 }
 
@@ -58,16 +59,8 @@ interface Candidate {
   readonly row: AttentionRow
 }
 
-/** The running sort is stable, so equal timestamps keep Host list order. */
+/** Every group lists newest first; the sort is stable, so equal timestamps keep Host list order. */
 function byRecency(left: Candidate, right: Candidate): number {
-  return right.updatedAt - left.updatedAt
-}
-
-/** Pinned rows lead the unread group; each side keeps the stable newest-first order. */
-function byUnreadPriority(left: Candidate, right: Candidate): number {
-  const leftPinned = left.row.pinned === true ? 0 : 1
-  const rightPinned = right.row.pinned === true ? 0 : 1
-  if (leftPinned !== rightPinned) return leftPinned - rightPinned
   return right.updatedAt - left.updatedAt
 }
 
@@ -77,7 +70,7 @@ function byUnreadPriority(left: Candidate, right: Candidate): number {
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
  * @param archived - archived Session ids, which never list.
- * @param pinned - pinned Session ids, which lead the unread group at rest.
+ * @param pinned - pinned Session ids, which list only under `pinned`.
  * @returns the model the region renders.
  */
 export function deriveAttention(
@@ -86,8 +79,9 @@ export function deriveAttention(
   archived: ReadonlySet<SessionId>,
   pinned: ReadonlySet<SessionId>,
 ): AttentionModel {
-  const running: Candidate[] = []
   const unread: Candidate[] = []
+  const pinnedRows: Candidate[] = []
+  const running: Candidate[] = []
   const blocked = new Set<SessionId>()
   const descendants = runningDescendantCounts(list, status)
   list.ids.forEach((id) => {
@@ -95,45 +89,36 @@ export function deriveAttention(
     // An id may be listed before the Host projects its row (nothing to label).
     if (row === undefined) return
     if (row.origin === 'subagent' || row.blank || archived.has(id)) return
+    // The status map is read once, here: the row's own state (not its group)
+    // decides the dot, and pending interaction rides the same entry.
     const entry = status.get(id)
-    const isPinned = pinned.has(id)
+    if (entry?.pendingInteraction !== undefined) blocked.add(id)
+    const node = sessionNode(row, status, descendants, pinned, archived)
+    const candidate: Candidate = { updatedAt: row.updatedAt, row: node }
+    // The pin outranks the work state for placement only; the row keeps its
+    // running, completion and blocked facts for the dot it draws.
+    if (node.pinned) {
+      pinnedRows.push(candidate)
+      return
+    }
     // Subagent work belongs to the Session that delegated it: that row spins, and
     // the children never contribute rows of their own.
-    const live = sessionIsRunning(list, status, id) || (descendants.get(id) ?? 0) > 0
-    if (live) {
-      // A pinned running Session belongs here only, even when a completion flag is
-      // also set.
-      running.push({
-        updatedAt: row.updatedAt,
-        row: { id, title: row.displayTitle, ...(isPinned ? { pinned: true } : {}) },
-      })
-      if (entry?.pendingInteraction !== undefined) blocked.add(id)
+    if (node.running || node.runningSubagentCount > 0) {
+      running.push(candidate)
       return
     }
-    if (entry?.completionUnread === true) {
-      unread.push({
-        updatedAt: row.updatedAt,
-        row: { id, title: row.displayTitle, ...(isPinned ? { pinned: true } : {}) },
-      })
-      if (entry.pendingInteraction !== undefined) blocked.add(id)
-      return
-    }
-    // A pinned Session at rest belongs to the unread group even without a
-    // completion flag: the user asked to keep it in view, and it has no run.
-    if (isPinned) {
-      unread.push({
-        updatedAt: row.updatedAt,
-        row: { id, title: row.displayTitle, container: true, pinned: true },
-      })
-      if (entry?.pendingInteraction !== undefined) blocked.add(id)
-    }
+    // A Session listed with no completion flag has nothing to report: it stays
+    // in the tree below and takes no quick-group row.
+    if (node.completed) unread.push(candidate)
   })
+  const unreadRows = unread.sort(byRecency).map(candidate => candidate.row)
+  const pinnedRowsSorted = pinnedRows.sort(byRecency).map(candidate => candidate.row)
   const runningRows = running.sort(byRecency).map(candidate => candidate.row)
-  const unreadRows = unread.sort(byUnreadPriority).map(candidate => candidate.row)
   return {
-    running: runningRows,
     unread: unreadRows,
-    waiting: [...runningRows, ...unreadRows].filter(row => blocked.has(row.id)),
+    pinned: pinnedRowsSorted,
+    running: runningRows,
+    waiting: [...unreadRows, ...pinnedRowsSorted, ...runningRows].filter(row => blocked.has(row.id)),
   }
 }
 
@@ -143,7 +128,19 @@ export function deriveAttention(
  * something visible changed.
  */
 function rowKey(row: AttentionRow): string {
-  return [row.id, row.title, row.container ? 'c' : '', row.pinned ? 'p' : ''].join('\u0002')
+  return [
+    row.id,
+    row.title,
+    row.blank ? 'b' : '',
+    row.running ? 'r' : '',
+    String(row.runningSubagentCount),
+    row.completed ? 'c' : '',
+    row.pinned ? 'p' : '',
+    row.archived ? 'a' : '',
+    row.pendingInteraction ?? '',
+    String(row.updatedAt),
+    row.cwd ?? '',
+  ].join('\u0002')
 }
 
 function rowsKey(rows: readonly AttentionRow[]): string {
@@ -152,8 +149,9 @@ function rowsKey(rows: readonly AttentionRow[]): string {
 
 /** Whether two models would render identically. */
 function sameModel(left: AttentionModel, right: AttentionModel): boolean {
-  return rowsKey(left.running) === rowsKey(right.running)
-    && rowsKey(left.unread) === rowsKey(right.unread)
+  return rowsKey(left.unread) === rowsKey(right.unread)
+    && rowsKey(left.pinned) === rowsKey(right.pinned)
+    && rowsKey(left.running) === rowsKey(right.running)
     // The blocked marker rides this one, so a pending interaction that appears or
     // clears while the groups stand still is a change, not a no-op.
     && rowsKey(left.waiting) === rowsKey(right.waiting)

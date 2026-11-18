@@ -427,7 +427,7 @@ function visiblePendingKind(kind: string | undefined): SessionPendingInteraction
 }
 
 /** Running subagent descendants of one Session, keyed for every Session that has at least one. */
-type RunningDescendants = ReadonlyMap<SessionId, number>
+export type RunningDescendants = ReadonlyMap<SessionId, number>
 
 /** One iteration state of the explicit-lineage walk: the Session being descended and its cursor. */
 interface LineageFrame {
@@ -498,7 +498,19 @@ export function runningDescendantCounts(list: SessionListState, statuses: Sessio
   return counts
 }
 
-function sessionNode(
+/**
+ * Project one Session's row from the current snapshots: the list's own label,
+ * recency and directory, plus the pin, archive, live and completion bits every
+ * browsing surface shows. The tree and the In work folds both read rows through
+ * this one projection, so a Session carries identical state wherever it lists.
+ * @param s - the Session's list row.
+ * @param statuses - unified UI status by Session.
+ * @param descendants - running subagent descendant counts by ancestor.
+ * @param pinned - registry-global pin set.
+ * @param archived - registry-global archive set.
+ * @returns the row facts the browsing surfaces render.
+ */
+export function sessionNode(
   s: SessionSummary,
   statuses: SessionStatuses,
   descendants: RunningDescendants,

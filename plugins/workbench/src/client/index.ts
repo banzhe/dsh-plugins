@@ -233,8 +233,8 @@ export function apply(ctx: Context): void {
     )
     if (!result.ok) throw new Error(result.error.message)
   }
-  // The row action and the attention region issue the same Host call, so a
-  // refusal raises the same notice for both.
+  // The menu row and the hover button issue the same Host call, so a refusal
+  // raises the same notice for both.
   const unpinSession = (sessionId: SessionId): void => {
     uiWorkspace.unpinSession(sessionId).catch(() => { notify({ kind: 'unpinFailed' }) })
   }
@@ -372,7 +372,6 @@ export function apply(ctx: Context): void {
       await workspaces.insertBefore(workspaceId, beforeWorkspaceId)
     },
     unarchiveSession: async (sessionId) => { await uiWorkspace.unarchiveSession(sessionId) },
-    unpinSession,
     createWorkspace: input => workspaces.create(input),
     requestSearch: shortcutControls.search,
     requestAddWorkspace: shortcutControls.add,

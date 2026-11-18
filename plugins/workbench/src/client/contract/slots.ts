@@ -279,8 +279,6 @@ export type WorkspaceBrowserInjected = {
   startSession: (workspaceId?: WorkspaceId, options?: StartSessionOptions) => void
   /** Open a real Session. */
   open: (sessionId: SessionId) => void
-  /** Release one Session's pin; the attention region's only Host write. */
-  unpinSession: (sessionId: SessionId) => void
   /**
    * Search current visible conversation messages. The Host fixes the result
    * bound; `hasMore` means the query needs narrowing.

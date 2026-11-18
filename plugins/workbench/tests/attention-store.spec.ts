@@ -36,6 +36,7 @@ function listOf(rows: readonly { id: string; title?: string; updatedAt: number; 
   for (const row of rows) {
     byId[row.id] = {
       id: row.id,
+      title: row.title ?? '',
       displayTitle: row.title ?? row.id,
       updatedAt: row.updatedAt,
       running: row.running === true,
@@ -71,7 +72,7 @@ function harness() {
 describe('In work store', () => {
   it('folds the current snapshots at construction', () => {
     const { store } = harness()
-    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], pinned: [], waiting: [] })
   })
 
   it('notifies when the Session list changes', () => {
@@ -92,15 +93,37 @@ describe('In work store', () => {
     expect(store.getSnapshot().unread.map(row => row.id)).toEqual(['a'])
   })
 
-  it('notifies when a Session is pinned, and again when the pin is released', () => {
+  it('notifies when a Session is pinned into the pinned group, and again when the pin is released', () => {
     const { store, pinned } = harness()
     const listener = vi.fn()
     store.subscribe(listener)
     pinned.set(ids(['a']))
-    expect(store.getSnapshot().unread).toEqual([{ id: 'a', title: 'a', container: true, pinned: true }])
+    expect(store.getSnapshot().pinned).toHaveLength(1)
+    expect(store.getSnapshot().pinned[0]).toMatchObject({ id: 'a', pinned: true })
+    expect(store.getSnapshot().unread).toEqual([])
+    expect(store.getSnapshot().running).toEqual([])
     pinned.set(NONE)
     expect(listener).toHaveBeenCalledTimes(2)
-    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], pinned: [], waiting: [] })
+  })
+
+  it('moves a running Session out of the running group when it is pinned', () => {
+    const { store, list, pinned } = harness()
+    list.set(listOf([{ id: 'a', updatedAt: 1, running: true }]))
+    expect(store.getSnapshot().running).toHaveLength(1)
+    pinned.set(ids(['a']))
+    expect(store.getSnapshot().running).toEqual([])
+    expect(store.getSnapshot().pinned).toHaveLength(1)
+    expect(store.getSnapshot().pinned[0]).toMatchObject({ id: 'a', pinned: true })
+  })
+
+  it('publishes nothing when a source re-emits the same pins', () => {
+    const { store, pinned } = harness()
+    const listener = vi.fn()
+    store.subscribe(listener)
+    pinned.set(ids(['a']))
+    pinned.set(ids(['a']))
+    expect(listener).toHaveBeenCalledTimes(1)
   })
 
   it('notifies when a Session is archived, which drops it without touching the list', () => {
@@ -147,6 +170,6 @@ describe('In work store', () => {
     archived.set(ids(['a']))
     expect(listener).not.toHaveBeenCalled()
     // The last published model stays readable: dispose detaches, it does not blank.
-    expect(store.getSnapshot()).toEqual({ running: [], unread: [], waiting: [] })
+    expect(store.getSnapshot()).toEqual({ running: [], unread: [], pinned: [], waiting: [] })
   })
 })

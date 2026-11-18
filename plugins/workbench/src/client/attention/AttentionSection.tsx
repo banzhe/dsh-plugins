@@ -1,31 +1,39 @@
 /**
- * The In work region at the top of the browsing list: two independent, collapsible
- * groups — running Sessions and unread or pinned-idle Sessions — folded from state
- * other plugins already own. Each group header carries its own count; the region
- * draws no header of its own and renders nothing while both groups are empty.
+ * The browsing region's four folds: the three quick groups the In work model lists
+ * — unread, pinned, running — and the workspace tree itself. Each fold is an
+ * independent, labelled section with its own header button and fold state; the
+ * region draws no title or total above them.
  *
- * The region renders no state of its own beyond the two fold choices: opening a row
- * goes through the Workspace owner's guarded open (the same call the tree rows
- * make), which selects the Session as the main view and lets ui-session clear its
- * unread flag; releasing a pin is the same Host call the sidebar's row action
- * issues, behind the same access gate.
+ * The three quick groups render the browsing list's own Session rows
+ * (rows/Rows.tsx), not a private row shape: focus, hover, the row menu trigger,
+ * the hover card, the pin mark, the relative time and the row's action strip are
+ * the same code the tree below runs. The menu and the hover actions are the shared
+ * `contextMenu.button` factory and the `sidebar.workspaces.session.row.action`
+ * list, so pin/unpin, archive, rename and fork behave here exactly as they do in
+ * the tree — this region copies no menu, no Host write, no access gate and no copy.
  *
- * Headers and rows are the browsing list's own boxes: their classes come from
- * rows/Rows.module.css, so a Session here measures, paints and aligns exactly like
- * the same Session in the list below — including the leading 16x20 cell, the
- * trailing resting cell that carries the pinned mark, and the hover action strip
- * that holds the release control.
+ * A Session can list here and in the tree at once, so each quick-group row takes
+ * its own row key (`quick:<group>:<id>`) and the two occurrences stay distinct in
+ * the DOM. Everything else follows the Session, not the occurrence: opening,
+ * renaming and every row action are addressed by Session id, so either occurrence
+ * raises the same navigation, the same dialog and the same Host call, and the
+ * shared context-menu target reports the menu open on both — the same fact either
+ * way. Row dragging is the one behaviour the quick groups leave out: reordering
+ * belongs to the tree, which owns the account order.
+ *
+ * Opening a row goes through the Workspace owner's guarded open (the same call the
+ * tree rows make), which selects the Session as the main view and lets ui-session
+ * clear its unread flag. The region persists nothing and writes nothing.
  */
 import clsx from 'clsx'
-import { type ReactNode, useMemo, useState } from 'react'
-import {
-  IconChevronDownOutlineRegular, IconChevronRightOutlineRegular, IconPinFillRegular, StateDot, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-import type { StateDotState } from '@deepseek-ai/dsh-client-ui-primitives'
+import { type ReactNode, useState } from 'react'
+import { HoverCardGroup, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
+import type { WorkspaceKey } from '../locales.ts'
 import type { AttentionModel, AttentionRow } from './model.ts'
+import { SessionNodeItem } from '../rows/Rows.tsx'
 import rowStyles from '../rows/Rows.module.css'
 import css from './AttentionSection.module.css'
 
@@ -33,209 +41,195 @@ import css from './AttentionSection.module.css'
 export interface AttentionSectionProps {
   /** The current model, bound to the plugin's store during render. */
   readonly useAttention: SnapshotSelectorHook<AttentionModel>
-  /** The row actions' access hook: the pin toggle is offered only where it is allowed. */
+  /** The row actions' access hook: every row gate is asked where the tree asks it. */
   readonly useSessionAccess: WorkspaceBrowserProps['useSessionAccess']
   /** Show one Session as the main view (also clears its unread flag in ui-session). */
   readonly open: (id: SessionId) => void
-  /** Release one Session's pin, which is the only reason its row is listed. */
-  readonly unpin: (id: SessionId) => void
+  /** Open the rename dialog from a row title double-click, as in the tree. */
+  readonly onSessionRenameRequest: (sessionId: SessionId, currentTitle: string) => void
+  /** The Session the main view shows, so a listed row highlights like its tree row. */
+  readonly currentId?: SessionId | undefined
+  /** Host account home for POSIX hover-path abbreviation. */
+  readonly home?: string | undefined
+  /**
+   * Localized title of the fourth fold, which holds the browsing list itself:
+   * "All workspaces", or "All sessions" in the one-list view. It names that fold,
+   * not the region, so it never repeats the toolbar's own section label above.
+   */
+  readonly workspacesTitle: string
+  readonly renderSlot: WorkspaceBrowserProps['renderSlot']
+  readonly renderFactorySlot: WorkspaceBrowserProps['renderFactorySlot']
+  readonly useContextMenuTarget: WorkspaceBrowserProps['useContextMenuTarget']
+  readonly useContextMenu: WorkspaceBrowserProps['useContextMenu']
   readonly t: PropsLocale<'workspace'>['t']
+  /** The browsing body under the list's fold: the grouped tree or the flat list. */
+  readonly children?: ReactNode
 }
 
-type Group = 'running' | 'unread'
+type QuickGroup = 'unread' | 'pinned' | 'running'
+type FoldKey = QuickGroup | 'workspaces'
+
+/** The three quick groups, in display order, each with the dictionary key naming it. */
+const QUICK_GROUPS: readonly { readonly fold: QuickGroup; readonly labelKey: WorkspaceKey }[] = [
+  { fold: 'unread', labelKey: 'attention.section.unread' },
+  { fold: 'pinned', labelKey: 'attention.section.pinned' },
+  { fold: 'running', labelKey: 'attention.section.running' },
+]
 
 /**
- * The dot one row draws, or none. A pinned Session at rest has no live work to
- * show; a turn blocked on the user outranks the group's own state; a running row
- * spins and an unread row is done.
+ * One fold: a header button that owns the fold state, and its body. The header is
+ * the session rows' own 32px box with the tree's filled triangle in the leading
+ * cell, so a fold label starts on the same edge as the titles under it. The
+ * header's text names the fold and, for a quick group, its count; the button's
+ * `aria-expanded`/`aria-controls` pair is what makes the fold reachable and
+ * operable from the keyboard and from a screen reader.
+ *
+ * A quick group's rows are cheap and stateless, so its body leaves the tree on
+ * collapse. The browsing list's fold is the opposite: the list holds its own
+ * view state — the "Show more" watermarks, group expansion, and the scroll
+ * position of a revealed Session — so its body stays mounted and is hidden
+ * instead, keeping that state and keeping `aria-controls` pointing at a real
+ * element whether the fold is open or closed.
+ * @param props.fold - the fold's stable key, also its id stem.
+ * @param props.title - localized fold name.
+ * @param props.count - entries in the fold, for a quick group; the list reports its own.
+ * @param props.keepMounted - keep the body mounted while folded, hiding it instead.
+ * @param props.children - the fold's body content.
+ * @returns the fold section.
  */
-function dotStateOf(group: Group, row: AttentionRow, waiting: ReadonlySet<SessionId>): StateDotState | undefined {
-  if (row.container === true) return undefined
-  if (waiting.has(row.id)) return 'warning'
-  return group === 'running' ? 'ongoing' : 'done'
-}
-
-/**
- * One row in a fold: the list's own row box, its click target, the resting mark a
- * pinned Session carries at rest, and the hover action strip that releases the
- * pin. The access gate is asked once per row — the same gate the list row's pin
- * button uses — so a refused Session keeps its resting mark and never renders an
- * empty action strip.
- * @param props - the Session, its group, the callbacks it needs, and the gate.
- * @returns the row item.
- */
-function AttentionRowItem({ row, group, waiting, open, unpin, label, unpinLabel, unpinTitle, useSessionAccess }: {
-  readonly row: AttentionRow
-  readonly group: Group
-  readonly waiting: ReadonlySet<SessionId>
-  readonly open: (id: SessionId) => void
-  readonly unpin: (id: SessionId) => void
-  readonly label: (title: string, pinned: boolean) => string
-  readonly unpinLabel: string
-  readonly unpinTitle: string
-  readonly useSessionAccess: WorkspaceBrowserProps['useSessionAccess']
-}): ReactNode {
-  const canUnpin = useSessionAccess(row.id, 'workspace/unpinSession')
-  const pinned = row.pinned === true
-  const dot = dotStateOf(group, row, waiting)
-  return (
-    <li>
-      <div className={rowStyles.sessionRow}>
-        <button
-          type="button"
-          className={css.rowButton}
-          aria-label={label(row.title, pinned)}
-          onClick={() => { open(row.id) }}
-        >
-          {/* The list keeps its leading cell even without a dot, so a quiet pinned
-              row starts on the same edge as every other title. */}
-          <span className={rowStyles.slot}>
-            {dot !== undefined && <StateDot state={dot} size={7} />}
-          </span>
-          <span className={rowStyles.title}>{row.title}</span>
-        </button>
-        {pinned && (
-          // Resting state carries the mark the list gives a pinned row; hover swaps
-          // the cell for the action strip, exactly as in the list.
-          <span className={rowStyles.rowResting}>
-            <span className={rowStyles.pinIndicator} aria-hidden="true">
-              <IconPinFillRegular size={14} />
-            </span>
-          </span>
-        )}
-        {pinned && canUnpin && (
-          <span className={rowStyles.rowActions}>
-            <Tooltip label={unpinTitle} side="bottom" align="end" delayMs={500} portal>
-              <button
-                type="button"
-                className={clsx(rowStyles.iconButton, rowStyles.pinnedAction)}
-                aria-label={unpinLabel}
-                onClick={() => { unpin(row.id) }}
-              >
-                <IconPinFillRegular size={14} />
-              </button>
-            </Tooltip>
-          </span>
-        )}
-      </div>
-    </li>
-  )
-}
-
-/**
- * One group's rows, each a Session the fold listed.
- * @param props - the rows, the group they belong to, and the callbacks they need.
- * @returns the group's list.
- */
-function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, unpinTitle, useSessionAccess }: {
-  readonly rows: readonly AttentionRow[]
-  readonly group: Group
-  readonly waiting: ReadonlySet<SessionId>
-  readonly open: (id: SessionId) => void
-  readonly unpin: (id: SessionId) => void
-  readonly label: (title: string, pinned: boolean) => string
-  readonly unpinLabel: string
-  readonly unpinTitle: string
-  readonly useSessionAccess: WorkspaceBrowserProps['useSessionAccess']
-}): ReactNode {
-  return (
-    <ul className={css.list}>
-      {rows.map(row => (
-        <AttentionRowItem
-          key={row.id}
-          row={row}
-          group={group}
-          waiting={waiting}
-          open={open}
-          unpin={unpin}
-          label={label}
-          unpinLabel={unpinLabel}
-          unpinTitle={unpinTitle}
-          useSessionAccess={useSessionAccess}
-        />
-      ))}
-    </ul>
-  )
-}
-
-/**
- * One independent fold: a group header with its visible count, and its rows when
- * expanded. The count is part of the button's visible text, so it also names the
- * count to a screen reader. The header is the list's own row box with the fold
- * glyph in its leading cell, so header labels and row titles share an edge.
- */
-function GroupCollapse({ title, count, children }: {
+function Fold({ fold, title, count, keepMounted = false, children }: {
+  readonly fold: FoldKey
   readonly title: string
-  readonly count: number
+  readonly count?: number | undefined
+  readonly keepMounted?: boolean | undefined
   readonly children: ReactNode
 }): ReactNode {
   const [expanded, setExpanded] = useState(true)
+  const headerId = `workspace-fold-${fold}-header`
+  const bodyId = `workspace-fold-${fold}-body`
+  // A folded body that leaves the tree cannot be named as the header's control;
+  // a folded body that stays mounted is merely hidden, and stays nameable.
+  const mounted = keepMounted || expanded
+  const controls = mounted ? bodyId : undefined
   return (
-    <section className={css.group}>
+    <section className={css.group} data-browser-fold={fold} aria-labelledby={headerId}>
       <button
+        id={headerId}
         type="button"
         className={clsx(rowStyles.sessionRow, css.groupHeader)}
         aria-expanded={expanded}
+        aria-controls={controls}
         onClick={() => { setExpanded(current => !current) }}
       >
         <span className={clsx(rowStyles.slot, rowStyles.chevron)} aria-hidden="true">
-          {expanded ? <IconChevronDownOutlineRegular size={12} /> : <IconChevronRightOutlineRegular size={12} />}
+          <IconTriangleRightFillRegular size={14} className={clsx(rowStyles.arrow, expanded && rowStyles.arrowOpen)} />
         </span>
         <span className={rowStyles.title}>{title}</span>
-        {' '}
-        <span className={rowStyles.time}>{count}</span>
+        {count !== undefined && <>{' '}<span className={rowStyles.time}>{count}</span></>}
       </button>
-      {expanded && <div className={css.groupBody}>{children}</div>}
+      {mounted && (
+        <div id={bodyId} className={css.groupBody} data-browser-fold-body="" hidden={!expanded}>
+          {children}
+        </div>
+      )}
     </section>
   )
 }
 
+/** The row seats every quick-group row shares with the tree. */
+type RowSeats = Pick<
+  AttentionSectionProps,
+  | 'currentId' | 'home' | 'open' | 'onSessionRenameRequest' | 'useSessionAccess'
+  | 'renderSlot' | 'renderFactorySlot' | 'useContextMenuTarget' | 'useContextMenu' | 't'
+> & { readonly now: number }
+
 /**
- * The In work region: the two group folds that have entries, and nothing at all
- * while both are empty.
- * @param props - the model hook, the access hook, the two Host actions, and the locale seat.
- * @returns the region's folds, or null when neither group lists a Session.
+ * One quick group's rows: the browsing list's own session rows, each carrying the
+ * group's row key so it never collides with the same Session's tree row. The rows
+ * sit in the shell's own hover-card group, so the group shares the tree's dwell
+ * and one-card-at-a-time coordination instead of reimplementing it; the list
+ * itself keeps the tree's role and label and the rows' 32px box.
+ * @param props.rows - the group's Sessions, in the model's order.
+ * @param props.fold - the group, which scopes the row keys.
+ * @param props.label - the group's localized name, used as the tree label.
+ * @param props.seats - the row seats plus the render clock.
+ * @returns the group's rows, in a hover-card group of their own.
  */
-export function AttentionSection({ useAttention, useSessionAccess, open, unpin, t }: AttentionSectionProps): ReactNode {
-  const model = useAttention(current => current)
-  const waiting = useMemo(() => new Set<SessionId>(model.waiting.map(row => row.id)), [model])
-  // The label names the row's own action only; the release control beside it
-  // carries the pin's own name.
-  const label = (title: string, pinned: boolean): string =>
-    pinned ? t('attention.row.openPinned', { title }) : t('attention.row.open', { title })
-  if (model.running.length === 0 && model.unread.length === 0) return null
+function GroupRows({ rows, fold, label, seats }: {
+  readonly rows: readonly AttentionRow[]
+  readonly fold: QuickGroup
+  readonly label: string
+  readonly seats: RowSeats
+}): ReactNode {
   return (
-    <section className={css.section} data-attention-section="">
-      {model.running.length > 0 && (
-        <GroupCollapse title={t('attention.section.running')} count={model.running.length}>
-          <Rows
-            rows={model.running}
-            group="running"
-            waiting={waiting}
-            open={open}
-            unpin={unpin}
-            label={label}
-            unpinLabel={t('attention.row.unpin')}
-            unpinTitle={t('actions.unpin')}
-            useSessionAccess={useSessionAccess}
+    <HoverCardGroup>
+      <div className={css.list} role="tree" aria-label={label}>
+        {rows.map(row => (
+          <SessionNodeItem
+            key={row.id}
+            rowKey={`quick:${fold}:${row.id}`}
+            node={row}
+            currentId={seats.currentId}
+            now={seats.now}
+            onOpen={seats.open}
+            onRenameRequest={seats.onSessionRenameRequest}
+            renderSlot={seats.renderSlot}
+            renderFactorySlot={seats.renderFactorySlot}
+            useContextMenu={seats.useContextMenu}
+            useContextMenuTarget={seats.useContextMenuTarget}
+            home={seats.home}
+            useSessionAccess={seats.useSessionAccess}
+            t={seats.t}
           />
-        </GroupCollapse>
-      )}
-      {model.unread.length > 0 && (
-        <GroupCollapse title={t('attention.section.unread')} count={model.unread.length}>
-          <Rows
-            rows={model.unread}
-            group="unread"
-            waiting={waiting}
-            open={open}
-            unpin={unpin}
-            label={label}
-            unpinLabel={t('attention.row.unpin')}
-            unpinTitle={t('actions.unpin')}
-            useSessionAccess={useSessionAccess}
-          />
-        </GroupCollapse>
-      )}
-    </section>
+        ))}
+      </div>
+    </HoverCardGroup>
+  )
+}
+
+/**
+ * The four folds: the quick groups that have entries, then the browsing list's own
+ * fold, which always renders, always starts open, and keeps its content mounted
+ * while folded.
+ * @param props - the model hook, the row seats, the fourth fold's title, and the browsing body.
+ * @returns the region's folds.
+ */
+export function AttentionSection({
+  useAttention, useSessionAccess, open, onSessionRenameRequest, currentId, home, workspacesTitle,
+  renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu, t, children,
+}: AttentionSectionProps): ReactNode {
+  const model = useAttention(current => current)
+  // One clock per render, as the tree does: every row in the region reads the
+  // same "now" so two occurrences of a Session label the same time.
+  const now = Date.now()
+  const seats: RowSeats = {
+    currentId,
+    home,
+    open,
+    onSessionRenameRequest,
+    useSessionAccess,
+    renderSlot,
+    renderFactorySlot,
+    useContextMenuTarget,
+    useContextMenu,
+    t,
+    now,
+  }
+  return (
+    <div className={css.section} data-browser-folds="">
+      {QUICK_GROUPS.map(({ fold, labelKey }) => {
+        const rows = model[fold]
+        if (rows.length === 0) return null
+        const label = t(labelKey)
+        return (
+          <Fold key={fold} fold={fold} title={label} count={rows.length}>
+            <GroupRows rows={rows} fold={fold} label={label} seats={seats} />
+          </Fold>
+        )
+      })}
+      <Fold fold="workspaces" title={workspacesTitle} keepMounted>
+        {children}
+      </Fold>
+    </div>
   )
 }

@@ -1,21 +1,15 @@
-/* The In work region sits above the browsing list, inside the sidebar's own
-   scroll area. It draws no chrome of its own beyond one hairline where it ends;
-   its headers and rows are the browsing list's own boxes, styled from
-   rows/Rows.module.css, so only the region's own seat, folds and the button
-   chrome the list never needs are declared here.
-
-   Both controls are buttons where the list uses divs: these rules strip that
-   chrome and nothing else, and they never touch a property the shared row box
-   sets (in particular they leave border-inline, padding, radius and
-   background-clip to the list's rules). */
+/* The browsing region's four folds sit above and around the browsing list, inside
+   the sidebar's own scroll area. The region draws no chrome of its own: no
+   hairline separates it from the tree, because the tree is one of its folds. A
+   fold header and every row are the browsing list's own boxes, styled from
+   rows/Rows.module.css, so only the fold layout and the button chrome the list
+   never needs are declared here. */
 
 .section {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 2px 0 6px;
-  border-bottom: 0.5px solid var(--dsw-alias-border-l4);
-  margin-bottom: 4px;
+  padding: 2px 0 0;
 }
 
 .group {
@@ -28,54 +22,37 @@
   flex-direction: column;
 }
 
-/* The browsing list spaces one row from the next by 2px. */
+/* The browsing list's fold keeps its body mounted while folded: the attribute
+   hides it for sight and for focus while the list keeps its watermarks, group
+   expansion and scroll position. Author display would otherwise beat the
+   attribute's own rule. */
+.groupBody[hidden] {
+  display: none;
+}
+
+/* The browsing list spaces one row from the next by 2px. A quick group's rows ride
+   the shell's hover-card group, whose wrapper is an unstyled box that leaves the
+   rows' own 32px geometry untouched. */
 .list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
+/* The header is the list's row box (32px, same leading 16px cell), so a fold
+   label, its triangle and every row title below it share one edge. As a button
+   it only drops the element chrome the row box does not set: no appearance, no
+   fill of its own, no block borders — the row box keeps its paint inset. */
 .groupHeader {
   width: 100%;
-}
-
-.groupHeader:focus-visible,
-.rowButton:focus-visible {
-  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
-  outline-offset: -2px;
-}
-
-.groupHeader,
-.rowButton {
+  appearance: none;
   background-color: transparent;
+  border-block: 0;
   font: inherit;
   text-align: left;
-  appearance: none;
 }
 
-/* The header is the row box itself: it keeps the list's paint inset, which is
-   the inline border, and only drops the block borders a button adds. */
-.groupHeader {
-  border-block: 0;
-}
-
-/* The inner button is not the row box; the box's padding and radius stay outside
-   it, so it carries no border and no padding of its own. */
-.rowButton {
-  border: 0;
-  color: inherit;
-}
-
-/* The click target fills the row box; the leading cell, title and trailing cells
-   keep the list's own layout inside it. */
-.rowButton {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-  padding: 0;
-  cursor: inherit;
+.groupHeader:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
 }

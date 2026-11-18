@@ -20,6 +20,36 @@ export function Tooltip({ children }: { readonly children?: ReactNode }): ReactN
   return <>{children}</>
 }
 
+/**
+ * The shipped hover card, reduced to its anchor: these specs read the row a card
+ * belongs to, and drawing its body would put text into the row a test cannot tell
+ * apart from the row's own.
+ */
+export function HoverCard({ anchor }: { readonly anchor?: ReactNode; readonly content?: ReactNode }): ReactNode {
+  return <>{anchor}</>
+}
+
+/**
+ * The shipped hover-card group, reduced to the children it lays out. It is a
+ * layout-only wrapper; the card bodies themselves stay the browser's concern.
+ */
+export function HoverCardGroup({ children }: {
+  readonly children?: ReactNode
+  readonly className?: string
+}): ReactNode {
+  return <>{children}</>
+}
+
+/** The shipped relative time formatter, reduced to a label the locale seat renders. */
+export function relativeTime(): { readonly unit: string; readonly n: number } {
+  return { unit: 'now', n: 0 }
+}
+
+/** The shipped drag-preview hook, inert: these specs never drag a row. */
+export function useRowDragPreview(): Record<string, undefined> {
+  return {}
+}
+
 type IconProps = { readonly size?: number }
 
 function icon(name: string) {
@@ -30,5 +60,11 @@ function icon(name: string) {
 
 export const IconChevronDownOutlineRegular = icon('chevron-down')
 export const IconChevronRightOutlineRegular = icon('chevron-right')
+export const IconTriangleRightFillRegular = icon('triangle-right-filled')
 export const IconPinOutlineRegular = icon('pin')
 export const IconPinFillRegular = icon('pin-filled')
+export const IconArchiveOutlineRegular = icon('archive')
+export const IconUnarchiveOutlineRegular = icon('unarchive')
+export const IconFolderCloseRegular = icon('folder-closed')
+export const IconFolderOpenRegular = icon('folder-open')
+export const IconNewChatOutlineRegular = icon('new-chat')

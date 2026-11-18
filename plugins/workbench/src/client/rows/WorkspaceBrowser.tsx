@@ -1,13 +1,14 @@
 /**
  * The workspace/session browsing region filling the sidebar shell's
  * `sidebar.workspaces` hole: section header (title + view options + add
- * workspace), search, the grouped tree or flat list, and the workspace
- * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace) as 36px controls on the shell's shared
- * rail entry path, each requesting expansion through the owner share. Adding
- * is the header button's one action, so it raises the directory flow with no
- * menu in between; the flow and its error dialog live in WorkspacePicker
- * (same package — direct composition, no slot between them). A Session row's
+ * workspace), search, the four folds (unread, pinned, running, and the grouped
+ * tree or flat list), and the workspace dialogs. Wide state renders the full
+ * browser; rail state renders the two region icons (search / add workspace) as
+ * 36px controls on the shell's shared rail entry path, each requesting
+ * expansion through the owner share. Adding is the header button's one action,
+ * so it raises the directory flow with no menu in between; the flow and its
+ * error dialog live in WorkspacePicker (same package — direct composition, no
+ * slot between them). A Session row's
  * "..." menu and hover buttons are the `sidebar.workspaces.session.menu.item`
  * and `sidebar.workspaces.session.row.action` lists rendered through this
  * entry's `renderSlot`; the actions in them, this package's own included,
@@ -911,7 +912,6 @@ export function WorkspaceBrowser({
   deleteWorkspace,
   insertWorkspaceBefore,
   unarchiveSession,
-  unpinSession,
   createWorkspace,
   searchSessions,
   searchResultLimit,
@@ -972,6 +972,9 @@ export function WorkspaceBrowser({
   const workspaceReady = workspacePhase === 'ready' && workspaceStreamState !== 'loading'
   const mainSessionId = Object.values(list.byId)
     .find(session => (session.retainedBy.mainView ?? 0) > 0)?.id
+  // The region's row highlight reads the same current Session the tree does: a
+  // panel covering the conversation leaves no row current.
+  const highlightedSessionId = usePanelInfo(info => info.activePanelId !== null) ? undefined : mainSessionId
   const currentBlank = mainSessionId !== undefined && list.byId[mainSessionId]?.blank === true
     ? mainSessionId
     : undefined
@@ -1355,17 +1358,9 @@ export function WorkspaceBrowser({
       {/* Always-mounted seat keeps the region's flex slot while the list
           itself is wide-only. */}
       <div ref={wide ? bindScrollerRef : undefined} className={css.listArea} data-sidebar-list-area="">
-        {/* The attention region leads the browsing list and scrolls with it; a
-            search replaces both, so the region steps aside with the tree. */}
-        {wide && normalizedQuery === '' && (
-          <AttentionSection
-            useAttention={useAttention}
-            useSessionAccess={useSessionAccess}
-            open={guardedOpen}
-            unpin={unpinSession}
-            t={t}
-          />
-        )}
+        {/* The folds lead the seat and scroll with it: the three quick groups,
+            then the workspace tree as the fourth, independently collapsible
+            group. A search replaces the whole region. */}
         {wide && (normalizedQuery !== ''
           ? (
             <SearchResults
@@ -1384,61 +1379,78 @@ export function WorkspaceBrowser({
               t={t}
             />
           )
-          : groupBy === 'flat'
-            ? (
-              <FlatList
-                useSessionAccess={useSessionAccess}
-                usePanelInfo={usePanelInfo}
-                list={list}
-                sessionIds={orderedFlatSessionIds}
-                rowState={rowState}
-                onLeaveArchivedOnly={leaveArchivedOnly}
-                workspaceReady={workspaceReady}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
-                useSessionStatus={useSessionStatus}
-                open={guardedOpen}
-                onSessionRenameRequest={requestSessionRename}
-                renderSlot={renderSlot}
-                renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
-                useContextMenuTarget={useContextMenuTarget}
-                setSessionOrder={saveSessionOrder}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
-                t={t}
-              />
-            )
-            : (
-              <SessionTree
-                useSessionAccess={useSessionAccess}
-                useWorkspaceAccess={useWorkspaceAccess}
-                usePanelInfo={usePanelInfo}
-                list={list}
-                shortcuts={shortcuts}
-                useSessionStatus={useSessionStatus}
-                onSessionRenameRequest={requestSessionRename}
-                renderSlot={renderSlot}
-                renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
-                useContextMenuTarget={useContextMenuTarget}
-                workspaces={orderedWorkspaces}
-                ungroupedSessionIds={orderedUngroupedSessionIds}
-                workspaceReady={workspaceReady}
-                nestWorkspaces={groupBy === 'workspace-tree'}
-                animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
-                groupExpansion={groupExpansion}
-                setGroupExpanded={actions.setGroupExpanded}
-                setSessionOrder={saveSessionOrder}
-                rowState={rowState}
-                onLeaveArchivedOnly={leaveArchivedOnly}
-                startSession={startSession}
-                open={guardedOpen}
-                insertWorkspaceBefore={insertWorkspaceBefore}
-                revealSessionId={revealSessionId}
-                onSessionRevealed={acknowledgeSessionReveal}
-                home={home}
-                t={t}
-              />
-            ))}
+          : (
+            <AttentionSection
+              useAttention={useAttention}
+              useSessionAccess={useSessionAccess}
+              open={guardedOpen}
+              onSessionRenameRequest={requestSessionRename}
+              currentId={highlightedSessionId}
+              home={home}
+              workspacesTitle={groupBy === 'flat' ? t('attention.section.allSessions') : t('attention.section.allWorkspaces')}
+              renderSlot={renderSlot}
+              renderFactorySlot={renderFactorySlot}
+              useContextMenu={useContextMenu}
+              useContextMenuTarget={useContextMenuTarget}
+              t={t}
+            >
+              {groupBy === 'flat'
+                ? (
+                  <FlatList
+                    useSessionAccess={useSessionAccess}
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    sessionIds={orderedFlatSessionIds}
+                    rowState={rowState}
+                    onLeaveArchivedOnly={leaveArchivedOnly}
+                    workspaceReady={workspaceReady}
+                    animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                    useSessionStatus={useSessionStatus}
+                    open={guardedOpen}
+                    onSessionRenameRequest={requestSessionRename}
+                    renderSlot={renderSlot}
+                    renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
+                    useContextMenuTarget={useContextMenuTarget}
+                    setSessionOrder={saveSessionOrder}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    home={home}
+                    t={t}
+                  />
+                )
+                : (
+                  <SessionTree
+                    useSessionAccess={useSessionAccess}
+                    useWorkspaceAccess={useWorkspaceAccess}
+                    usePanelInfo={usePanelInfo}
+                    list={list}
+                    shortcuts={shortcuts}
+                    useSessionStatus={useSessionStatus}
+                    onSessionRenameRequest={requestSessionRename}
+                    renderSlot={renderSlot}
+                    renderFactorySlot={renderFactorySlot} useContextMenu={useContextMenu}
+                    useContextMenuTarget={useContextMenuTarget}
+                    workspaces={orderedWorkspaces}
+                    ungroupedSessionIds={orderedUngroupedSessionIds}
+                    workspaceReady={workspaceReady}
+                    nestWorkspaces={groupBy === 'workspace-tree'}
+                    animationResetKey={`${groupBy}/${orderBy}/${archivedFilter}`}
+                    groupExpansion={groupExpansion}
+                    setGroupExpanded={actions.setGroupExpanded}
+                    setSessionOrder={saveSessionOrder}
+                    rowState={rowState}
+                    onLeaveArchivedOnly={leaveArchivedOnly}
+                    startSession={startSession}
+                    open={guardedOpen}
+                    insertWorkspaceBefore={insertWorkspaceBefore}
+                    revealSessionId={revealSessionId}
+                    onSessionRevealed={acknowledgeSessionReveal}
+                    home={home}
+                    t={t}
+                  />
+                )}
+            </AttentionSection>
+          ))}
       </div>
 
       {workspaceActionRequest !== null && <WorkspaceDialogs key={`${workspaceActionRequest.action}/${workspaceActionRequest.workspaceId}`}

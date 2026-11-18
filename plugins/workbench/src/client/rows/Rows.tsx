@@ -611,7 +611,7 @@ export function SearchResultItem({
  */
 export function SessionNodeItem({
   node, currentId, now, onOpen, onRenameRequest, renderSlot, renderFactorySlot, useContextMenuTarget,
-  useContextMenu, onReveal, drag, home, useSessionAccess, t,
+  useContextMenu, onReveal, rowKey, drag, home, useSessionAccess, t,
 }: {
   useContextMenu: WorkspaceBrowserProps['useContextMenu']
   renderFactorySlot: WorkspaceBrowserProps['renderFactorySlot']
@@ -624,6 +624,13 @@ export function SessionNodeItem({
   onRenameRequest: (id: SessionNode['id'], currentTitle: string) => void
   /** Scroll this row into view after search navigation, then acknowledge it. */
   onReveal?: (() => void) | undefined
+  /**
+   * DOM identity of this row occurrence. The browsing tree omits it — it lists a
+   * Session once, so the Session id is the row's identity. A surface that lists
+   * the same Session again passes its own key, keeping the two occurrences
+   * distinguishable to row-position code and to tests.
+   */
+  rowKey?: string | undefined
   /** Present on reorderable-list rows so every row can remain a drop target. */
   drag?: RowDragProps | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
@@ -670,7 +677,7 @@ export function SessionNodeItem({
   const ownRow = (
     <div
       ref={rowRef}
-      data-row-key={`session:${node.id}`}
+      data-row-key={rowKey ?? `session:${node.id}`}
       className={clsx(
         css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
         row.archived && css.archived,
