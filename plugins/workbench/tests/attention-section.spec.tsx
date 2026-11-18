@@ -213,15 +213,6 @@ describe('In work region', () => {
     expect(view.host.querySelector('[data-state="warning"]')).not.toBeNull()
   })
 
-  it('draws no state dot on a container row', () => {
-    const view = mount({
-      running: [row('parent', { container: true, children: [row('child')] })],
-      unread: [],
-      waiting: [],
-    })
-    expect(view.host.querySelectorAll('[data-testid="state-dot"]')).toHaveLength(1)
-  })
-
   it('draws no state dot on a quiet pinned row', () => {
     const view = mount({
       running: [],
@@ -249,13 +240,15 @@ describe('In work region', () => {
     expect(view.text()).not.toContain('Showing the first')
   })
 
-  it('nests a mounted subagent under its parent row', () => {
+  it('renders one flat list per group, with no nested rows', () => {
+    // Subagent Sessions never reach the region, so a row is always a single item:
+    // there is no nested list for one Session's delegated work.
     const view = mount({
-      running: [row('parent', { container: true, children: [row('child')] })],
-      unread: [],
+      running: [row('run'), row('run-2')],
+      unread: [row('done')],
       waiting: [],
     })
-    expect(view.text()).toContain('parent')
-    expect(view.text()).toContain('child')
+    expect(view.lists()).toEqual([['run', 'run-2'], ['done']])
+    expect(view.host.querySelectorAll('ul ul')).toHaveLength(0)
   })
 })

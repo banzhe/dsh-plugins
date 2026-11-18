@@ -5,8 +5,8 @@
  * Workspace owner's pin and archive sets are the whole input.
  *
  * Two groups, one row per Session:
- * - `running` holds every Session with live work, pinned or not, stable newest
- *   first.
+ * - `running` holds every Session that runs itself or has running subagent work
+ *   below it, pinned or not, stable newest first.
  * - `unread` holds non-running Sessions with a completion flag plus pinned
  *   Sessions with no running work, even without that flag; pinned rows lead, then
  *   newest first.
@@ -14,26 +14,23 @@
  * A pinned running Session lists only under `running`; a pinned unread Session
  * lists only under `unread`; no Session lists in both.
  *
- * Rows that never list: subagent children (they mount under their parent, one
- * level per delegation hop), the blank New-Session placeholder, and archived
- * Sessions. Archiving does not clear the completion flag, so the archive set is a
- * third input; it gates descendants too, or a running child under an archived
- * Session would re-mount the row the user just filed away.
+ * A subagent Session gets no row here, at any depth: the Session that delegated
+ * the work carries it as its own run, so one delegation adds no row and no
+ * nesting. Rows that never list at all: subagent Sessions (their durable
+ * `origin`), the blank New-Session placeholder, and archived Sessions.
  */
-import type { SessionListState, SessionSummary } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionStatusSnapshot } from '@deepseek-ai/dsh-client-ui-session/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { sessionIsRunning } from '../tree.ts'
+import { runningDescendantCounts, sessionIsRunning } from '../tree.ts'
 
-/** One listed Session: enough to label a row, jump to it, and nest its work. */
+/** One listed Session: enough to label a row and jump to it. */
 export interface AttentionRow {
   readonly id: SessionId
   /** Human-facing label, straight from the list row (`displayTitle`). */
   readonly title: string
-  /** Listed subagent descendants, one nesting level per delegation hop. */
-  readonly children?: readonly AttentionRow[]
-  /** Listed without a live run of its own: an idle parent over running work, or a pinned Session at rest. */
+  /** Listed without a live run of its own: a pinned Session at rest. */
   readonly container?: boolean
   /** Marks a row whose Session is pinned, whatever else lists it. */
   readonly pinned?: boolean
@@ -41,7 +38,7 @@ export interface AttentionRow {
 
 /** Everything the region renders: two independent groups. */
 export interface AttentionModel {
-  /** Sessions with running work, pinned ones included; stable newest first. */
+  /** Sessions running or holding running subagent work, pinned ones included; stable newest first. */
   readonly running: readonly AttentionRow[]
   /** Finished-unread Sessions plus pinned idle Sessions; pinned rows lead, then newest. */
   readonly unread: readonly AttentionRow[]
@@ -74,123 +71,6 @@ function byUnreadPriority(left: Candidate, right: Candidate): number {
   return right.updatedAt - left.updatedAt
 }
 
-/** One fold's child lookups, grouped by parent once so the fold stays linear. */
-interface ChildIndex {
-  readonly byId: SessionListState['byId']
-  readonly byParent: ReadonlyMap<SessionId, readonly SessionSummary[]>
-}
-
-function childIndexOf(byId: SessionListState['byId']): ChildIndex {
-  const byParent = new Map<SessionId, SessionSummary[]>()
-  for (const id of idsOf(byId)) {
-    const row = byId[id]
-    if (row?.parentId === undefined) continue
-    const siblings = byParent.get(row.parentId)
-    if (siblings === undefined) byParent.set(row.parentId, [row])
-    else siblings.push(row)
-  }
-  return { byId, byParent }
-}
-
-/** One fold's inputs to a subtree expansion, fixed for the whole fold. */
-interface SubtreeContext {
-  readonly list: SessionListState
-  readonly index: ChildIndex
-  readonly status: SessionStatusSnapshot
-}
-
-/**
- * The direct subagent children of one node: the node's own `subagentCatalog`
- * projection order first, then indexed `byId` rows the catalog has not caught up
- * with. A catalog entry with no row here, another `parentId`, or a non-subagent
- * origin is ignored, exactly like a foreign row in the index.
- */
-function directChildrenOf(parent: SessionId, ctx: SubtreeContext): readonly SessionSummary[] {
-  const seen = new Set<SessionId>()
-  const ordered: SessionSummary[] = []
-  for (const entry of ctx.list.projectionsBySession[parent]?.values.subagentCatalog ?? []) {
-    const row = ctx.index.byId[entry.id]
-    if (row === undefined || row.parentId !== parent || seen.has(entry.id)) continue
-    seen.add(entry.id)
-    ordered.push(row)
-  }
-  for (const row of ctx.index.byParent.get(parent) ?? []) {
-    if (seen.has(row.id)) continue
-    seen.add(row.id)
-    ordered.push(row)
-  }
-  return ordered.filter(row => row.origin === 'subagent')
-}
-
-/** One frame of the subtree walk: a row to expand, its children, and the next child to descend into. */
-interface SubtreeFrame {
-  readonly row: SessionSummary
-  readonly kids: readonly SessionSummary[]
-  next: number
-}
-
-/**
- * The node one row contributes, from its own run and its already-assembled
- * children: a running row keeps its title and children, an idle row over running
- * work becomes a container, and a row with neither is not part of the subtree.
- */
-function subtreeNode(row: SessionSummary, running: boolean, children: readonly AttentionRow[]): AttentionRow | undefined {
-  if (!running) {
-    return children.length === 0 ? undefined : { id: row.id, title: row.displayTitle, container: true, children }
-  }
-  return { id: row.id, title: row.displayTitle, ...(children.length === 0 ? {} : { children }) }
-}
-
-/**
- * The mounted subtree of one listed Session: every descendant running, or
- * carrying running work below it, nested one level per delegation hop.
- *
- * Two lineage facts make this walk terminate without a visited set. A row carries
- * at most one `parentId`, so the child edges — built once in `byParent` for the
- * whole fold — form a functional graph; and only a row whose `origin` is
- * `subagent` is ever a child. Every node of a cycle would therefore have to be
- * `subagent` (each one is somebody's child) while taking its parent from inside
- * the cycle, so no listed root — which is non-subagent by construction — can be
- * an ancestor of one. An endless dataset would have to break the unique-parent
- * rule to reach this fold.
- *
- * The walk is an explicit stack rather than recursion for the reason
- * `runningDescendantCounts` in tree.ts is: a delegation chain of a few thousand
- * hops is legal input, and the JavaScript call stack is not that deep. Frames are
- * assembled post-order, so a parent is built only after every child below it,
- * and children keep `directChildrenOf` order.
- * @param root - the listed Session whose subtree to expand.
- * @param ctx - this fold's list, child index and status map.
- * @returns the nested node, or `undefined` when neither `root` nor anything below it runs.
- */
-function runningSubtreeOf(root: SessionSummary, ctx: SubtreeContext): AttentionRow | undefined {
-  const built = new Map<SessionId, AttentionRow | undefined>()
-  const frames: SubtreeFrame[] = [{ row: root, kids: directChildrenOf(root.id, ctx), next: 0 }]
-  while (frames.length > 0) {
-    // Every pushed frame is removed exactly once, and the loop condition
-    // guarantees a top frame; the cast states that rather than re-testing it.
-    const frame = frames[frames.length - 1] as SubtreeFrame
-    if (frame.next < frame.kids.length) {
-      const kid = frame.kids[frame.next] as SessionSummary
-      frame.next += 1
-      frames.push({ row: kid, kids: directChildrenOf(kid.id, ctx), next: 0 })
-      continue
-    }
-    frames.pop()
-    const children: AttentionRow[] = []
-    for (const kid of frame.kids) {
-      const node = built.get(kid.id)
-      if (node !== undefined) children.push(node)
-    }
-    built.set(frame.row.id, subtreeNode(frame.row, sessionIsRunning(ctx.list, ctx.status, frame.row.id), children))
-  }
-  return built.get(root.id)
-}
-
-function idsOf(byId: SessionListState['byId']): readonly SessionId[] {
-  return Object.keys(byId) as SessionId[]
-}
-
 /**
  * Fold one list snapshot, one status snapshot, and the archive and pin sets into
  * the region's content.
@@ -209,7 +89,7 @@ export function deriveAttention(
   const running: Candidate[] = []
   const unread: Candidate[] = []
   const blocked = new Set<SessionId>()
-  const ctx: SubtreeContext = { list, index: childIndexOf(list.byId), status }
+  const descendants = runningDescendantCounts(list, status)
   list.ids.forEach((id) => {
     const row = list.byId[id]
     // An id may be listed before the Host projects its row (nothing to label).
@@ -217,13 +97,15 @@ export function deriveAttention(
     if (row.origin === 'subagent' || row.blank || archived.has(id)) return
     const entry = status.get(id)
     const isPinned = pinned.has(id)
-    const node = runningSubtreeOf(row, ctx)
-    if (node !== undefined) {
-      // The pin marks the listed row itself, never a descendant. A pinned running
-      // Session belongs here only, even when a completion flag is also set.
+    // Subagent work belongs to the Session that delegated it: that row spins, and
+    // the children never contribute rows of their own.
+    const live = sessionIsRunning(list, status, id) || (descendants.get(id) ?? 0) > 0
+    if (live) {
+      // A pinned running Session belongs here only, even when a completion flag is
+      // also set.
       running.push({
         updatedAt: row.updatedAt,
-        row: isPinned ? { ...node, pinned: true } : node,
+        row: { id, title: row.displayTitle, ...(isPinned ? { pinned: true } : {}) },
       })
       if (entry?.pendingInteraction !== undefined) blocked.add(id)
       return
@@ -256,18 +138,12 @@ export function deriveAttention(
 }
 
 /**
- * One row's comparable identity: everything the row renders plus its subtree, in
- * order. Two models with equal keys draw the same pixels, which is what lets the
- * store publish a fold only when something visible changed.
+ * One row's comparable identity: everything the row renders. Two models with equal
+ * keys draw the same pixels, which is what lets the store publish a fold only when
+ * something visible changed.
  */
 function rowKey(row: AttentionRow): string {
-  return [
-    row.id,
-    row.title,
-    row.container ? 'c' : '',
-    row.pinned ? 'p' : '',
-    row.children === undefined ? '' : row.children.map(rowKey).join('\u0003'),
-  ].join('\u0002')
+  return [row.id, row.title, row.container ? 'c' : '', row.pinned ? 'p' : ''].join('\u0002')
 }
 
 function rowsKey(rows: readonly AttentionRow[]): string {

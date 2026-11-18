@@ -37,9 +37,9 @@ export interface AttentionSectionProps {
 type Group = 'running' | 'unread'
 
 /**
- * The dot one row draws, or none. A container row stands for work below it, so it
- * carries no state of its own; a turn blocked on the user outranks the group's own
- * state; a running row spins and an unread row is done.
+ * The dot one row draws, or none. A pinned Session at rest has no live work to
+ * show; a turn blocked on the user outranks the group's own state; a running row
+ * spins and an unread row is done.
  */
 function dotStateOf(group: Group, row: AttentionRow, waiting: ReadonlySet<SessionId>): StateDotState | undefined {
   if (row.container === true) return undefined
@@ -76,7 +76,7 @@ function UnpinControl({ sessionId, unpin, label, useSessionAccess }: {
 }
 
 /**
- * Rows of one group, nested one level per delegation hop.
+ * One group's rows, each a Session the fold listed.
  * @param props - the rows, the group they belong to, and the callbacks they need.
  * @returns the group's list.
  */
@@ -119,20 +119,6 @@ function Rows({ rows, group, waiting, open, unpin, label, unpinLabel, useSession
                 />
               )}
             </div>
-            {row.children !== undefined && (
-              <div className={css.children}>
-                <Rows
-                  rows={row.children}
-                  group={group}
-                  waiting={waiting}
-                  open={open}
-                  unpin={unpin}
-                  label={label}
-                  unpinLabel={unpinLabel}
-                  useSessionAccess={useSessionAccess}
-                />
-              </div>
-            )}
           </li>
         )
       })}

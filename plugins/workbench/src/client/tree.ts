@@ -451,7 +451,7 @@ export function sessionIsRunning(list: SessionListState, statuses: SessionStatus
  * @param statuses - unified UI status by Session; absent entries fall back to the summary bit.
  * @returns each ancestor's running descendant count, omitting Sessions with none.
  */
-function runningDescendantCounts(list: SessionListState, statuses: SessionStatuses): RunningDescendants {
+export function runningDescendantCounts(list: SessionListState, statuses: SessionStatuses): RunningDescendants {
   const children = new Map<SessionId, SessionId[]>()
   for (const id of Object.keys(list.byId) as SessionId[]) {
     const row = list.byId[id]
