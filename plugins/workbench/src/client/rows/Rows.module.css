@@ -74,16 +74,22 @@
   line-height: 20px;
 }
 
+/* A second line starts where its row's title starts. */
+.searchResultMeta,
+.rowSecondary {
+  margin-left: calc(16px + var(--dsh-sidebar-label-gap));
+}
+
 .searchResultMeta {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
-  margin-left: calc(16px + var(--dsh-sidebar-label-gap));
 }
 
 .searchResultWorkspace,
-.searchResultSnippet {
+.searchResultSnippet,
+.rowSecondary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -91,10 +97,16 @@
   line-height: 17px;
 }
 
+/* The quiet step of a row's second line, which the search row and a stacked
+   Session row share. */
+.searchResultWorkspace,
+.rowSecondary {
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .searchResultWorkspace {
   flex: none;
   max-width: 40%;
-  color: var(--dsw-alias-label-tertiary);
 }
 
 /* The 40% share only protects a snippet; a snippetless match keeps the row. */
@@ -427,6 +439,32 @@
 
 .sessionRow.dropAfter::after {
   bottom: -7px;
+}
+
+/* A Session row that carries a second line: the row's own line keeps its
+   horizontal layout and stacks 2px over the quieter line below it, in the
+   48px box the two-line search row already uses. */
+.sessionRowStacked {
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
+  gap: 2px;
+  height: auto;
+  min-height: 48px;
+}
+
+/* The row's own line: the cells a one-line row holds side by side. */
+.rowPrimary {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+}
+
+/* Second line: squeezes like a text cell and has no control of its own; its
+   type, inset and color come from the search row's own groups. */
+.rowSecondary {
+  min-width: 0;
 }
 
 /* Hover-card body (figma 169:16903): dark surface in both themes. */

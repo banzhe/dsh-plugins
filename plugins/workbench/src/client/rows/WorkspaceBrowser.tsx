@@ -1388,6 +1388,7 @@ export function WorkspaceBrowser({
               currentId={highlightedSessionId}
               home={home}
               workspacesTitle={groupBy === 'flat' ? t('attention.section.allSessions') : t('attention.section.allWorkspaces')}
+              workspaces={workspaces}
               renderSlot={renderSlot}
               renderFactorySlot={renderFactorySlot}
               useContextMenu={useContextMenu}

@@ -31,8 +31,8 @@
 }
 
 /* The browsing list spaces one row from the next by 2px. A quick group's rows ride
-   the shell's hover-card group, whose wrapper is an unstyled box that leaves the
-   rows' own 32px geometry untouched. */
+   the shell's hover-card group, whose wrapper is an unstyled box: each row keeps
+   its own box, 32px in the browsing list and the two-line box in the quick groups. */
 .list {
   display: flex;
   flex-direction: column;

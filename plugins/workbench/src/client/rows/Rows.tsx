@@ -585,8 +585,9 @@ export function SearchResultItem({
 /**
  * One top-level 32px session row: leading 16px cell (status dot, or the
  * leading seat while the row's primary state is idle), title, relative time or
- * compact pending label, and the row actions menu. A row that owns a state dot
- * keeps that cell and renders no seat, so an ambient automation mark never
+ * compact pending label, and the row actions menu. A row that carries a
+ * `secondaryLabel` is 48px and stacks its own line over that label. A row that
+ * owns a state dot keeps that cell and renders no seat, so an ambient automation mark never
  * appears beside the row's own state dot. An archived row keeps the cell blank:
  * neither marker renders there, and its live status stays on the hover card.
  * The row accepts Tab focus and opens with unmodified Enter or Space; descendant controls
@@ -604,6 +605,7 @@ export function SearchResultItem({
  * @param props.drag - optional row-drag target wiring; blank rows, and rows whose access excludes
  * `workspace/insertSessionBefore`, cannot start a drag.
  * @param props.home - host account home for POSIX hover-path abbreviation.
+ * @param props.secondaryLabel - optional second line under the row's own line; a row that carries one stacks them.
  * @param props.useSessionAccess - the browser root's Session access Hook; the title double-click
  * renames only while it allows `session/rename`.
  * @param props.t - the browser root's locale seat.
@@ -611,7 +613,7 @@ export function SearchResultItem({
  */
 export function SessionNodeItem({
   node, currentId, now, onOpen, onRenameRequest, renderSlot, renderFactorySlot, useContextMenuTarget,
-  useContextMenu, onReveal, rowKey, drag, home, useSessionAccess, t,
+  useContextMenu, onReveal, rowKey, drag, home, useSessionAccess, t, secondaryLabel,
 }: {
   useContextMenu: WorkspaceBrowserProps['useContextMenu']
   renderFactorySlot: WorkspaceBrowserProps['renderFactorySlot']
@@ -635,6 +637,11 @@ export function SessionNodeItem({
   drag?: RowDragProps | undefined
   /** Host account home; POSIX home-rooted hover paths display as `~`. */
   home?: string | undefined
+  /**
+   * Second line under the row's own line: the Session's Workspace name. Passing it
+   * stacks the row's cells over that line; leaving it out keeps the one-line row.
+   */
+  secondaryLabel?: string | undefined
   t: RowTranslate
 } & Pick<WorkspaceBrowserProps, 'useSessionAccess'> & PropsRenderSlots<
   | 'sidebar.workspaces.session.row.action'
@@ -674,55 +681,11 @@ export function SessionNodeItem({
     rowRef.current?.scrollIntoView({ block: 'nearest' })
     onReveal()
   }, [onReveal])
-  const ownRow = (
-    <div
-      ref={rowRef}
-      data-row-key={rowKey ?? `session:${node.id}`}
-      className={clsx(
-        css.sessionRow, selected && css.selected, menuOpen && css.menuOpen,
-        row.archived && css.archived,
-        drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
-      )}
-      role="treeitem"
-      aria-selected={selected}
-      aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
-      tabIndex={0}
-
-      onClick={() => { onOpen(node.id) }}
-      {...getTriggerProps(row.blank ? undefined : { kind: 'session', value: { sessionId: node.id, displayTitle: row.title } }, { onKeyDown: (event) => {
-        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
-        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
-        event.preventDefault()
-        onOpen(node.id)
-      } })}
-      onPointerEnter={marquee.enter}
-      onPointerLeave={() => { if (!menuOpen) marquee.leave() }}
-      draggable={draggable}
-      onDragStart={!draggable
-        ? undefined
-        : (e) => {
-          e.dataTransfer.effectAllowed = 'move'
-          e.dataTransfer.setData('text/plain', node.id)
-          drag.start()
-          dragPreview.start(e)
-        }}
-      onDragEnd={() => { if (dragPreview.clear()) drag?.end() }}
-      onDragOver={drag === undefined
-        ? undefined
-        : (e) => {
-          if (!drag.active) return
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          drag.hover(rowHalf(e))
-        }}
-      onDrop={drag === undefined
-        ? undefined
-        : (e) => {
-          if (!drag.active) return
-          e.preventDefault()
-          drag.drop(rowHalf(e))
-        }}
-    >
+  // The row's own line: the leading cell, the title, the trailing details and
+  // the action strip, laid out exactly as a one-line row draws them. A row that
+  // carries a second line keeps this layout and stacks that line under it.
+  const rowLine = (
+    <>
       {/* Pending interaction and own or descendant activity outrank the
           finished-but-unviewed reminder, which returns after activity stops
           and is cleared by opening the session. Archived rows keep the slot
@@ -782,6 +745,62 @@ export function SessionNodeItem({
           </span>
         </span>
       )}
+    </>
+  )
+  const ownRow = (
+    <div
+      ref={rowRef}
+      data-row-key={rowKey ?? `session:${node.id}`}
+      className={clsx(
+        css.sessionRow, secondaryLabel !== undefined && css.sessionRowStacked,
+        selected && css.selected, menuOpen && css.menuOpen,
+        row.archived && css.archived,
+        drag?.marker === 'before' && css.dropBefore, drag?.marker === 'after' && css.dropAfter,
+      )}
+      role="treeitem"
+      aria-selected={selected}
+      aria-description={row.archived ? t('toast.archivedNotOpenable') : undefined}
+      tabIndex={0}
+
+      onClick={() => { onOpen(node.id) }}
+      {...getTriggerProps(row.blank ? undefined : { kind: 'session', value: { sessionId: node.id, displayTitle: row.title } }, { onKeyDown: (event) => {
+        if (event.target !== event.currentTarget || (event.key !== 'Enter' && event.key !== ' ')) return
+        if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+        event.preventDefault()
+        onOpen(node.id)
+      } })}
+      onPointerEnter={marquee.enter}
+      onPointerLeave={() => { if (!menuOpen) marquee.leave() }}
+      draggable={draggable}
+      onDragStart={!draggable
+        ? undefined
+        : (e) => {
+          e.dataTransfer.effectAllowed = 'move'
+          e.dataTransfer.setData('text/plain', node.id)
+          drag.start()
+          dragPreview.start(e)
+        }}
+      onDragEnd={() => { if (dragPreview.clear()) drag?.end() }}
+      onDragOver={drag === undefined
+        ? undefined
+        : (e) => {
+          if (!drag.active) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          drag.hover(rowHalf(e))
+        }}
+      onDrop={drag === undefined
+        ? undefined
+        : (e) => {
+          if (!drag.active) return
+          e.preventDefault()
+          drag.drop(rowHalf(e))
+        }}
+    >
+      {secondaryLabel === undefined
+        ? rowLine
+        : <span className={css.rowPrimary}>{rowLine}</span>}
+      {secondaryLabel !== undefined && <span className={css.rowSecondary}>{secondaryLabel}</span>}
     </div>
   )
   return (

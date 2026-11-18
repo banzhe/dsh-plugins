@@ -2,6 +2,7 @@
 import { act, createElement, useState, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { AttentionSection } from '../src/client/attention/AttentionSection.tsx'
 import type { AttentionModel, AttentionRow } from '../src/client/attention/model.ts'
@@ -40,6 +41,16 @@ const node = (id: string, over: Partial<AttentionRow> = {}): AttentionRow => ({
   archived: false,
   updatedAt: 0,
   ...over,
+})
+
+/** One Workspace account: the membership and the user-visible title the region reads. */
+const workspace = (id: string, title: string, sessionIds: string[]): WorkspaceView => ({
+  workspaceId: id as WorkspaceId,
+  path: 'C:\\work\\' + id,
+  title,
+  sessionIds: sessionIds.map(sessionId => sessionId as SessionId),
+  createdAt: '2026-01-01T00:00:00.000Z',
+  updatedAt: '2026-01-01T00:00:00.000Z',
 })
 
 const attention = (over: Partial<AttentionModel> = {}): AttentionModel => ({
@@ -137,6 +148,8 @@ interface Options {
   readonly rowActionGate?: boolean
   /** The Session the host considers current. */
   readonly currentId?: string
+  /** The Workspaces the host projects, in group order. */
+  readonly workspaces?: readonly WorkspaceView[]
   readonly children?: ReactNode
 }
 
@@ -224,6 +237,7 @@ function mount(model: AttentionModel, options: Options = {}): Harness {
     onSessionRenameRequest: rename,
     ...(options.currentId === undefined ? {} : { currentId: options.currentId as SessionId }),
     workspacesTitle: TREE_TITLE,
+    workspaces: options.workspaces ?? [],
     renderSlot,
     renderFactorySlot,
     useContextMenuTarget,
@@ -478,6 +492,31 @@ describe('In work region', () => {
     expect(view.row('unread', 'done').textContent).toContain('Done work')
     view.clickRow('done', 'Done work')
     expect(view.open.mock.calls).toEqual([['done']])
+  })
+
+  it("names each quick-group row's Workspace on a second line", () => {
+    const view = mount(attention({
+      running: [node('run', { running: true, cwd: 'C:\\work\\alpha' })],
+      unread: [node('done', { completed: true, cwd: '/repos/beta' })],
+      pinned: [node('pin', { pinned: true })],
+    }), {
+      workspaces: [workspace('w1', 'Renamed Project', ['run']), workspace('w2', 'Somewhere', ['someone-else'])],
+    })
+    // Two lines: the row's own cells, then the Workspace name on its own.
+    const running = view.row('running', 'run')
+    expect(running.children).toHaveLength(2)
+    expect(running.children[0]?.textContent).toContain('run')
+    // A Session a Workspace accounts for shows that Workspace's own title, not its directory.
+    expect(running.children[1]?.textContent).toBe('Renamed Project')
+    // A Session no Workspace accounts for falls back to the directory label.
+    expect(view.row('unread', 'done').children[1]?.textContent).toBe('beta')
+    // A Session that names neither a Workspace nor a directory keeps the one-line row.
+    expect(view.row('pinned', 'pin').children).toHaveLength(4)
+    // Neither line is a row of its own.
+    expect(running.querySelectorAll('[data-row-key]')).toHaveLength(0)
+    // The title still opens the Session; the Workspace line is inert.
+    view.clickRow('run')
+    expect(view.open.mock.calls).toEqual([['run']])
   })
 
   it('names the exact owner of every row action and keeps it out of the open path', () => {

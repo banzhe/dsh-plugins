@@ -26,13 +26,15 @@
  * clear its unread flag. The region persists nothing and writes nothing.
  */
 import clsx from 'clsx'
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import { HoverCardGroup, IconTriangleRightFillRegular } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type { WorkspaceBrowserProps } from '../contract/slots.ts'
 import type { WorkspaceKey } from '../locales.ts'
 import type { AttentionModel, AttentionRow } from './model.ts'
+import { sessionWorkspaceLabel, workspaceLabelsBySession, type WorkspaceLabelsBySession } from '../tree.ts'
 import { SessionNodeItem } from '../rows/Rows.tsx'
 import rowStyles from '../rows/Rows.module.css'
 import css from './AttentionSection.module.css'
@@ -62,6 +64,8 @@ export interface AttentionSectionProps {
   readonly useContextMenuTarget: WorkspaceBrowserProps['useContextMenuTarget']
   readonly useContextMenu: WorkspaceBrowserProps['useContextMenu']
   readonly t: PropsLocale<'workspace'>['t']
+  /** Workspaces in Host group order: the quick-group rows name their owning Workspace. */
+  readonly workspaces: readonly WorkspaceView[]
   /** The browsing body under the list's fold: the grouped tree or the flat list. */
   readonly children?: ReactNode
 }
@@ -136,6 +140,16 @@ function Fold({ fold, title, count, keepMounted = false, children }: {
   )
 }
 
+/**
+ * The quick-group row's second line: the Workspace label a row passes on, or
+ * nothing when the Session resolves to no name at all.
+ * @param label - the Session's Workspace label.
+ * @returns that label, or nothing for an empty one.
+ */
+function workspaceLine(label: string): string | undefined {
+  return label === '' ? undefined : label
+}
+
 /** The row seats every quick-group row shares with the tree. */
 type RowSeats = Pick<
   AttentionSectionProps,
@@ -148,22 +162,26 @@ type RowSeats = Pick<
  * group's row key so it never collides with the same Session's tree row. The rows
  * sit in the shell's own hover-card group, so the group shares the tree's dwell
  * and one-card-at-a-time coordination instead of reimplementing it; the list
- * itself keeps the tree's role and label and the rows' 32px box.
+ * itself keeps the tree's role and label. Each row carries a second line naming
+ * the Session's Workspace — the same title the tree's group headers and the search
+ * rows show — because the quick groups mix every Workspace in one list.
  * @param props.rows - the group's Sessions, in the model's order.
  * @param props.fold - the group, which scopes the row keys.
- * @param props.label - the group's localized name, used as the tree label.
+ * @param props.title - the group's localized name, used as the tree label.
+ * @param props.workspaceLabels - Workspace titles by Session, the rows' second line.
  * @param props.seats - the row seats plus the render clock.
  * @returns the group's rows, in a hover-card group of their own.
  */
-function GroupRows({ rows, fold, label, seats }: {
+function GroupRows({ rows, fold, title, workspaceLabels, seats }: {
   readonly rows: readonly AttentionRow[]
   readonly fold: QuickGroup
-  readonly label: string
+  readonly title: string
+  readonly workspaceLabels: WorkspaceLabelsBySession
   readonly seats: RowSeats
 }): ReactNode {
   return (
     <HoverCardGroup>
-      <div className={css.list} role="tree" aria-label={label}>
+      <div className={css.list} role="tree" aria-label={title}>
         {rows.map(row => (
           <SessionNodeItem
             key={row.id}
@@ -179,6 +197,7 @@ function GroupRows({ rows, fold, label, seats }: {
             useContextMenuTarget={seats.useContextMenuTarget}
             home={seats.home}
             useSessionAccess={seats.useSessionAccess}
+            secondaryLabel={workspaceLine(sessionWorkspaceLabel(workspaceLabels, row.id, row.cwd))}
             t={seats.t}
           />
         ))}
@@ -195,10 +214,13 @@ function GroupRows({ rows, fold, label, seats }: {
  * @returns the region's folds.
  */
 export function AttentionSection({
-  useAttention, useSessionAccess, open, onSessionRenameRequest, currentId, home, workspacesTitle,
+  useAttention, useSessionAccess, open, onSessionRenameRequest, currentId, home, workspacesTitle, workspaces,
   renderSlot, renderFactorySlot, useContextMenuTarget, useContextMenu, t, children,
 }: AttentionSectionProps): ReactNode {
   const model = useAttention(current => current)
+  // Workspace titles are a rename-stable fact of the Workspace list, so the index
+  // is rebuilt only when that list changes.
+  const labels = useMemo(() => workspaceLabelsBySession(workspaces), [workspaces])
   // One clock per render, as the tree does: every row in the region reads the
   // same "now" so two occurrences of a Session label the same time.
   const now = Date.now()
@@ -223,7 +245,7 @@ export function AttentionSection({
         const label = t(labelKey)
         return (
           <Fold key={fold} fold={fold} title={label} count={rows.length}>
-            <GroupRows rows={rows} fold={fold} label={label} seats={seats} />
+            <GroupRows rows={rows} fold={fold} title={label} workspaceLabels={labels} seats={seats} />
           </Fold>
         )
       })}

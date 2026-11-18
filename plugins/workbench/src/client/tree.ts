@@ -148,6 +148,42 @@ export function workspaceLabel(cwd: string | undefined): string {
   return base !== '' ? base : cwd
 }
 
+/** Sessions accounted to a Workspace, keyed to that Workspace's user-visible title. */
+export type WorkspaceLabelsBySession = ReadonlyMap<SessionId, string>
+
+/**
+ * Index Workspace membership by Session, so every surface that names a Session's
+ * Workspace reads the same title. A Session accounted to more than one Workspace
+ * keeps the first in Host group order.
+ * @param workspaces - Workspaces in Host group order.
+ * @returns the owning Workspace's title by Session id.
+ */
+export function workspaceLabelsBySession(workspaces: readonly WorkspaceView[]): WorkspaceLabelsBySession {
+  const labels = new Map<SessionId, string>()
+  for (const workspace of workspaces) {
+    for (const sessionId of workspace.sessionIds) {
+      if (!labels.has(sessionId)) labels.set(sessionId, workspace.title)
+    }
+  }
+  return labels
+}
+
+/**
+ * Workspace label of one Session: the title of the Workspace that accounts for it
+ * — the name the user gave that Workspace — else the directory-derived label.
+ * @param labels - Workspace titles by Session, from {@link workspaceLabelsBySession}.
+ * @param sessionId - Session whose label is required.
+ * @param cwd - Session working directory, the fallback label's source.
+ * @returns the Workspace label, empty for a Session with neither a Workspace nor a directory.
+ */
+export function sessionWorkspaceLabel(
+  labels: WorkspaceLabelsBySession,
+  sessionId: SessionId,
+  cwd: string | undefined,
+): string {
+  return labels.get(sessionId) ?? workspaceLabel(cwd)
+}
+
 /**
  * Project known account members by current Session recency.
  * @param sessionIds - authoritative account membership.
@@ -676,14 +712,8 @@ export function deriveSearchResults(
   const current = mainSessionId(list)
   const descendants = runningDescendantCounts(list, statuses)
 
-  const workspaceBySession = new Map<SessionId, string>()
-  for (const workspace of workspaces) {
-    for (const sessionId of workspace.sessionIds) {
-      if (!workspaceBySession.has(sessionId)) workspaceBySession.set(sessionId, workspace.title)
-    }
-  }
-  const labelOf = (summary: SessionSummary): string =>
-    workspaceBySession.get(summary.id) ?? workspaceLabel(summary.cwd)
+  const labels = workspaceLabelsBySession(workspaces)
+  const labelOf = (summary: SessionSummary): string => sessionWorkspaceLabel(labels, summary.id, summary.cwd)
   const contentBySession = new Map<SessionId, SessionSearchResultItem>()
   for (const item of content.items) {
     if (!contentBySession.has(item.sessionId)) contentBySession.set(item.sessionId, item)
