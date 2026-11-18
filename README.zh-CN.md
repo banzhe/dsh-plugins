@@ -22,7 +22,6 @@ CONTEXT.md                              # 术语表
 | `file-link-open` | 右键会话消息里的文件链接：用编辑器/IDE 打开、打开所在目录、复制相对/绝对路径 |
 | `git` | 右侧栏 Git 面板：列出当前会话工作区的改动文件，并用填写的消息提交 |
 | `plan-toggle` | 在 Composer 里用 `Shift+Tab` 切换 plan 模式 |
-| `session-attention` | `shell.overlay` 面板：列出运行中与已完成未读的会话，点击跳转 |
 | `session-title-rules` | 规则化的会话标题提供方（`emoji 主题`），替代内置的首条提示词提供方 |
 | `sidebar-menu-actions` | 侧栏行菜单扩展：在工作区「...」菜单里插入「在 VS Code 中打开」「在文件浏览器中打开」（Windows）「复制工作区路径」 |
 | `web-icons` | 由 Bundle 自带快照提供 Web 图标集（favicon、PWA manifest 图标等） |

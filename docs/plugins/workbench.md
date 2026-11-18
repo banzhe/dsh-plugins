@@ -46,11 +46,11 @@ The store folds those three snapshots into one model and publishes it through th
 
 **Visibility.** Two placements are deliberate: a search query replaces the whole list body, so the region steps aside with the tree rather than competing with results; and the collapsed rail (`wide === false`) renders the region not at all. Both follow the browsing region's own visibility rule — the list is what the surface exists for — and neither is a gap to be fixed with more UI.
 
-**Not migrated.** The Windows taskbar pulse from `@banzhe/dsh-session-attention` is not part of this region: it projected the same model through an Electron channel, and the web profile has no taskbar to drive. The elapsed-time column that panel showed is gone too — it required a per-Session projection read loop, and this Bundle issues no projection refresh.
+**Not migrated.** The Windows taskbar pulse belonged to `@banzhe/dsh-session-attention`, which this repository no longer carries; its last source is in git history. It is not part of this region: the pulse projected the same model through an Electron channel, and a web client has no taskbar to drive. The elapsed-time column that panel showed is gone too — it required a per-Session projection read loop, and this Bundle issues no projection refresh.
 
 ## Retiring the old panel
 
-`plugins/session-attention` stays in the repository as the rollback path: its source and tests still build and pass. The web profile no longer installs it — neither as a dependency nor in `dsh.profile.bundles` — so its `shell.overlay` entry and its `cordis.patch.yml` layer are both gone from the running tree. Removing the Bundle (rather than disabling its row) is what takes the overlay with it.
+The web profile no longer installs `@banzhe/dsh-session-attention`, and the Bundle itself left this repository once this fork carried its model: the plugin directory and its implementation note are gone. Removing the Bundle, rather than disabling its row, is what takes its `shell.overlay` entry and its `cordis.patch.yml` layer with it. Its last source and tests are in git history.
 
 ## What the fork must keep identical
 
@@ -63,7 +63,7 @@ These are contracts other packages reach through, not local choices:
 | `sidebar.workspaces.session.menu.item` (legacy React rows) | `ui-open-in-app` |
 | `contextMenu.content` key `session`, `contextMenu.icon` | `ui-context-menu` |
 | `shell.overlay` entries and the `workspace.toast` child | any overlay contributor |
-| service `uiWorkspace`, root hooks `useWorkspaces` / `useWorkspaceAccess` | `session-attention`, `app-notification` |
+| service `uiWorkspace`, root hooks `useWorkspaces` / `useWorkspaceAccess` | `app-notification` |
 | `declare module` merges (`GlobalStandardProps`, `LocaleNamespaceMap.workspace`, `SessionReferenceSourceMap.workspaceOperation`) | type-only imports in the Bundles above |
 
 ## Build and runtime notes
@@ -80,4 +80,3 @@ These are contracts other packages reach through, not local choices:
 - Coverage thresholds in `vitest.config.ts` are a floor, not a target: the package-wide numbers sit just under what the suite reaches today (the copied UI carries no specs), while the In work sources — the half this fork owns end to end — are pinned near their measured coverage so a regression there cannot hide behind the copied code.
 - `locale/*.json` is not copied: the browser half ships its dictionaries inline in `src/client/locales.ts`, and no source file imports those JSON files.
 - The In work region shows no elapsed time per row (see above). Restoring it needs a projection read loop, which the fork deliberately does not own.
-- `plugins/session-attention` keeps the taskbar pulse and the elapsed-time column that this Bundle does not carry; if the old Bundle is reinstalled alongside this one, both would render their own in-work surfaces.

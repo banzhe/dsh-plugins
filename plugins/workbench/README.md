@@ -44,7 +44,7 @@ Rebuild after a source change and restart `dsh web`: the profile's client module
 
 The workspace browsing region and picker are forked from `@deepseek-ai/dsh-client-ui-workspace` in [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (`packages/client/ui-workspace`), MIT, copyright DeepSeek.
 
-The In work model is adapted from `plugins/session-attention` in this repository (MIT).
+The In work model is adapted from the `session-attention` Bundle this repository carried until it was retired (MIT); its last source is in git history.
 
 ## License
 

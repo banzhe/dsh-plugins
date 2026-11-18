@@ -44,7 +44,7 @@ dsh plugin --profile web remove @banzhe/dsh-workbench
 
 工作区浏览区与选择器分叉自 [deepseek-ai/deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) 的 `@deepseek-ai/dsh-client-ui-workspace`（`packages/client/ui-workspace`），MIT，版权归 DeepSeek。
 
-进行中模型改编自本仓库的 `plugins/session-attention`（MIT）。
+进行中模型改编自本仓库曾维护、现已退役的 `session-attention` Bundle（MIT）；最后的源码见 git 历史。
 
 ## 许可
 
