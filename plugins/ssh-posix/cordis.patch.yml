@@ -1,0 +1,49 @@
+# A remote-only profile layer: after this Bundle loads, the filesystem, process
+# and sandbox providers all address the POSIX SSH host instead of this machine.
+# It replaces the local provider rows rather than shadowing them, so exactly one
+# of each pair may be active.
+- id: fs-sandbox
+  disabled: true
+
+- id: subprocess
+  disabled: true
+
+- id: sandbox
+  disabled: true
+
+- id: tool-pwsh
+  disabled: true
+
+- id: pwsh-sandbox
+  disabled: true
+
+# The remote helper runs on a POSIX host, so the POSIX shell tool and its sandboxed
+# variant stay available even though this profile also starts on Windows.
+- id: tool-bash
+  disabled: false
+
+- id: bash-sandbox
+  disabled: false
+
+- insert:
+    - id: ssh-posix
+      name: '@banzhe/dsh-ssh-posix'
+
+    - id: fs-ssh
+      name: '@deepseek-ai/dsh-fs-ssh'
+
+    - id: subprocess-ssh
+      name: '@deepseek-ai/dsh-subprocess-ssh'
+
+    - id: sandbox-ssh
+      name: '@deepseek-ai/dsh-sandbox-ssh'
+
+# The shipped row derives the write root from the local process, which is a Windows
+# path on a Windows host and a path outside the helper on any host whose workspace
+# differs from it. A remote-only profile names the remote workspace instead, in the
+# same profile patch that supplies the ssh row's config.workspace; the two values
+# must match (README, "Install"). The path below is the placeholder those examples use.
+- id: sandbox-policy
+  config:
+    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'
+    workspaceRoot: '/home/deploy/project'

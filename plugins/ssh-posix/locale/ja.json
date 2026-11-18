@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "POSIX リモート向け SSH 接続",
+    "description": "Windows または POSIX のローカルホストから 1 本の OpenSSH 接続で POSIX リモートヘルパーを操作します。"
+  }
+}

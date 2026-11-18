@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Conexão SSH para remotos POSIX",
+    "description": "Controla um assistente remoto POSIX a partir de um host Windows ou POSIX por uma conexão OpenSSH."
+  }
+}

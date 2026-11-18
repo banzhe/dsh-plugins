@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH connection for POSIX remotes",
+    "description": "Drive a POSIX remote helper from a Windows or POSIX host over one OpenSSH connection."
+  }
+}

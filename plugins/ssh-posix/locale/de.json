@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "SSH-Verbindung zu POSIX-Remotes",
+    "description": "Steuert einen POSIX-Remote-Helper von einem Windows- oder POSIX-Host über eine OpenSSH-Verbindung."
+  }
+}

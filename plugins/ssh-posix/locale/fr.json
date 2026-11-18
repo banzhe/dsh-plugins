@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Connexion SSH vers des hôtes distants POSIX",
+    "description": "Pilote un assistant distant POSIX depuis un hôte Windows ou POSIX via une connexion OpenSSH."
+  }
+}

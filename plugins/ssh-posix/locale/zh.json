@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "POSIX 远端 SSH 连接",
+    "description": "从 Windows 或 POSIX 本地宿主经一条 OpenSSH 连接驱动 POSIX 远端辅助程序。"
+  }
+}

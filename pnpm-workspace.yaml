@@ -23,6 +23,7 @@ catalog:
   '@deepseek-ai/dsh-api-workspace-controller': 0.2.2-rc.2
   '@deepseek-ai/dsh-bash-local': 0.2.2-rc.2
   '@deepseek-ai/dsh-bash-sandbox': 0.2.2-rc.2
+  '@deepseek-ai/dsh-brand': 0.2.2-rc.2
   '@deepseek-ai/dsh-client-connection': 0.2.2-rc.2
   '@deepseek-ai/dsh-client-locale': 0.2.2-rc.2
   '@deepseek-ai/dsh-client-product-analytics': 0.2.2-rc.2
