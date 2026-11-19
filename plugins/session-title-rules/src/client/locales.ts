@@ -1,11 +1,11 @@
-/** Locale bundles for the title-model settings page (namespace `session-title-rules`). */
+/** Locale bundles for the Session title settings section (namespace `session-title-rules`). */
 
 import type { SettingsFormLabels } from '@deepseek-ai/dsh-client-ui-primitives'
 
 export type TitleModelLocaleKey =
   | 'overridden' | 'reset' | 'readOnly' | 'unavailable'
   | 'save' | 'saving' | 'saveFailed'
-  | 'title' | 'description'
+  | 'nav' | 'description'
   | 'modelLabel' | 'modelHint' | 'modelInherited'
   | 'effortLabel' | 'effortHint' | 'effortInherited'
   | 'catalogLoading' | 'catalogFailed' | 'catalogRetry' | 'catalogPartial' | 'catalogEmpty'
@@ -20,7 +20,7 @@ export const en: Record<TitleModelLocaleKey, string> = {
   save: 'Save',
   saving: 'Saving…',
   saveFailed: 'The deployment did not accept these values; they were left for you to correct.',
-  title: 'Session title model',
+  nav: 'Session titles',
   description: 'Choose which model generates this plugin\'s session titles.',
   modelLabel: 'Title model',
   modelHint: 'The model that derives session titles. Pick the session\'s own route to follow it, or fix one model for every title.',
@@ -45,7 +45,7 @@ export const zh: Record<TitleModelLocaleKey, string> = {
   save: '保存',
   saving: '保存中…',
   saveFailed: '本部署没有接受这些值，已保留供你修改。',
-  title: '会话标题模型',
+  nav: '会话标题',
   description: '选择用哪个模型生成本插件的会话标题。',
   modelLabel: '标题模型',
   modelHint: '用于提炼会话标题的模型。可选「跟随会话模型」，或为所有标题固定一个模型。',

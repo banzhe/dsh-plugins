@@ -16,7 +16,7 @@ A dual-sided [DSH](https://github.com/deepseek-ai/deepseek-harness) Bundle for t
 - Input tolerance is mapping-free: `⚡️ 主题`, `🐛主题`, and `🐛｜主题` all canonicalize to `emoji 主题`. An answer that leads with any other glyph is refused rather than translated.
 - When the messages do not identify a topic, the model answers `UNCHANGED`; the service warns and the current title stands instead of a guess.
 - `/title-refresh` re-derives the title on demand from the Session's whole conversation, so an old Session can be retitled without opening a new one. It takes no arguments.
-- The title model is a setting, not a rebuild: **Settings → Plugins → this plugin's row → Configure** (or the same `config` in YAML) pins a `provider` + `model`, optionally with a `reasoningEffort`. All three fields are optional and reach the **next** title without restarting `dsh web`.
+- The title model is a setting, not a rebuild: **Settings → Session titles** (its own Settings section, or the same `config` in YAML) pins a `provider` + `model`, optionally with a `reasoningEffort`. All three fields are optional and reach the **next** title without restarting `dsh web`.
 - `provider` and `model` must be set together; half a pair is refused rather than silently falling back to the session's model. With neither set, routing follows the Session's own logged route.
 - Subagent and fork children are never titled under the default cadence: `first-prompt` schedules only for a top-level Session, and a fork child inherits its parent's title.
 - The settings dropdowns list the live adapter directory and only the reasoning levels the chosen model advertises, so pinning an uncallable route is not reachable from the UI.

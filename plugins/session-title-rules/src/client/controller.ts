@@ -2,7 +2,7 @@
  * Staged editor for this plugin's title-model policy.
  *
  * The Host owns three volatile fields on the `session-title-rules` entry; this
- * card stages a draft over them and writes on save. It is deliberately NOT built
+ * section stages a draft over them and writes on save. It is deliberately NOT built
  * on `SettingsFormModel`: that model stages per-field TEXT, while this policy is
  * one CHOICE whose two halves (`provider`/`model`) must always move together,
  * plus an effort whose legal values depend on the chosen model. Staging the
@@ -21,7 +21,7 @@ import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client
 import type { ConfigForm } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsFormShell } from '@deepseek-ai/dsh-client-ui-primitives'
 
-/** The settings namespace this page edits: also the Loader row id. */
+/** The settings namespace this section edits: also the Loader row id. */
 export const TITLE_MODEL_NS = 'session-title-rules'
 
 export interface TitleModelSettings {
@@ -60,7 +60,7 @@ export interface TitleModelCandidate extends TitleModelRoute {
   readonly efforts: readonly TitleModelEffort[]
 }
 
-export interface TitleModelCardState extends SettingsFormShell {
+export interface TitleModelSectionState extends SettingsFormShell {
   /** Staged route; `undefined` means "follow the session's own route". */
   readonly route: TitleModelRoute | undefined
   /** Staged reasoning effort; `undefined` means "the route's own default". */
@@ -77,9 +77,9 @@ export interface TitleModelCardState extends SettingsFormShell {
   readonly conflicted: boolean
 }
 
-export interface TitleModelCardFace {
+export interface TitleModelSectionFace {
   hooks: {
-    titleModelCard: SnapshotStore<TitleModelCardState>
+    titleModelSection: SnapshotStore<TitleModelSectionState>
   }
   /** Stage one route key, or `undefined` to follow the session's own route. */
   selectRoute: (key: string | undefined) => void
@@ -184,11 +184,11 @@ function textField(value: unknown, field: string): string | undefined {
   return typeof held === 'string' && held.length > 0 ? held : undefined
 }
 
-/** Bridges the shared settings form and the live model directory onto a staged card. */
-export class TitleModelCardController {
+/** Bridges the shared settings form and the live model directory onto a staged section. */
+export class TitleModelSectionController {
   private groups: readonly ModelProviderGroup[] = []
   private catalogPartial = false
-  private catalogStatus: TitleModelCardState['catalogStatus'] = 'idle'
+  private catalogStatus: TitleModelSectionState['catalogStatus'] = 'idle'
   private draftRoute: TitleModelRoute | undefined
   private routeStaged = false
   private draftEffort: string | undefined
@@ -200,7 +200,7 @@ export class TitleModelCardController {
   private disposed = false
   private saveGeneration = 0
   private catalogGeneration = 0
-  private readonly store: SnapshotStore<TitleModelCardState>
+  private readonly store: SnapshotStore<TitleModelSectionState>
   private readonly unsubscribe: () => void
 
   constructor(
@@ -219,9 +219,9 @@ export class TitleModelCardController {
     this.unsubscribe()
   }
 
-  inject(): TitleModelCardFace {
+  inject(): TitleModelSectionFace {
     return {
-      hooks: { titleModelCard: this.store },
+      hooks: { titleModelSection: this.store },
       selectRoute: (key) => { this.selectRoute(key) },
       selectEffort: (effort) => { this.selectEffort(effort) },
       retryCatalog: () => { void this.loadCatalog() },
@@ -248,7 +248,7 @@ export class TitleModelCardController {
     const value: unknown = this.form.getSnapshot().value
     const provider = textField(value, 'provider')
     const model = textField(value, 'model')
-    // Half a pair is not a route: treat it as unset so the page stays usable.
+    // Half a pair is not a route: treat it as unset so the section stays usable.
     return provider === undefined || model === undefined ? undefined : { provider, model }
   }
 
@@ -382,7 +382,7 @@ export class TitleModelCardController {
     this.publish()
   }
 
-  private projection(): TitleModelCardState {
+  private projection(): TitleModelSectionState {
     const snapshot = this.form.getSnapshot()
     const desiredRoute = this.desiredRoute()
     const desiredEffort = this.desiredEffort()

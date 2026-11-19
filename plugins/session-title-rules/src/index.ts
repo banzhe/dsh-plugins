@@ -16,6 +16,8 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type { Volatile } from '@deepseek-ai/cordis'
+// Type-only: the ctx.settings service merge, used for the optional page policy.
+import type {} from '@deepseek-ai/dsh-settings'
 import z from '@deepseek-ai/schemastery'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
 import type { SessionTitleProviderRequest, SessionTitleProviderResult } from '@deepseek-ai/dsh-session-title'
@@ -107,6 +109,10 @@ function deriveFrom(ctx: Context, config: Config | undefined, request: SessionTi
  * is composed.
  */
 export function apply(ctx: Context, config?: Config): void {
+  // The client's Settings section is this entry's settings surface, so the row
+  // opts out of a generated form; `settings` stays optional, and a late-loading or
+  // replaced service still picks the policy up.
+  ctx.inject(['settings'], (child) => { child.effect(() => child.settings.configure({ auto: false }, ctx.fiber)) })
   ctx.sessionTitle.register({
     id: SessionTitleProviderId(name),
     automatic: 'first-prompt',

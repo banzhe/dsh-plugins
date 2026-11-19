@@ -1,6 +1,6 @@
 /**
- * The row-configuration page: which model writes session titles, and at what
- * reasoning effort.
+ * The Session title settings section: which model writes session titles, and at
+ * what reasoning effort.
  *
  * Both choices render as the shell's own settings dropdown — a pill trigger that
  * opens the shared `Menu` — rather than a native `<select>`. That is not
@@ -17,19 +17,19 @@
 
 import { useRef, useState } from 'react'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-// Type-only: the `plugins.row.config` SlotMap entry this component's props compose from.
-import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
+// Type-only: the `settings.section` and `settings.section.icon` SlotMap entries these props compose from.
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import {
-  IconChevronDownOutlineRegular, Menu, SettingsForm, type MenuEntry,
+  IconChevronDownOutlineRegular, IconListPenOutlineMedium, Menu, SettingsForm, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { formLabels, type TitleModelLocaleKey } from './locales.ts'
-import type { TitleModelCandidate, TitleModelCardFace } from './controller.ts'
+import type { TitleModelCandidate, TitleModelSectionFace } from './controller.ts'
 import { titleRouteKey } from './controller.ts'
 
-export type TitleModelCardProps =
-  PropsRuntime<'plugins.row.config'>
+export type TitleModelSectionProps =
+  PropsRuntime<'settings.section'>
   & PropsLocale<'session-title-rules'>
-  & InjectFace<TitleModelCardFace>
+  & InjectFace<TitleModelSectionFace>
 
 /**
  * Menu ids for the two "inherit" choices. Both carry a NUL, which a route key
@@ -58,6 +58,14 @@ function groupByProvider(candidates: readonly TitleModelCandidate[]): ProviderGr
     }
   }
   return groups
+}
+
+/**
+ * Nav glyph for this section. The shell addresses it by the section id, so the
+ * two registrations in `index.ts` must carry the same one.
+ */
+export function TitleModelSectionIcon({ size }: PropsRuntime<'settings.section.icon'>) {
+  return <IconListPenOutlineMedium size={size} />
 }
 
 function PreferenceRow({ title, description, label, disabled, items, selectedId, onSelect }: {
@@ -114,10 +122,9 @@ function PreferenceRow({ title, description, label, disabled, items, selectedId,
   )
 }
 
-export function TitleModelCard(props: TitleModelCardProps) {
+export function TitleModelSection(props: TitleModelSectionProps) {
   const { t } = props
-  const state = props.useTitleModelCard(snapshot => snapshot)
-  if (props.view === 'summary') return t('description')
+  const state = props.useTitleModelSection(snapshot => snapshot)
 
   const disabled = !state.writable || state.saving
   const groups = groupByProvider(state.candidates)
@@ -149,43 +156,48 @@ export function TitleModelCard(props: TitleModelCardProps) {
   ]
 
   return (
-    <SettingsForm labels={formLabels(t)} state={state} onSave={props.save} onDiscard={props.discard}>
-      <PreferenceRow
-        title={t('modelLabel')}
-        description={t('modelHint')}
-        label={chosen?.modelName ?? t('modelInherited')}
-        disabled={disabled}
-        items={modelItems}
-        selectedId={selectedKey}
-        onSelect={(id) => { props.selectRoute(id === INHERIT_ID ? undefined : id) }}
-      />
+    <section className="str-section">
+      <h2 className="str-heading">{t('nav')}</h2>
+      <p className="str-intro">{t('description')}</p>
 
-      <PreferenceRow
-        title={t('effortLabel')}
-        description={t('effortHint')}
-        label={chosenEffort?.name ?? t('effortInherited')}
-        disabled={disabled}
-        items={effortItems}
-        selectedId={state.effort ?? EFFORT_DEFAULT_ID}
-        onSelect={(id) => { props.selectEffort(id === EFFORT_DEFAULT_ID ? undefined : id) }}
-      />
+      <SettingsForm labels={formLabels(t)} state={state} onSave={props.save} onDiscard={props.discard}>
+        <PreferenceRow
+          title={t('modelLabel')}
+          description={t('modelHint')}
+          label={chosen?.modelName ?? t('modelInherited')}
+          disabled={disabled}
+          items={modelItems}
+          selectedId={selectedKey}
+          onSelect={(id) => { props.selectRoute(id === INHERIT_ID ? undefined : id) }}
+        />
 
-      {state.catalogStatus === 'loading'
-        ? <p className="str-notice" role="status">{t('catalogLoading')}</p>
-        : null}
-      {state.catalogStatus === 'error'
-        ? (
-          <p className="str-notice" data-failed="true" role="alert">
-            {t('catalogFailed')}{' '}
-            <button type="button" disabled={state.saving} onClick={props.retryCatalog}>{t('catalogRetry')}</button>
-          </p>
-        )
-        : null}
-      {state.catalogPartial ? <p className="str-notice">{t('catalogPartial')}</p> : null}
-      {state.catalogStatus === 'ready' && groups.length === 0
-        ? <p className="str-notice">{t('catalogEmpty')}</p>
-        : null}
-    </SettingsForm>
+        <PreferenceRow
+          title={t('effortLabel')}
+          description={t('effortHint')}
+          label={chosenEffort?.name ?? t('effortInherited')}
+          disabled={disabled}
+          items={effortItems}
+          selectedId={state.effort ?? EFFORT_DEFAULT_ID}
+          onSelect={(id) => { props.selectEffort(id === EFFORT_DEFAULT_ID ? undefined : id) }}
+        />
+
+        {state.catalogStatus === 'loading'
+          ? <p className="str-notice" role="status">{t('catalogLoading')}</p>
+          : null}
+        {state.catalogStatus === 'error'
+          ? (
+            <p className="str-notice" data-failed="true" role="alert">
+              {t('catalogFailed')}{' '}
+              <button type="button" disabled={state.saving} onClick={props.retryCatalog}>{t('catalogRetry')}</button>
+            </p>
+          )
+          : null}
+        {state.catalogPartial ? <p className="str-notice">{t('catalogPartial')}</p> : null}
+        {state.catalogStatus === 'ready' && groups.length === 0
+          ? <p className="str-notice">{t('catalogEmpty')}</p>
+          : null}
+      </SettingsForm>
+    </section>
   )
 }
 

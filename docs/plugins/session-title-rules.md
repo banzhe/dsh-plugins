@@ -10,7 +10,7 @@ Moved out of the plugin's README, which now covers only features and installatio
 | `src/title.ts` | Title derivation (`deriveTitle`): route resolution, message selection and framing, the model stream, and accepting or refusing the answer. |
 | `src/prompt.ts` | The model-facing half: the closed type vocabulary, the system prompt, and `formatTitleOutput`. An internal seam — the package root does not export it. |
 | `src/command.ts` | `/title-refresh`. Holds no title logic: it maps one invocation onto `ctx.sessionTitle.refresh`. |
-| `src/client/**` | The Web Client half (the title-model settings page). |
+| `src/client/**` | The Web Client half (the Session title settings section). |
 
 ## What it replaces
 
@@ -97,7 +97,7 @@ execute immediately.
   `@deepseek-ai/dsh-session-title-llm` (whose system prompt is private), so the
   auxiliary request is not reconstructable from the log.
 - Routing follows the Session's logged `request/header` route, unless the
-  title-model page pins an explicit model (see below). Explicit
+  title-model section pins an explicit model (see below). Explicit
   `ctx.sessionTitle.refresh()` before any header exists has no route, so an
   *unconfigured* provider fails and the deterministic fallback stays — pinning a
   model is what makes that case work.
@@ -140,11 +140,16 @@ only way to stop a reasoning-enabled route spending its whole 512-token budget
 on hidden thinking before it writes a title (see *Why the output cap is 512*).
 Omit it to follow the route's own default.
 
-### The settings page
+### The settings section
 
 The model is chosen in the Web UI, not by hand-editing YAML: **Settings →
-Plugins → this plugin's row → Configure** (the `plugins.row.config` slot, keyed
-`@banzhe/dsh-session-title-rules#session-title-rules`).
+Session titles** — the `settings.section` contribution with id
+`session-title-rules`, ordered after Agent presets.
+
+The Plugins page shows no Configure card for this row: the Bundle no longer
+contributes a `plugins.row.config` page, and the Host entry registers
+`configure({ auto: false })` so that no schema-generated form can appear in its
+place. This section is the entry's only settings surface.
 
 - The model dropdown lists the **live adapter directory**
   (`remote.session.modelCatalog()`, the same source the composer's picker reads),
@@ -159,19 +164,19 @@ Plugins → this plugin's row → Configure** (the `plugins.row.config` slot, ke
   resolved through `llm-pi-ai`'s `getSupportedThinkingLevels`. Editing the YAML
   changes the dropdown; only `xhigh` and `max` must be declared explicitly, since
   `off`/`low`/`medium`/`high` follow from a model being marked as reasoning.
-- Each level shows the adapter's display **name** (`High`) while the page stores
+- Each level shows the adapter's display **name** (`High`) while the section stores
   the wire **id** (`high`) — the same split the composer's own picker makes. A
   stored level that no model advertises any more is kept, labelled by its id, so
   a configured value is never invisible.
 - A route saved earlier that has since left the directory stays listed (marked
   *saved but currently unavailable*) so it can still be seen and cleared;
   removing it instead would silently reset the choice on the next save.
-- The page writes `unset` for "follow the session model" and "route default
+- The section writes `unset` for "follow the session model" and "route default
   effort": an absent field is what the provider reads as unconfigured, whereas an
   empty string would be dispatched as a model id.
 
-Configuring by YAML directly is still supported and equivalent; the page and the
-file edit the same `session-title-rules` entry.
+Configuring by YAML directly is still supported and equivalent; the section and
+the file edit the same `session-title-rules` entry.
 
 Both choices render as the shell's own settings dropdown — a pill trigger that
 opens the shared `Menu` from `ui-primitives` — copying `PreferenceRow` in
@@ -181,13 +186,17 @@ system, so it can never carry the theme, and the checkmarked card the reference
 settings show is reachable only through `Menu`. `Menu` brings its own stylesheet,
 so the card, its elevation, and its keyboard walk need nothing from this Bundle.
 
-Only the row and its trigger are styled here, by an injected `--dsw-*` token sheet
+The section's own chrome and its preference rows are styled here, by an
+injected `--dsw-*` token sheet
 ([`src/client/title-model.css`](../../plugins/session-title-rules/src/client/title-model.css)),
 imported as
 `title-model.css?inline` and inlined into `lib/client.js` at build time — the
 ModuleLoader fetches one artifact, so a plain `.css` import would emit a sibling
 asset nothing requests (`@banzhe/dsh-devkit` holds the seam, wired in
-`tsdown.config.ts`). Inline styles would
+`tsdown.config.ts`). The section column (`.str-section`, `.str-heading`,
+`.str-intro`) mirrors the Plugins section's own — a 760px column with 12px gaps,
+an 18px heading, and a muted intro line; the two preference rows and their pill
+triggers are styled beneath it. Inline styles would
 not do: inline declarations beat every stylesheet, so a control carrying a
 `style` attribute falls back to browser defaults instead of the shell's chrome.
 The sheet is installed on the plugin's fiber, so unloading the Bundle takes it

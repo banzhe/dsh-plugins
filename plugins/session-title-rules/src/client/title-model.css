@@ -1,5 +1,5 @@
 /*
- * The `--dsw-*` token stylesheet this settings row injects for the owning
+ * The `--dsw-*` token stylesheet this settings section injects for the owning
  * plugin's lifetime.
  *
  * A real stylesheet, imported as text (`./title-model.css?inline`) and inlined
@@ -13,6 +13,26 @@
  *
  * Class names are prefixed `str-`, so the sheet cannot collide with the shell's.
  */
+/* The section column: the shell stacks one section per page, and this one
+   states its own width and heading the way the Plugins section does. */
+.str-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 760px;
+  color: var(--dsw-alias-label-primary);
+}
+.str-heading {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.str-intro {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dsw-alias-label-tertiary);
+}
 .str-row {
   display: flex;
   align-items: center;

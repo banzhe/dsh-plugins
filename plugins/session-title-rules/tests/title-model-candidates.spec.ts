@@ -1,7 +1,7 @@
 /**
  * `titleModelCandidates` / `titleRouteKey` contract.
  *
- * The card's job is to make an uncallable route unselectable: the LLM seam
+ * The section's job is to make an uncallable route unselectable: the LLM seam
  * rejects any `provider`/`model` pair its adapter does not know, so the join
  * against the live adapter directory is the only thing standing between the user
  * and a stored title model that can never run. The rows pin each join — a route
