@@ -94,7 +94,18 @@ jobs:
             shipped=$(node -p "require('./$pkg/package.json').files.join('\n')")
             while IFS= read -r file; do
               # `files` may list directories (e.g. web-icons' `assets`), so -e, not -f.
-              test -e "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
+              case "$file" in
+                # `files` may also list globs (e.g. ssh-posix's `locale/*.json`), which -e
+                # compares literally, so expand those and require at least one match.
+                # compgen exits 1 on a zero-match glob, so `|| true` keeps `set -e` quiet.
+                *[*?[]*)
+                  matches=$(compgen -G "$pkg/$file" || true)
+                  [ -n "$matches" ] || { echo "::error::$pkg/$file matches nothing"; exit 1; }
+                  ;;
+                *)
+                  test -e "$pkg/$file" || { echo "::error::$pkg/$file is missing"; exit 1; }
+                  ;;
+              esac
             done <<< "$shipped"
           done
       # Publish only versions missing from the registry. pnpm (not changeset publish)
