@@ -1,5 +1,11 @@
 # @banzhe/dsh-session-title-rules
 
+## 0.2.5
+
+### Patch Changes
+
+- 9b12abf: Move the title-model settings into their own Settings page section, so the model and reasoning-effort choices sit beside the other preferences instead of behind the plugin row's Configure card.
+
 ## 0.2.4
 
 ### Patch Changes
