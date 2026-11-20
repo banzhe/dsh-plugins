@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it } from 'vitest'
 import {
   CONTAINER_FOLDER_LABEL,
   findRunningContainer,
@@ -6,10 +8,13 @@ import {
   resolveContainerTarget,
   startContainer,
 } from '../src/container.ts'
+import { containerPathOf } from '../src/container-mounts.ts'
 import type { ContainerCommandResult } from '../src/exec.ts'
 import { sandboxNameFor } from '../src/sbx.ts'
-import { fakeRunner } from './support.ts'
+import { cleanupTemporaryDirectories, fakeRunner, temporaryDirectory } from './support.ts'
 import type { RepoContainerSpec } from '../src/types.ts'
+
+afterAll(cleanupTemporaryDirectories)
 
 const spec: RepoContainerSpec = {
   hostWorkspaceRoot: 'F:\\personal\\my-repo',
@@ -75,6 +80,32 @@ describe('startContainer', () => {
   it('reports the last lines of a failed start', async () => {
     const ran = fakeRunner({ devcontainer: { stdout: '', stderr: 'line one\nline two\nboom: no daemon', exitCode: 1 } })
     await expect(startContainer(spec, ran.run)).rejects.toThrow(/devcontainer up failed.*boom: no daemon/)
+  })
+
+  it('mounts the row host paths into a container it builds', async () => {
+    const home = temporaryDirectory()
+    const agents = join(home, 'AGENTS.md')
+    writeFileSync(agents, '# agents\n', 'utf8')
+    const skills = join(home, 'skills')
+    const ran = fakeRunner({ devcontainer: { stdout: '{"containerId":"built"}', stderr: '' } })
+
+    await expect(resolveContainerTarget({ ...spec, hostMounts: [{ host: agents }, { host: skills }] }, ran.run))
+      .resolves.toMatchObject({ kind: 'docker', containerId: 'built' })
+    expect(ran.calls[1]?.argv).toEqual([
+      'devcontainer', 'up', '--workspace-folder', spec.hostWorkspaceRoot,
+      '--mount', `type=bind,source=${agents},target=${containerPathOf(agents)}`,
+    ])
+  })
+
+  it('reports a declared mount whose source is gone instead of failing the create', async () => {
+    const home = temporaryDirectory()
+    const gone = join(home, 'missing.md')
+    const warnings: string[] = []
+    const ran = fakeRunner({ devcontainer: { stdout: '{"containerId":"built"}', stderr: '' } })
+
+    await startContainer({ ...spec, hostMounts: [{ host: gone }] }, ran.run, undefined, message => { warnings.push(message) })
+    expect(ran.calls[0]?.argv).toEqual(['devcontainer', 'up', '--workspace-folder', spec.hostWorkspaceRoot])
+    expect(warnings[0]).toContain(gone)
   })
 
   it('accepts a non-zero exit that still reported a container', async () => {

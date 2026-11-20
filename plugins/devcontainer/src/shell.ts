@@ -57,7 +57,7 @@ import {
   markedContainerOnly, markedPreset, markedVariantKind, refusalText, refusedExecution, sbxRefusalText,
 } from './refusal.ts'
 import type { ShellRunResult } from '@deepseek-ai/dsh-shell'
-import { liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
+import { liveHostMountPlan, liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
 import { bindSbxMount, sandboxHostPathFor, sbxSpecFor, sbxWorkspaceRootFor } from './sbx.ts'
 import type { SandboxHostAttribution } from './sbx.ts'
 import type { ContainerOptions, RepoContainerSpec } from './types.ts'
@@ -324,7 +324,12 @@ export class DevcontainerShellExecutor extends SandboxBashExecutor {
     // that already carries a container path still finds its repository.
     const attributed = kind === 'sbx' ? sandboxHostAttribution(workdir) : undefined
     const declared = registry.locate(attributed?.host ?? workdir, options)
-    if (kind !== 'sbx') return declared
+    // The extra host mounts are the Host row's, on both tracks: a Dev Container
+    // takes the same plan as `devcontainer up --mount` arguments, and the create
+    // has to carry them because a container keeps the mounts it was made with.
+    if (kind !== 'sbx') {
+      return declared === undefined ? undefined : { ...declared, hostMounts: liveHostMountPlan(this.ctx) }
+    }
     const root = this.sbxHostRootOf(workdir, cwd, declared, attributed)
     return root === undefined
       ? undefined

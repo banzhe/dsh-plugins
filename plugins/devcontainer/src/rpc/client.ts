@@ -99,7 +99,7 @@ interface HandshakeRequest {
  * @returns the `hello` parameters, naming the extra roots only when there are any.
  */
 function handshakeOf(target: ChannelTarget): HandshakeRequest {
-  const mounts = target.kind === 'sbx' ? target.mounts ?? [] : []
+  const mounts = target.mounts ?? []
   return mounts.length === 0
     ? { protocol: RPC_PROTOCOL_VERSION, workspace: target.workspace }
     : { protocol: RPC_PROTOCOL_VERSION, workspace: target.workspace, mounts }
@@ -107,7 +107,18 @@ function handshakeOf(target: ChannelTarget): HandshakeRequest {
 
 /** Which runtime a channel speaks to, and the directory it treats as home. */
 export type ChannelTarget =
-  | { readonly kind: 'docker'; readonly containerId: string; readonly workspace: string }
+  | {
+    readonly kind: 'docker'
+    readonly containerId: string
+    readonly workspace: string
+    /**
+     * Extra mounts the container carries beside the workspace, taken at creation
+     * as `--mount` binds (read-write). The helper fences every read against the
+     * workspace, so it has to be told which further roots this session may use —
+     * the host's global skills and `AGENTS.md`.
+     */
+    readonly mounts?: readonly string[]
+  }
   | {
     readonly kind: 'sbx'
     readonly sandboxName: string

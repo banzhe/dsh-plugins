@@ -30,7 +30,7 @@
       name: '@banzhe/dsh-ssh-posix'
 
     - id: fs-ssh
-      name: '@deepseek-ai/dsh-fs-ssh'
+      name: '@banzhe/dsh-ssh-posix/fs'
 
     - id: subprocess-ssh
       name: '@deepseek-ai/dsh-subprocess-ssh'

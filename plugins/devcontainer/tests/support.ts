@@ -215,6 +215,14 @@ export function makeContainerRepo(
   return { root, folder: CONTAINER_MOUNT }
 }
 
+/** One host path a fixture container has mounted beside its workspace. */
+export interface HelperMount {
+  /** Absolute POSIX path the mount has inside the container. */
+  readonly container: string
+  /** Absolute host path that mount stands for. */
+  readonly host: string
+}
+
 /** The subset of the helper program a harness drives directly. */
 interface HelperModule {
   handle(method: string, params: unknown): Promise<unknown>
@@ -238,24 +246,40 @@ let helperInstances = 0
  * the same translation the container's own mount performs for real.
  * @param mount - the container mount point the filesystem row reports.
  * @param host - the host directory that mount stands for.
+ * @param extra - further host paths the fixture container mounts beside the workspace.
  * @returns a channel-shaped object the filesystem row can use.
  */
-export async function helperChannel(mount: string, host: string): Promise<HelperChannel> {
+export async function helperChannel(
+  mount: string, host: string, extra: readonly HelperMount[] = [],
+): Promise<HelperChannel> {
   helperInstances += 1
   const url = `../src/helper/main.mjs?v=${helperInstances}`
   const loaded: unknown = await import(/* @vite-ignore */ url)
   const helper = loaded as HelperModule
   const hostRoot = toPosixSlashes(realpathSync(host))
-  const toHost = (value: string): string => {
-    const remainder = containerRemainder(value, mount)
-    if (remainder === undefined) return value
-    return remainder === '' ? hostRoot : posix.join(hostRoot, remainder)
+  /** One mount, both ways, with the host side resolved as the container's realpath would. */
+  interface Pair { readonly container: string, readonly host: string }
+  const pairs: Pair[] = [
+    { container: posix.normalize(mount), host: hostRoot },
+    ...extra.map(entry => ({
+      container: posix.normalize(entry.container),
+      host: toPosixSlashes(realpathSync(entry.host)),
+    })),
+  ]
+  /** Translate along one side of every mount, the deepest one winning. */
+  const translate = (value: string, from: (pair: Pair) => string, to: (pair: Pair) => string): string => {
+    let found: { readonly base: string, readonly target: string, readonly remainder: string } | undefined
+    for (const pair of pairs) {
+      const remainder = containerRemainder(value, from(pair))
+      if (remainder === undefined) continue
+      if (found !== undefined && found.base.length >= from(pair).length) continue
+      found = { base: from(pair), target: to(pair), remainder }
+    }
+    if (found === undefined) return value
+    return found.remainder === '' ? found.target : posix.join(found.target, found.remainder)
   }
-  const toMount = (value: string): string => {
-    const remainder = containerRemainder(value, hostRoot)
-    if (remainder === undefined) return value
-    return remainder === '' ? mount : posix.join(mount, remainder)
-  }
+  const toHost = (value: string): string => translate(value, pair => pair.container, pair => pair.host)
+  const toMount = (value: string): string => translate(value, pair => pair.host, pair => pair.container)
   const target = (value: unknown): unknown => {
     const record = value as { targetKey: string; displayPath: string }
     return { targetKey: toHost(record.targetKey), displayPath: toHost(record.displayPath) }
@@ -265,7 +289,11 @@ export async function helperChannel(mount: string, host: string): Promise<Helper
   // read guard resolves a target to a realpath and measures it against that
   // root. The row still fences targets in the container spelling, which is what
   // the reported handshake carries.
-  await helper.handle('hello', { protocol: 3, workspace: hostRoot })
+  await helper.handle('hello', {
+    protocol: 3,
+    workspace: hostRoot,
+    ...pairs.length === 1 ? {} : { mounts: pairs.slice(1).map(pair => pair.host) },
+  })
   return {
     handshake: { workspace: mount, workspaceReal: mount },
     async request<T>(method: string, params: unknown = {}): Promise<T> {

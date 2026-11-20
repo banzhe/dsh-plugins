@@ -110,12 +110,14 @@ export function sandboxTemplateFields() {
   }
 }
 
-/** The extra read-only host paths a created Docker Sandbox mounts, owned by the Host row. */
+/** The extra host paths a created runtime mounts beside the workspace, owned by the Host row. */
 export interface HostMountOptions {
   /**
    * `auto` mounts the host's `AGENTS.md` and skill trees when they exist, `off`
-   * mounts none, and a list names the `PATH[:TARGET][:ro]` entries to mount. Every
-   * entry is mounted read-only and skipped when its source is missing.
+   * mounts none, and a list names the `PATH[:TARGET][:ro]` entries. One plan feeds
+   * both tracks: a created sandbox mounts every entry read-only, while a Dev
+   * Container's bind is read-write and is kept read-only by the filesystem fence.
+   * An entry whose source is missing is skipped with a warning.
    */
   hostMounts: HostMountsConfig
 }

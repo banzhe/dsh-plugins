@@ -12,6 +12,7 @@
  * @module @banzhe/dsh-devcontainer/container
  */
 
+import { containerMountArgsOf } from './container-mounts.ts'
 import type { ContainerRun } from './exec.ts'
 import { toPosixSlashes } from './paths.ts'
 import { resolveSbxTarget } from './sbx.ts'
@@ -84,9 +85,13 @@ export function parseUpOutput(stdout: string): string | undefined {
 
 /**
  * Build and start the repository's container through the Dev Container CLI.
+ * The extra host mounts the row declares travel as `--mount` arguments, which is
+ * the only moment the CLI can add them: a container keeps the mounts it was
+ * created with, so a path added later needs a fresh create.
  * @param spec - the repository container specification.
  * @param run - the CLI runner.
  * @param signal - cancellation of the CLI call.
+ * @param warn - reports each declared mount the create leaves out, and why.
  * @returns the produced container id when the CLI reported one.
  * @throws Error when the CLI failed and reported no container.
  */
@@ -94,9 +99,11 @@ export async function startContainer(
   spec: RepoContainerSpec,
   run: ContainerRun,
   signal?: AbortSignal,
+  warn?: SandboxWarning,
 ): Promise<{ containerId?: string; workspaceFolder: string }> {
+  const mounts = await containerMountArgsOf(spec, warn)
   const result = await run(
-    ['devcontainer', 'up', '--workspace-folder', spec.hostWorkspaceRoot],
+    ['devcontainer', 'up', '--workspace-folder', spec.hostWorkspaceRoot, ...mounts],
     { ...signal === undefined ? {} : { signal }, timeoutMs: spec.containerTimeoutMs },
   )
   const containerId = parseUpOutput(result.stdout)
@@ -144,7 +151,7 @@ export async function resolveContainerTarget(
     }
   }
   if (spec.ensureUp) {
-    const started = await startContainer(spec, run, signal)
+    const started = await startContainer(spec, run, signal, warn)
     if (started.containerId !== undefined) {
       return {
         kind: 'docker',

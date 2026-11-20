@@ -111,9 +111,11 @@ export interface Config extends ContainerOptions {
    */
   sbxTemplate: Volatile<string>
   /**
-   * Extra read-only host paths a created Docker Sandbox mounts beside the
-   * workspace (`auto`, `off`, or an explicit `PATH[:TARGET][:ro]` list). Read by
-   * the shell, filesystem, and subprocess rows through `liveHostMounts`.
+   * Extra host paths a created runtime mounts beside the workspace (`auto`,
+   * `off`, or an explicit `PATH[:TARGET][:ro]` list). A Docker Sandbox takes them
+   * as positional `:ro` arguments and a Dev Container as `--mount` flags, whose
+   * bind is read-write. Read by the shell, filesystem, and subprocess rows
+   * through `liveHostMounts`.
    */
   hostMounts: Volatile<HostMountsConfig>
   presets: PresetVariantConfig

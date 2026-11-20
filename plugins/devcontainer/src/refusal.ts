@@ -290,6 +290,45 @@ export function fsEscapeRefusalText(displayPath: string, targetKey: string, pres
   ].join('\n')
 }
 
+/**
+ * The diagnostic a refused read out of a mounted host path reports.
+ *
+ * A Dev Container mounts the host's global agent configuration beside the
+ * workspace, but only the part a skill session needs: the `SKILL.md` of each
+ * skill and its `references/` tree. A script it would have to run is not that.
+ * @param displayPath - the path the call named.
+ * @param mountPath - the container path the covering mount has.
+ * @returns the refusal text.
+ */
+export function fsHostMountReadText(displayPath: string, mountPath: string): string {
+  return [
+    `devcontainer: refused to read "${displayPath}" through the host mount "${mountPath}".`,
+    'A skills directory mounted into a Dev Container is read as a skills tree: a session may list it, read "<skill>/SKILL.md", and read "<skill>/references/**".',
+    'Nothing else under it — "scripts/", "templates/", and every other file — is readable.',
+    'Copy what you need into the workspace, or switch to an ordinary preset without the (devContainer) suffix to work on host files.',
+    '',
+  ].join('\n')
+}
+
+/**
+ * The diagnostic a refused write into a mounted host path reports.
+ *
+ * The Dev Container CLI's `--mount` form carries no read-only token, so the bind
+ * itself is writable: this refusal is what keeps the mount read-only, and it must
+ * not be weakened into a silent success.
+ * @param displayPath - the path the call named.
+ * @param mountPath - the container path the covering mount has.
+ * @returns the refusal text.
+ */
+export function fsHostMountWriteText(displayPath: string, mountPath: string): string {
+  return [
+    `devcontainer: refused to write "${displayPath}" through the host mount "${mountPath}".`,
+    'This session may only READ the host\'s global AGENTS.md and skills through that mount: the fence refuses every write, edit, patch, delete and move made through ctx.fs, whatever the bind itself allows.',
+    'Write into the repository workspace instead, or switch to an ordinary preset without the (devContainer) suffix.',
+    '',
+  ].join('\n')
+}
+
 /** One offset read over a stream that already holds its whole text. */
 interface SettledReader {
   readFrom(fromByte: number): { text: string, nextOffset: number, lossy: boolean }

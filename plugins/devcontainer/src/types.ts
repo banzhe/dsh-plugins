@@ -15,10 +15,10 @@
  */
 export type ContainerCli = 'auto' | 'devcontainer' | 'docker' | 'sbx'
 
-/** How the Host row configures the extra read-only host paths a Docker Sandbox mounts. */
+/** How the Host row configures the extra host paths a created runtime mounts. */
 export type HostMountsConfig = 'auto' | 'off' | readonly string[]
 
-/** One extra read-only host path a Docker Sandbox mounts beside the workspace. */
+/** One extra host path a created runtime mounts beside the workspace. */
 export interface HostMount {
   /** Absolute host path of the file or directory. */
   readonly host: string
@@ -67,12 +67,15 @@ export interface RepoContainerSpec {
    */
   sbxTemplate?: string
   /**
-   * Extra read-only host paths a created sandbox mounts beside the workspace.
+   * Extra host paths a created runtime mounts beside the workspace.
    *
    * The plan the row's `hostMounts` resolves to — host spellings, not yet
-   * filtered to the ones that exist. Only a specification a row built carries it:
-   * a declaration has no say in what its host mounts, and a sandbox that already
-   * exists is never recreated for it.
+   * filtered to the ones that exist. A created Docker Sandbox takes it as
+   * positional `:ro` arguments and a created Dev Container as `--mount` flags,
+   * whose bind is read-write; the fence admits exactly these paths on either
+   * track and refuses every write to them through `ctx.fs`. Only a
+   * specification a row built carries it: a declaration has no say in what its
+   * host mounts, and a runtime that already exists is never recreated for it.
    */
   hostMounts?: readonly HostMount[]
   /** Shell the command runs under inside the container (default `/bin/bash`). */

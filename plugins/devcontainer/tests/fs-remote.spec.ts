@@ -1,13 +1,14 @@
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { afterAll, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { FsTarget } from '@deepseek-ai/dsh-fs'
+import { containerPathOf } from '../src/container-mounts.ts'
 import { DevcontainerFileSystem } from '../src/fs.ts'
 import type { ContainerRun } from '../src/exec.ts'
-import { repoRegistry } from '../src/registry.ts'
-import type { ContainerRpcChannel } from '../src/rpc/client.ts'
+import { registerHostMounts, repoRegistry } from '../src/registry.ts'
+import type { ChannelTarget, ContainerRpcChannel } from '../src/rpc/client.ts'
 import { RpcOperationError } from '../src/rpc/errors.ts'
 import {
   CONTAINER_MOUNT,
@@ -16,7 +17,7 @@ import {
   makeContainerRepo,
   temporaryDirectory,
 } from './support.ts'
-import type { HelperChannel } from './support.ts'
+import type { HelperChannel, HelperMount } from './support.ts'
 
 afterAll(cleanupTemporaryDirectories)
 
@@ -49,11 +50,29 @@ function stubChannel(handshake: { workspace: string, workspaceReal: string }, re
   } as unknown as ContainerRpcChannel
 }
 
-/** Boot the row with the services it reads, pointed at a container stand-in. */
+/**
+ * Boot the row with the services it reads, pointed at a container stand-in.
+ * @param root - the host repository root the fixture container mounts.
+ * @param options - a channel to use instead of the helper, extra row config, the
+ *   Host row's `hostMounts` value, and the mounts the fixture container has.
+ * @returns the row, the caller preset switch, the CLI stand-in, the helper
+ *   channel, and every channel target the row asked for.
+ */
 async function setup(
   root: string,
-  options: { channel?: ContainerRpcChannel, config?: Record<string, unknown> } = {},
-): Promise<{ fs: DevcontainerFileSystem, caller: Caller, cli: ReturnType<typeof fakeDockerCli>, channel: HelperChannel }> {
+  options: {
+    channel?: ContainerRpcChannel
+    config?: Record<string, unknown>
+    hostMounts?: readonly string[]
+    mounted?: readonly HelperMount[]
+  } = {},
+): Promise<{
+  fs: DevcontainerFileSystem
+  caller: Caller
+  cli: ReturnType<typeof fakeDockerCli>
+  channel: HelperChannel
+  targets: ChannelTarget[]
+}> {
   repoRegistry().reset()
   const ctx = new Context()
   const caller: Caller = { preset: null }
@@ -67,16 +86,21 @@ async function setup(
     child.provide('agents' as string, { currentInitiator: () => ({ session }) })
     child.provide('agentPresets' as string, { presetForSession: () => caller.preset })
   })
+  if (options.hostMounts !== undefined) registerHostMounts(ctx, () => options.hostMounts ?? [])
   await ctx.plugin(DevcontainerFileSystem, { cwd: root, ...options.config })
   const fs = ctx.fs as DevcontainerFileSystem
   const cli = fakeDockerCli(root)
   fs.containerInternals.run = cli.run
-  const channel = await helperChannel(CONTAINER_MOUNT, root)
-  fs.containerInternals.channel = async () => options.channel ?? stubChannel(
-    channel.handshake,
-    (method, params) => channel.request(method, params),
-  )
-  return { fs, caller, cli, channel }
+  const channel = await helperChannel(CONTAINER_MOUNT, root, options.mounted ?? [])
+  const targets: ChannelTarget[] = []
+  fs.containerInternals.channel = async (target) => {
+    targets.push(target)
+    return options.channel ?? stubChannel(
+      channel.handshake,
+      (method, params) => channel.request(method, params),
+    )
+  }
+  return { fs, caller, cli, channel, targets }
 }
 
 describe('a container-bound session delegates every path to the container', () => {
@@ -343,6 +367,142 @@ describe('a container-bound session isolates RPC failures', () => {
     )
     await expect(fs.readText(target)).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
     await expect(fs.readText(target)).rejects.toThrow('the helper refused')
+  })
+})
+
+describe('a Dev Container session with the host AGENTS.md and skills mounted', () => {
+  /** The host tree: one AGENTS.md, one skill, and the files a session may not read. */
+  function hostTree(): { home: string, agents: string, skills: string, mounted: HelperMount[] } {
+    const home = temporaryDirectory()
+    const write = (relative: string, content: string): void => {
+      const absolute = join(home, ...relative.split('/'))
+      mkdirSync(dirname(absolute), { recursive: true })
+      writeFileSync(absolute, content, 'utf8')
+    }
+    write('AGENTS.md', '# host agents\n')
+    write('skills/demo/SKILL.md', '# demo skill\n')
+    write('skills/demo/references/api.md', '# api\n')
+    write('skills/demo/scripts/run.sh', 'echo hi\n')
+    write('skills/demo/templates/blank.md', 'template\n')
+    write('skills/demo/notes.md', 'notes\n')
+    write('other.md', '# other\n')
+    const agents = join(home, 'AGENTS.md')
+    const skills = join(home, 'skills')
+    const mounted: HelperMount[] = []
+    for (const hostPath of [agents, skills]) {
+      const container = containerPathOf(hostPath)
+      if (container === undefined) throw new Error('the fixture host has no container convention for ' + hostPath)
+      mounted.push({ container, host: hostPath })
+    }
+    return { home, agents, skills, mounted }
+  }
+
+  /**
+   * Boot one session over a repository whose Host row declares the fixture mounts.
+   * @param tree - the host tree the mounts come from.
+   * @returns the row, the caller switch, and the mount paths as the container has them.
+   */
+  async function session(tree: ReturnType<typeof hostTree>): Promise<{
+    fs: DevcontainerFileSystem
+    caller: Caller
+    targets: ChannelTarget[]
+    containerAgents: string
+    containerSkills: string
+  }> {
+    const { root } = makeContainerRepo({ 'src/a.ts': 'export {}\n' })
+    const { fs, caller, targets } = await setup(root, {
+      hostMounts: [tree.agents, tree.skills],
+      mounted: tree.mounted,
+    })
+    caller.preset = 'standard-devcontainer'
+    return {
+      fs,
+      caller,
+      targets,
+      containerAgents: tree.mounted[0]?.container ?? '',
+      containerSkills: tree.mounted[1]?.container ?? '',
+    }
+  }
+
+  it('reads the mounted AGENTS.md by its host spelling and by its container spelling', async () => {
+    const tree = hostTree()
+    const { fs, containerAgents } = await session(tree)
+
+    const hostSpelled = await fs.resolve(tree.agents)
+    expect(String(hostSpelled.targetKey)).toBe(containerAgents)
+    expect(await fs.readText(hostSpelled)).toBe('# host agents\n')
+    expect(await fs.readText(await fs.resolve(containerAgents))).toBe('# host agents\n')
+  })
+
+  it('reads a skill description and its references, and lists the tree', async () => {
+    const tree = hostTree()
+    const { fs, containerSkills } = await session(tree)
+
+    const skill = await fs.resolve(join(tree.skills, 'demo', 'SKILL.md'))
+    expect(String(skill.targetKey)).toBe(`${containerSkills}/demo/SKILL.md`)
+    expect(await fs.readText(skill)).toBe('# demo skill\n')
+    expect(await fs.readText(await fs.resolve(join(tree.skills, 'demo', 'references', 'api.md'))))
+      .toBe('# api\n')
+
+    const root = await fs.resolve(containerSkills)
+    expect((await fs.listDir(root)).map(entry => entry.name)).toEqual(['demo'])
+    expect((await fs.listDir(await fs.resolve(`${containerSkills}/demo`))).map(entry => entry.name).sort())
+      .toEqual(['SKILL.md', 'notes.md', 'references', 'scripts', 'templates'])
+  })
+
+  it('refuses every other file under a mounted skills tree', async () => {
+    const tree = hostTree()
+    const { fs } = await session(tree)
+
+    for (const relative of ['scripts/run.sh', 'templates/blank.md', 'notes.md']) {
+      const target = await fs.resolve(join(tree.skills, ...relative.split('/')))
+      // The shell script is the one a session would be tempted to run, so it is
+      // refused as a read in every shape the seam offers.
+      await expect(fs.readText(target)).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+      await expect(fs.readBytes(target, undefined, 1024)).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+      await expect(fs.streamText(target)).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    }
+    const script = await fs.resolve(join(tree.skills, 'demo', 'scripts', 'run.sh'))
+    await expect(fs.readText(script)).rejects.toThrow('refused to read')
+    await expect(fs.readText(script)).rejects.toThrow('SKILL.md')
+  })
+
+  it('keeps the mounted host paths read-only', async () => {
+    const tree = hostTree()
+    const { fs } = await session(tree)
+
+    const agents = await fs.resolve(tree.agents)
+    await expect(fs.writeText(agents, '# mine now\n')).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    await expect(fs.editText(agents, { oldString: 'host', newString: 'mine', replaceAll: false }))
+      .rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    // The host file is untouched: the refusal is the only outcome the session gets.
+    expect(readFileSync(tree.agents, 'utf8')).toBe('# host agents\n')
+  })
+
+  it('keeps a host path that is neither the workspace nor a mount out', async () => {
+    const tree = hostTree()
+    const { fs } = await session(tree)
+
+    // The mount is a file and a directory, not the tree around them: a sibling host
+    // path is as unreachable as any other path outside the container's mounts.
+    await expect(fs.resolve(join(tree.home, 'other.md'))).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    await expect(fs.lstat(join(tree.home, 'other.md'))).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    const outside = {
+      targetKey: join(tree.home, 'other.md') as never,
+      displayPath: join(tree.home, 'other.md'),
+    }
+    await expect(fs.readText(outside)).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    await expect(fs.writeText(outside, 'payload\n')).rejects.toMatchObject({ code: 'FS_PERMISSION_DENIED' })
+    expect(readFileSync(join(tree.home, 'other.md'), 'utf8')).toBe('# other\n')
+  })
+
+  it('tells the helper which mounted roots the session may read', async () => {
+    const tree = hostTree()
+    const { fs, targets, containerAgents, containerSkills } = await session(tree)
+
+    await fs.readText(await fs.resolve(tree.agents))
+    const target = targets[0]
+    expect(target?.kind === 'docker' ? target.mounts : undefined).toEqual([containerAgents, containerSkills])
   })
 })
 

@@ -1,12 +1,15 @@
 /**
- * The extra read-only host paths a Docker Sandbox mounts beside the workspace.
+ * The extra host paths a created runtime mounts beside the workspace, and how one
+ * configured value becomes them.
  *
- * A `(sbx)` session's filesystem fence ends at the workspace mount, so the host's
- * global agent configuration — its `AGENTS.md` and its skill trees — is invisible
- * from inside the sandbox. `sbx create` takes further host paths as positional
- * arguments (`PATH[:TARGET][:ro]`), which is the one place they can be added: a
- * single file must carry `:ro`, and a source that does not exist is a hard CLI
- * failure, so this module decides what may be mounted before the argv is built.
+ * A container-bound session's filesystem fence ends at the workspace mount, so the
+ * host's global agent configuration — its `AGENTS.md` and its skill trees — is
+ * invisible from inside. Both runtimes take those paths at create time and nowhere
+ * else: `sbx create` as positional arguments (`PATH[:TARGET][:ro]`) and
+ * `devcontainer up` as `--mount type=bind` flags. A source that does not exist is a
+ * hard CLI failure on either track, and only the sandbox form can say read-only, so
+ * this module decides what may be mounted before the argv is built and `./fs.ts`
+ * fences what the argv cannot express.
  * @module @banzhe/dsh-devcontainer/host-mounts
  */
 
@@ -172,14 +175,15 @@ export function hostMountRejections(value: HostMountsConfig | undefined): string
 }
 
 /**
- * Expand one configured value into the mounts a created sandbox asks for.
+ * Expand one configured value into the mounts a create asks for.
  *
  * `auto` is the host's shared agent configuration: the `AGENTS.md` each root may
  * carry and the skill tree each may carry. `off` asks for nothing. A list is
- * taken as written, in order, with the read-only token the CLI needs added by
- * {@link hostMountArgument}. Nothing here looks at the host: whether a source
- * exists is decided in {@link hostMountSourceExists}, at the moment a sandbox is
- * created or started.
+ * taken as written, in order. Both tracks mount this one plan: a sandbox adds the
+ * read-only token through {@link hostMountArgument}, while a Dev Container takes
+ * each entry as a `--mount type=bind` and relies on `./fs.ts` for the read-only half.
+ * Nothing here looks at the host: whether a source exists is decided in
+ * {@link hostMountSourceExists}, at the moment a runtime is created or started.
  * @param value - the row's `hostMounts` value; omitted means {@link HOST_MOUNT_DEFAULTS}.
  * @param homes - the two user roots, resolved by {@link hostMountHomes} by default.
  * @returns the declared mounts, in the order the argv carries them.

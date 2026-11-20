@@ -11,8 +11,8 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import { RepoContainerRegistry } from './config-loader.ts'
-import { HOST_MOUNT_DEFAULTS, hostMountRejections } from './host-mounts.ts'
-import type { ContainerOptions, HostMountsConfig } from './types.ts'
+import { HOST_MOUNT_DEFAULTS, hostMountPlan, hostMountRejections } from './host-mounts.ts'
+import type { ContainerOptions, HostMount, HostMountsConfig } from './types.ts'
 
 const REGISTRIES = new WeakMap<object, RepoContainerRegistry>()
 const DEFAULT = new RepoContainerRegistry()
@@ -105,11 +105,24 @@ export function liveHostMounts(scope?: Context | object): HostMountsConfig {
   return scope === undefined ? HOST_MOUNT_DEFAULTS : HOST_MOUNTS.get(rootOf(scope))?.() ?? HOST_MOUNT_DEFAULTS
 }
 
+/**
+ * The mounts this composition's Host row configures right now, resolved into a plan.
+ *
+ * Both seams that adopt a repository mount the same list — a `(devContainer)`
+ * session as `--mount` binds, a `(sbx)` one as positional `:ro` arguments — so the
+ * resolution sits beside the reader instead of being repeated in each row.
+ * @param scope - the calling row's context.
+ * @returns the declared host mounts, in the order a create carries them.
+ */
+export function liveHostMountPlan(scope?: Context | object): HostMount[] {
+  return hostMountPlan(liveHostMounts(scope))
+}
+
 /** The specification-builder options every sandbox seam passes: the row's defaults plus the Host row's live values. */
 export interface SandboxSpecOptions extends ContainerOptions {
   /** Image a created sandbox runs, or undefined for the CLI's own template. */
   readonly sbxTemplate?: string | undefined
-  /** The extra read-only host paths a created sandbox mounts beside the workspace. */
+  /** The extra host paths a created runtime mounts beside the workspace; a sandbox takes them read-only. */
   readonly hostMounts?: HostMountsConfig | undefined
 }
 

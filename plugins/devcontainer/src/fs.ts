@@ -51,6 +51,7 @@ import type { Config as LocalFsConfig } from '@deepseek-ai/dsh-fs-local'
 import { SandboxedFileSystem } from '@deepseek-ai/dsh-fs-sandbox'
 import { resolveContainerTarget } from './container.ts'
 import type { ContainerTarget } from './container.ts'
+import { devcontainerMountsOf, hostMountCovering, hostMountReadAllowed } from './container-mounts.ts'
 import { runContainerCommand } from './exec.ts'
 import type { ContainerRun } from './exec.ts'
 import { containerOptionFields, containerOptions } from './options.ts'
@@ -66,14 +67,17 @@ import {
   toHostPath,
   toPosixSlashes,
 } from './paths.ts'
+import type { ExtraMount } from './paths.ts'
 import {
   callingContainerPreset,
   fsEscapeRefusalText,
+  fsHostMountReadText,
+  fsHostMountWriteText,
   fsRefusalText,
   fsUnmountedText,
   presetKindOf,
 } from './refusal.ts'
-import { liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
+import { liveHostMountPlan, liveHostMountRejections, liveSbxOptions, repoRegistry, warnOnce } from './registry.ts'
 import {
   asSbxSpec,
   bindSbxMount,
@@ -177,13 +181,15 @@ const INHERITED_MUTATIONS: readonly string[] = ['patchText', 'deleteFile', 'move
  * The stdio endpoint one resolved runtime offers the helper.
  * @param target - the resolved runtime.
  * @param workspace - the mount point the helper treats as home.
- * @param mounts - extra read-only roots the helper may read beside the workspace.
+ * @param mounts - extra roots the helper may read beside the workspace.
  * @returns the channel target the pool keys and the helper is started against.
  * @throws Error when the runtime has no stdio endpoint at all.
  */
 function channelTargetOf(target: ContainerTarget, workspace: string, mounts: readonly string[]): ChannelTarget {
   switch (target.kind) {
-    case 'docker': return { kind: 'docker', containerId: target.containerId, workspace }
+    case 'docker': return mounts.length === 0
+      ? { kind: 'docker', containerId: target.containerId, workspace }
+      : { kind: 'docker', containerId: target.containerId, workspace, mounts }
     case 'sbx': return mounts.length === 0
       ? { kind: 'sbx', sandboxName: target.sandboxName, workspace }
       : { kind: 'sbx', sandboxName: target.sandboxName, workspace, mounts }
@@ -195,6 +201,20 @@ function channelTargetOf(target: ContainerTarget, workspace: string, mounts: rea
 /** Serialize one target for the wire. */
 function wireTargetOf(target: FsTarget): WireTarget {
   return { targetKey: String(target.targetKey), displayPath: target.displayPath }
+}
+
+/**
+ * The extra mounts a session may name beside its workspace, on either track.
+ *
+ * A Docker Sandbox answers with the mounts its own listing reported; a Dev
+ * Container with the plan its create was given, at the container path each
+ * declaration takes. Both are the row's `hostMounts`; the difference is only who
+ * knows where the mount landed.
+ * @param spec - the repository container specification the call runs under.
+ * @returns the mounts, empty when the row declared none this track can carry.
+ */
+function extraMountsOf(spec: RepoContainerSpec): readonly ExtraMount[] {
+  return spec.cli === 'sbx' ? sbxExtraMountsOf(spec) : devcontainerMountsOf(spec)
 }
 
 /**
@@ -215,12 +235,13 @@ function containerMountsOf(spec: RepoContainerSpec, workspaceReal: string | unde
   if (spec.cli === 'sbx') {
     const sandbox = sandboxWorkspacePath(spec.hostWorkspaceRoot)
     if (sandbox !== undefined && sandbox !== spec.containerWorkspaceFolder) folders.push(sandbox)
-    // Only the mounts this row declared are accepted here. A sandbox also reports
-    // mounts it injected for itself — its own agent skill store, for one — and
-    // admitting those would hand a session a directory this row never asked for.
-    for (const mount of sbxExtraMountsOf(spec)) {
-      if (!folders.includes(mount.sandbox)) folders.push(mount.sandbox)
-    }
+  }
+  // Only the mounts this row declared are accepted here, on either track. A
+  // sandbox also reports mounts it injected for itself — its own agent skill
+  // store, for one — and admitting those would hand a session a directory this
+  // row never asked for.
+  for (const mount of extraMountsOf(spec)) {
+    if (!folders.includes(mount.sandbox)) folders.push(mount.sandbox)
   }
   if (workspaceReal !== undefined && !folders.includes(workspaceReal)) folders.push(workspaceReal)
   return folders
@@ -326,7 +347,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   override processPath(target: FsTarget): string {
     const spec = this.repositoryFor(target.displayPath, undefined, this.containerRequirement()?.kind)
     if (spec === undefined || hostPathStyle(spec.hostWorkspaceRoot) !== 'win32') return super.processPath(target)
-    return toHostPath(String(target.targetKey), spec, sbxExtraMountsOf(spec))
+    return toHostPath(String(target.targetKey), spec, extraMountsOf(spec))
   }
 
   /**
@@ -381,6 +402,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     if (route === undefined) return await super.readText(this.fenced(target), signal)
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(target, route, channel)
+      this.assertMountReadable(target, route)
       return await this.request<string>(channel, 'fs.readText', { target: wireTargetOf(target) }, signal)
     })
   }
@@ -400,6 +422,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     if (route === undefined) return await super.streamText(this.fenced(target), signal)
     const channel = await this.remoteChannel(route.spec, signal)
     this.assertTargetInsideMount(target, route, channel)
+    this.assertMountReadable(target, route)
     return this.iterate(channel, wireTargetOf(target), route.spec, signal)
   }
 
@@ -416,6 +439,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     if (route === undefined) return await super.readBytes(this.fenced(target), signal, maxBytes)
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(target, route, channel)
+      this.assertMountReadable(target, route)
       const encoded = await this.request<string>(
         channel, 'fs.readBytes', { target: wireTargetOf(target), maxBytes }, signal,
       )
@@ -438,6 +462,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     if (route === undefined) return await super.readByteRange(this.fenced(target), range, signal)
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(target, route, channel)
+      this.assertMountReadable(target, route)
       const encoded = await this.request<string>(
         channel, 'fs.readRange', { target: wireTargetOf(target), offset: range.offset, length: range.length }, signal,
       )
@@ -550,6 +575,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     }
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(target, route, channel)
+      this.assertMountWritable(target, route)
       const outcome = await this.request<WireWriteOutcome>(
         channel, 'fs.write', { target: wireTargetOf(target), content, expected }, signal,
       )
@@ -577,6 +603,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     }
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(target, route, channel)
+      this.assertMountWritable(target, route)
       const outcome = await this.request<WireEditOutcome>(
         channel, 'fs.edit', { target: wireTargetOf(target), edit, expected }, signal,
       )
@@ -593,7 +620,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const target = channelTargetOf(
       runtime,
       bindSbxMount(spec, runtime).containerWorkspaceFolder,
-      sbxExtraMountsOf(spec).map(mount => mount.sandbox),
+      extraMountsOf(spec).map(mount => mount.sandbox),
     )
     const channel = this.containerInternals.channel
     if (channel !== undefined) return await channel(target)
@@ -756,7 +783,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   private remotePath(
     path: string, cwd: string | undefined, route: RemoteRoute, outside: OutsideMount = 'deny',
   ): string {
-    const mounts = sbxExtraMountsOf(route.spec)
+    const mounts = extraMountsOf(route.spec)
     const base = toContainerPath(cwd ?? this.config.cwd, route.spec, mounts)
     const absolute = isWindowsPath(path) || isPosixAbsolute(path)
       ? toContainerPath(path, route.spec, mounts)
@@ -773,7 +800,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
 
   /** Whether a HOST path lies at or under one of the host directories this session may see. */
   private insideHostRoots(hostPath: string, route: RemoteRoute): boolean {
-    const roots = [route.spec.hostWorkspaceRoot, ...sbxExtraMountsOf(route.spec).map(mount => mount.host)]
+    const roots = [route.spec.hostWorkspaceRoot, ...extraMountsOf(route.spec).map(mount => mount.host)]
     return roots.some(root => relativeWithinHostRoot(hostPath, root) !== undefined)
   }
 
@@ -832,6 +859,49 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   }
 
   /**
+   * Fence one read of a path the runtime mounted from the host.
+   *
+   * A Docker Sandbox keeps its extra paths read-only itself and this fence never
+   * sees them — `devcontainerMountsOf` answers nothing for `sbx` — so a session
+   * reads them as they are. A Dev Container's `--mount` form carries no read-only
+   * token, so there the mount is a plain bind and the only thing keeping the host's
+   * skills untouchable is this fence. A skills tree is therefore readable only as
+   * `<skill>/SKILL.md` and `<skill>/references/**`; a mounted file, such as either
+   * `AGENTS.md`, is readable as the file itself.
+   * @param target - the resolved target the read would open.
+   * @param route - the container route the read runs under.
+   * @throws FsError `FS_PERMISSION_DENIED` for a file under a skills tree that is neither.
+   */
+  private assertMountReadable(target: FsTarget, route: RemoteRoute): void {
+    const opened = String(target.targetKey)
+    const mounts = devcontainerMountsOf(route.spec)
+    if (hostMountReadAllowed(opened, mounts)) return
+    // The path is refused only below a skills tree, so it has a covering mount; it
+    // is looked up here just to name that mount in the diagnostic.
+    const mount = hostMountCovering(opened, mounts)
+    if (mount === undefined) return
+    throw new FsError(fsHostMountReadText(target.displayPath, mount.sandbox), 'FS_PERMISSION_DENIED')
+  }
+
+  /**
+   * Fence one mutation of a path the runtime mounted from the host.
+   *
+   * A sandbox mount is `:ro`, so the container refuses the write itself. A Dev
+   * Container's bind is read-write — the CLI's `--mount` form carries no read-only
+   * token — so this is what refuses a mutation made through `ctx.fs`, keeping the
+   * `AGENTS.md` and the skills a session was given to read as they are. A process
+   * inside the container still holds the writable bind.
+   * @param target - the resolved target the mutation would open.
+   * @param route - the container route the mutation runs under.
+   * @throws FsError `FS_PERMISSION_DENIED` for every target inside a mounted host path.
+   */
+  private assertMountWritable(target: FsTarget, route: RemoteRoute): void {
+    const mount = hostMountCovering(String(target.targetKey), devcontainerMountsOf(route.spec))
+    if (mount === undefined) return
+    throw new FsError(fsHostMountWriteText(target.displayPath, mount.sandbox), 'FS_PERMISSION_DENIED')
+  }
+
+  /**
    * Install the target-taking mutations this build's base class may not declare.
    *
    * An own property shadows the inherited method, so the wrapper is what every
@@ -871,6 +941,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       ]
       return await this.withChannel(route.spec, signal, async (channel) => {
         this.assertTargetInsideMount(target, route, channel)
+        this.assertMountWritable(target, route)
         const outcome = await this.request<WireEditOutcome>(
           channel, 'fs.patch', { target: wireTargetOf(target), hunks, expected }, signal,
         )
@@ -884,6 +955,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       ]
       return await this.withChannel(route.spec, signal, async (channel) => {
         this.assertTargetInsideMount(target, route, channel)
+        this.assertMountWritable(target, route)
         const outcome = await this.request<WireDeleteOutcome>(
           channel, 'fs.delete', { target: wireTargetOf(target), expected },
         )
@@ -908,6 +980,8 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     return await this.withChannel(route.spec, signal, async (channel) => {
       this.assertTargetInsideMount(source, route, channel)
       this.assertTargetInsideMount(destination, destinationRoute, channel)
+      this.assertMountWritable(source, route)
+      this.assertMountWritable(destination, destinationRoute)
       const outcome = await this.request<WireMoveOutcome>(
         channel, 'fs.move', { source: wireTargetOf(source), destination: wireTargetOf(destination), options },
       )
@@ -960,7 +1034,7 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
       this.refuseHostAccess(path)
       return { path, cwd }
     }
-    const mounts = sbxExtraMountsOf(repository)
+    const mounts = extraMountsOf(repository)
     return {
       path: toHostPath(path, repository, mounts),
       cwd: cwd === undefined ? undefined : toHostPath(cwd, repository, mounts),
@@ -979,7 +1053,13 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     const base = cwd ?? this.config.cwd
     const options = { ...this.options, cwd: base }
     const registry = repoRegistry(this.ctx)
-    const adopt = (spec: RepoContainerSpec): RepoContainerSpec => (kind === 'sbx' ? asSbxSpec(spec) : spec)
+    // The calling track decides where the workspace and the extra mounts sit: a
+    // sandbox mounts the host directory at a path of its own, while a Dev
+    // Container mounts it where the declaration says and takes the extra mounts
+    // from the Host row's plan, exactly as a created sandbox does.
+    const adopt = (spec: RepoContainerSpec): RepoContainerSpec => (kind === 'sbx'
+      ? asSbxSpec(spec)
+      : { ...spec, hostMounts: liveHostMountPlan(this.ctx) })
     if (!this.warmed) {
       // One walk of the configured directory, so a first call that already speaks
       // in container paths can still be attributed to its repository.
@@ -1051,11 +1131,12 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
   /**
    * Whether the fallback repository may claim one path.
    *
-   * A container path of that repository, a host path under its root, a host path
-   * one of its declared extra mounts covers, or a relative path that resolves —
-   * against the same base the fallback names — to somewhere inside it. Anything
-   * else is a host path the repository does not own: `..` traversal and absolute
-   * paths elsewhere on the machine included.
+   * A container path of that repository, a host path under its root, a container
+   * path inside one of its declared extra mounts, a host path such a mount
+   * covers, or a relative path that resolves — against the same base the fallback
+   * names — to somewhere inside it. Anything else is a host path the repository
+   * does not own: `..` traversal and absolute paths elsewhere on the machine
+   * included.
    * @param path - the path the call named.
    * @param base - the directory relative paths resolve against.
    * @param spec - the fallback repository specification.
@@ -1065,13 +1146,19 @@ export class DevcontainerFileSystem extends SandboxedFileSystem {
     if (isPathInsideContainer(path, spec)) return true
     if (relativeWithinHostRoot(path, spec.hostWorkspaceRoot) !== undefined) return true
     // The extra mounts this row declares are host paths the session may name, and
-    // they belong to the sandbox of the workspace that declares them — not to a
-    // sandbox invented around the mounted file itself.
-    if (sbxExtraMountsOf(spec).some(mount => relativeWithinHostRoot(path, mount.host) !== undefined)) return true
+    // they belong to the runtime of the workspace that declares them — not to a
+    // container invented around the mounted file itself. A Dev Container also knows
+    // the container path of each mount before any listing reports one, so that
+    // spelling is attributed here; a sandbox's mount spellings belong to
+    // `specForSandboxPath`, which asks the listing which sandbox reported them.
+    for (const mount of extraMountsOf(spec)) {
+      if (relativeWithinHostRoot(path, mount.host) !== undefined) return true
+      if (spec.cli !== 'sbx' && containerRemainder(path, mount.sandbox) !== undefined) return true
+    }
     if (isWindowsPath(path) || isPosixAbsolute(path)) return false
     // A relative path resolves against a host directory: the bind mount when the
     // base is container-side, the base itself otherwise.
-    const hostBase = toHostPath(base, spec, sbxExtraMountsOf(spec))
+    const hostBase = toHostPath(base, spec, extraMountsOf(spec))
     if (!isWindowsPath(hostBase) && !isPosixAbsolute(hostBase)) return true
     return relativeWithinHostRoot(joinHostRoot(hostBase, path), spec.hostWorkspaceRoot) !== undefined
   }

@@ -26,7 +26,7 @@ function endpointOf(target: ChannelTarget): string {
 function mountsOf(target: ChannelTarget): string {
   // A separator would let `['/a,/b']` and `['/a', '/b']` tokenise alike, so the list is
   // encoded rather than joined.
-  return target.kind === 'sbx' ? JSON.stringify(target.mounts ?? []) : '[]'
+  return JSON.stringify(target.mounts ?? [])
 }
 
 /** The pool key of one runtime endpoint and workspace. */
