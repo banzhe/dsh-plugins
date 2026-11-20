@@ -25,15 +25,31 @@ const HELPER = '/opt/dsh-helper/dsh-ssh-helper'
 const fixtures = mkdtempSync(join(tmpdir(), 'dsh-provision-spec-'))
 afterAll(() => { rmSync(fixtures, { recursive: true, force: true }) })
 
+/** How one tar header spells the payload size in its size field. */
+type SizeField = 'octal' | 'base256' | 'invalid'
+
+/** Write the 12-byte size field of one header in the requested encoding. */
+function writeSize(header: Buffer, size: number, field: SizeField): void {
+  if (field === 'octal') { header.write(size.toString(8).padStart(11, '0'), 124); return }
+  if (field === 'invalid') { header.write('zzzzzzzzzzz', 124, 'ascii'); return }
+  header.fill(0, 124, 136)
+  header[124] = 0x80
+  let rest = size
+  for (let index = 135; rest > 0 && index > 124; index -= 1) {
+    header[index] = rest % 256
+    rest = Math.floor(rest / 256)
+  }
+}
+
 /** One tar member: header, payload, and the block padding that follows it. */
-function tarMember(name: string, content: string, type = '0'): Buffer {
+function tarMember(name: string, content: string, type = '0', sizeField: SizeField = 'octal'): Buffer {
   const payload = Buffer.from(content, 'utf8')
   const header = Buffer.alloc(512)
   header.write(name, 0, 100, 'utf8')
   header.write('0000644', 100)
   header.write('0000000', 108)
   header.write('0000000', 116)
-  header.write(payload.length.toString(8).padStart(11, '0'), 124)
+  writeSize(header, payload.length, sizeField)
   header.write('00000000000', 136)
   header.write('        ', 148)
   header.write(type, 156, 'ascii')
@@ -51,6 +67,8 @@ interface ArchiveOptions {
   manifest?: unknown
   /** Write the manifest after the entry, so inspection has to skip the entry first. */
   entryFirst?: boolean
+  /** How every member header spells its payload size. */
+  sizeField?: SizeField
 }
 
 interface Fixture {
@@ -68,9 +86,10 @@ function writeArchive(name: string, options: ArchiveOptions = {}): Fixture {
     format: 1, version: '0.2.2', commit: 'a'.repeat(40), dirty: false, target: 'node24-linux-x64', protocol: 3, nodeVersion: 'v24.19.0',
     files: [{ path: 'dsh-ssh-helper', sha256: entryHash, mode: 0o755 }, { path: 'native/system/package.json', sha256: 'b'.repeat(64), mode: 0o644 }],
   }
-  const members = [tarMember('dsh-ssh-helper/', '', '5')]
-  const manifestMember = tarMember('dsh-ssh-helper/manifest.json', JSON.stringify(manifest))
-  const entryMember = tarMember('dsh-ssh-helper/dsh-ssh-helper', entry)
+  const sizeField = options.sizeField ?? 'octal'
+  const members = [tarMember('dsh-ssh-helper/', '', '5', sizeField)]
+  const manifestMember = tarMember('dsh-ssh-helper/manifest.json', JSON.stringify(manifest), '0', sizeField)
+  const entryMember = tarMember('dsh-ssh-helper/dsh-ssh-helper', entry, '0', sizeField)
   members.push(...options.entryFirst === true ? [entryMember, manifestMember] : [manifestMember, entryMember])
   members.push(Buffer.alloc(1024))
   const bytes = gzipSync(Buffer.concat(members))
@@ -350,6 +369,50 @@ describe('Host-pushed helper provisioning', () => {
     })
     await test.service.ready
     expect(test.provisioning).toHaveLength(1)
+  })
+
+  it('reports an archive that ends before the manifest it needs', async () => {
+    const path = join(fixtures, 'ends-early.tgz')
+    writeFileSync(path, gzipSync(tarMember('dsh-ssh-helper/', '', '5')))
+    const test = setup({ replies: [], config: { provision: { source: path } } })
+    await expect(test.service.ready).rejects.toThrow(/the archive ends before dsh-ssh-helper\/manifest\.json/u)
+    await expect(test.service.ready).rejects.toThrow(/ends-early\.tgz/u)
+    expect(transport.spawn).not.toHaveBeenCalled()
+  })
+
+  it('reports an archive that does not carry the manifest', async () => {
+    const path = join(fixtures, 'no-manifest.tgz')
+    writeFileSync(path, gzipSync(Buffer.concat([tarMember('dsh-ssh-helper/', '', '5'), Buffer.alloc(1024)])))
+    const test = setup({ replies: [], config: { provision: { source: path } } })
+    await expect(test.service.ready).rejects.toThrow(/the archive contains no dsh-ssh-helper\/manifest\.json/u)
+    expect(transport.spawn).not.toHaveBeenCalled()
+  })
+
+  it('reports a header section that is cut short', async () => {
+    const path = join(fixtures, 'short-header.tgz')
+    writeFileSync(path, gzipSync(tarMember('dsh-ssh-helper/', '', '5').subarray(0, 300)))
+    const test = setup({ replies: [], config: { provision: { source: path } } })
+    await expect(test.service.ready).rejects.toThrow(/the archive ends before dsh-ssh-helper\/manifest\.json/u)
+    expect(transport.spawn).not.toHaveBeenCalled()
+  })
+
+  it('reports a size field that is not octal', async () => {
+    const archive = writeArchive('bad-size.tgz', { sizeField: 'invalid' })
+    const test = setup({ replies: [], config: { provision: { source: archive.path } } })
+    await expect(test.service.ready).rejects.toThrow(/the archive header declares an invalid size: zzzzzzzzzzz/u)
+    expect(transport.spawn).not.toHaveBeenCalled()
+  })
+
+  it('installs an archive whose headers carry base-256 sizes', async () => {
+    const archive = writeArchive('base-256.tgz', { sizeField: 'base256' })
+    const test = setup({
+      replies: [{ stdout: `${archive.entryHash}  ${HELPER}\n` }],
+      config: { provision: { source: archive.path } },
+      hello: { protocol: 3, hash: archive.entryHash, platform: 'linux', nodeVersion: 'v24.19.0', kind: 'executable', executable: '/canonical/dsh-ssh-helper', root: '/tmp/remote-helper', workspace: '/canonical/workspace' },
+    })
+    await test.service.ready
+    expect(test.provisioning).toHaveLength(1)
+    expect(test.calls[0]?.method).toBe('hello')
   })
 })
 
