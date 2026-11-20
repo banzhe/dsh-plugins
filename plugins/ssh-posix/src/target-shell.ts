@@ -28,10 +28,10 @@ interface TargetLaunch {
 
 /**
  * Quote one path as a single `sh` word, preserving every character the remote shell would interpret.
- * @param value - the absolute remote path.
+ * @param value - an absolute path or one literal word for the remote shell.
  * @returns the quoted shell word.
  */
-function quote(value: string): string {
+export function shellWord(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`
 }
 
@@ -46,12 +46,12 @@ export function launchCommand(launch: HelperLaunch, helper: string): TargetLaunc
   switch (launch.kind) {
     case 'node-script':
       return {
-        command: [launch.node, '--disable-sigusr1', helper].map(quote).join(' '),
+        command: [launch.node, '--disable-sigusr1', helper].map(shellWord).join(' '),
         ...(launch.bootstrapPath === undefined ? {} : { bootstrapPath: launch.bootstrapPath }),
         ...(launch.bootstrapHash === undefined ? {} : { bootstrapHash: launch.bootstrapHash }),
       }
     case 'executable':
-      return { command: `NODE_OPTIONS='--disable-sigusr1' ${quote(helper)}` }
+      return { command: `NODE_OPTIONS='--disable-sigusr1' ${shellWord(helper)}` }
     /* v8 ignore next -- Config parsing admits only these two launch kinds. */
     default: return assertNever(launch)
   }

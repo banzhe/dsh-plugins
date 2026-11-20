@@ -1,7 +1,7 @@
 /** OpenSSH connection owner for one version-matched POSIX helper and its independent forwarded streams. */
 
 import { spawn, execFile, type ChildProcess, type ChildProcessWithoutNullStreams } from 'node:child_process'
-import { rm } from 'node:fs/promises'
+import { readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createConnection, type Socket } from 'node:net'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -14,6 +14,10 @@ import { helloSchema, type SshStreamEndpoint } from './schemas.ts'
 import { authenticateStream } from './stream-security.ts'
 import { LOOPBACK_HOST, createTemporaryDirectory, reserveLoopbackPort } from './local-endpoints.ts'
 import { launchCommand, type HelperLaunch } from './target-shell.ts'
+import {
+  cleanupScript, createPlacement, inspectProvisionArchive, installScript, MISSING_ENTRY_EXIT, NO_SHA256SUM_EXIT,
+  probeDigest, probeScript, receiveScript, type ProvisionPlan,
+} from './provision.ts'
 
 export type { HelperLaunch }
 
@@ -27,8 +31,13 @@ export interface Config {
   launch: HelperLaunch
   /** Absolute path to the installed, bundled helper entry. */
   helper: string
-  /** SHA-256 of that bundled helper; mismatches refuse the connection. */
-  helperHash: string
+  /** SHA-256 of that bundled helper; mismatches refuse the connection. Omit only with {@link provision}. */
+  helperHash?: string
+  /**
+   * Host-local release archive this connection installs before the helper starts: the client pushes it,
+   * verifies both digests, and links the extracted entry at {@link helper}.
+   */
+  provision?: { source: string }
   /** Absolute remote default workspace. */
   workspace: string
   /** Connection and administrative-request deadline, at most 2,147,483,647 milliseconds. */
@@ -39,6 +48,19 @@ export interface Config {
   maxPending?: number
   /** Remote helper lease; loss of heartbeats starts remote managed cleanup. */
   leaseMs?: number
+}
+
+/** Parsed configuration: every default applied, with the optional provisioning fields preserved. */
+type ResolvedConfig = Omit<Required<Config>, 'helperHash' | 'provision'> & Pick<Config, 'helperHash' | 'provision'>
+
+/** How one provisioning script ended on the remote host. */
+interface RemoteResult {
+  /** Remote exit status, or nothing when the client ended without one. */
+  exitCode: number | null
+  /** Bounded standard output. */
+  stdout: string
+  /** Bounded standard-error tail. */
+  stderr: string
 }
 
 /**
@@ -68,6 +90,13 @@ const LIVENESS_OPTIONS = ['-o', 'ServerAliveInterval=10', '-o', 'ServerAliveCoun
 declare module '@deepseek-ai/cordis' {
   interface Context { ssh: SshConnection }
 }
+
+/**
+ * Optional provisioning object. A nested object carries a `{}` default, so an absent `provision` would
+ * resolve to an empty object and report a missing source; clearing that default keeps absence absent.
+ */
+const provisionSchema = schema.object({ source: schema.string().required() })
+provisionSchema.meta = {}
 
 /** One per-stream SSH child: its forwarding listener, its failure, and how to stop it. */
 class StreamChild {
@@ -118,7 +147,8 @@ export class SshConnection extends Service {
       schema.object({ kind: schema.const('node-script').required(), node: schema.string().required(), bootstrapPath: schema.string(), bootstrapHash: schema.string() }),
       schema.object({ kind: schema.const('executable').required() }),
     ]).required(),
-    helperHash: schema.string().required(), workspace: schema.string().required(),
+    helperHash: schema.string(), workspace: schema.string().required(),
+    provision: provisionSchema,
     requestTimeoutMs: schema.number().default(30_000), maxFrameBytes: schema.number().default(64 * 1024 * 1024),
     maxPending: schema.number().default(128), leaseMs: schema.number().default(30_000),
   })
@@ -139,7 +169,7 @@ export class SshConnection extends Service {
   private streamChildren = new Set<StreamChild>()
   private forwarding: Forwarding = 'multiplexed'
   private nextSocket = 0
-  private readonly config: Required<Config>
+  private readonly config: ResolvedConfig
   private remote: Hello | undefined
 
   constructor(ctx: Context, config: Config) {
@@ -152,11 +182,19 @@ export class SshConnection extends Service {
         }).strict().refine(value => (value.bootstrapPath === undefined) === (value.bootstrapHash === undefined), 'bootstrapPath and bootstrapHash must be paired'),
         z.object({ kind: z.literal('executable') }).strict(),
       ]),
-      helper: z.string().startsWith('/'), helperHash: z.string().regex(/^[0-9a-f]{64}$/),
+      helper: z.string().startsWith('/'), helperHash: z.string().regex(/^[0-9a-f]{64}$/).optional(),
+      provision: z.object({ source: z.string().min(1) }).strict().optional(),
       workspace: z.string().startsWith('/'), requestTimeoutMs: z.number().int().positive().max(2_147_483_647),
       maxFrameBytes: z.number().int().positive().max(64 * 1024 * 1024), maxPending: z.number().int().positive().max(128),
       leaseMs: z.number().int().min(3000).max(600_000),
-    }).strict().parse(config) as Required<Config>
+    }).strict().superRefine((value, ctx) => {
+      if (value.helperHash === undefined && value.provision === undefined) {
+        ctx.addIssue({ code: 'custom', message: 'helperHash is required unless provision.source supplies the helper archive' })
+      }
+      if (value.provision !== undefined && value.launch.kind !== 'executable') {
+        ctx.addIssue({ code: 'custom', message: "provision requires launch.kind 'executable'; a release archive is a self-contained executable" })
+      }
+    }).parse(config) as ResolvedConfig
     this.ready = this.start()
     // Startup uses Node I/O, local validation, and Error-valued RPC failures.
     void this.ready.catch((error: unknown) => { this.fail(error as Error) })
@@ -397,9 +435,11 @@ export class SshConnection extends Service {
   }
 
   private async start(): Promise<Hello> {
+    const provision = await this.resolveProvision()
     this.forwarding = (await this.probeClient()) ? 'multiplexed' : 'per-stream'
     if (this.forwarding === 'multiplexed') this.directory = await createTemporaryDirectory()
     if (this.closed) throw new Error('SSH connection closed before startup')
+    if (provision.plan !== undefined) await this.installProvision(provision.plan)
     const launch = launchCommand(this.config.launch, this.config.helper)
     const child = spawn('ssh', [
       '-T',
@@ -418,7 +458,7 @@ export class SshConnection extends Service {
       protocol: SSH_PROTOCOL_VERSION, workspace: this.config.workspace, leaseMs: this.config.leaseMs,
       ...(launch.bootstrapPath === undefined ? {} : { bootstrapPath: launch.bootstrapPath }),
     }, helloSchema, AbortSignal.timeout(this.config.requestTimeoutMs))
-    if (hello.hash !== this.config.helperHash) throw new Error('SSH helper digest differs from the configured artifact')
+    if (hello.hash !== provision.expectedHash) throw new Error('SSH helper digest differs from the configured artifact')
     if (hello.kind !== this.config.launch.kind) throw new Error('SSH helper runtime differs from the configured launch kind')
     if (hello.bootstrapHash !== launch.bootstrapHash) throw new Error('SSH PTC bootstrap digest differs from the configured artifact')
     this.remote = hello
@@ -430,6 +470,95 @@ export class SshConnection extends Service {
     }, Math.floor(this.config.leaseMs / 3))
     this.heartbeat.unref()
     return hello
+  }
+
+  /**
+   * Read the configured archive and resolve the entry digest every launch must report.
+   * @returns the expected digest, and the archive to install when provisioning is configured.
+   */
+  private async resolveProvision(): Promise<{ expectedHash: string; plan?: ProvisionPlan }> {
+    const provision = this.config.provision
+    const declared = this.config.helperHash
+    if (provision === undefined) {
+      /* v8 ignore next -- Config parsing requires helperHash when provision is absent. */
+      if (declared === undefined) throw new Error('SSH helper digest is not configured')
+      return { expectedHash: declared }
+    }
+    const plan = await inspectProvisionArchive(provision.source)
+    if (declared !== undefined && declared !== plan.entryHash) {
+      throw new Error(`helperHash ${declared} differs from the entry digest ${plan.entryHash} that ${provision.source} declares`)
+    }
+    return { expectedHash: plan.entryHash, plan }
+  }
+
+  /**
+   * Install the archive when the remote entry is absent or differs from the digest its manifest declares.
+   * @param plan - archive to install, with both digests its installation checks.
+   */
+  private async installProvision(plan: ProvisionPlan): Promise<void> {
+    const probe = await this.remoteScript(probeScript(this.config.helper))
+    if (probe.exitCode === NO_SHA256SUM_EXIT) {
+      throw new Error(`SSH helper provisioning requires sha256sum on the remote host (${remoteDetail(probe)})`)
+    }
+    if (probe.exitCode !== 0 && probe.exitCode !== MISSING_ENTRY_EXIT) {
+      throw new Error(`SSH helper provisioning cannot read the installed helper ${this.config.helper} (${remoteDetail(probe)})`)
+    }
+    if (probe.exitCode === 0 && probeDigest(probe.stdout) === plan.entryHash) return
+    const placement = createPlacement(this.config.helper, plan.entryHash)
+    try {
+      const received = await this.remoteScript(receiveScript(placement), await readFile(plan.source))
+      if (received.exitCode !== 0) {
+        throw new Error(`SSH helper provisioning could not transfer ${plan.source} to ${placement.archive} (${remoteDetail(received)})`)
+      }
+      const installed = await this.remoteScript(installScript(placement, plan.archiveHash))
+      if (installed.exitCode !== 0) {
+        throw new Error(`SSH helper provisioning could not install ${plan.source} at ${this.config.helper} (${remoteDetail(installed)})`)
+      }
+    } catch (error) {
+      // The installation failure is the reportable one; residue removal is best effort and never replaces it.
+      await this.remoteScript(cleanupScript(placement)).catch(() => {})
+      throw error
+    }
+  }
+
+  /**
+   * Run one provisioning script on the remote host, through the same client options as the helper.
+   * @param script - POSIX shell script for the remote shell.
+   * @param input - bytes for the script's standard input, when the script receives a transfer.
+   * @returns how the script ended and what it printed.
+   */
+  private async remoteScript(script: string, input?: Buffer): Promise<RemoteResult> {
+    const bounded = AbortSignal.any([this.lifetime.signal, AbortSignal.timeout(this.config.requestTimeoutMs)])
+    bounded.throwIfAborted()
+    return await new Promise((resolve, reject) => {
+      const child = spawn('ssh', [
+        '-T', ...CLIENT_OPTIONS, '-o', 'ClearAllForwardings=yes', ...LIVENESS_OPTIONS, this.config.host, script,
+      ], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
+      let stdout = ''
+      let stderr = ''
+      let settled = false
+      const settle = (): boolean => {
+        if (settled) return false
+        settled = true
+        bounded.removeEventListener('abort', aborted)
+        return true
+      }
+      const aborted = (): void => {
+        child.kill('SIGKILL')
+        if (settle()) reject(bounded.reason instanceof Error ? bounded.reason : new Error('SSH helper provisioning was cancelled'))
+      }
+      // The remote script may exit before reading its input; its exit status carries that failure.
+      child.stdin.on('error', () => {})
+      child.stdout.setEncoding('utf8')
+      child.stdout.on('data', (chunk: string) => { stdout = `${stdout}${chunk}`.slice(0, PROBE_MAX_BYTES) })
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', (chunk: string) => { stderr = `${stderr}${chunk}`.slice(-STDERR_TAIL_BYTES) })
+      child.once('error', (error: Error) => { if (settle()) reject(error) })
+      child.once('close', (code: number | null) => { if (settle()) resolve({ exitCode: code, stdout, stderr }) })
+      bounded.addEventListener('abort', aborted, { once: true })
+      if (input === undefined) child.stdin.end()
+      else child.stdin.end(input)
+    })
   }
 
   /** Identify the local client, reporting a connection that closed during startup as such. */
@@ -495,6 +624,17 @@ function awaitConnection(socket: Socket, signal: AbortSignal): Promise<void> {
     socket.once('close', closed)
     signal.addEventListener('abort', aborted, { once: true })
   })
+}
+
+/**
+ * Describe how one provisioning script ended, with its bounded standard-error tail.
+ * @param result - the remote result to describe.
+ * @returns the exit status, and what the remote shell reported.
+ */
+function remoteDetail(result: RemoteResult): string {
+  const status = result.exitCode === null ? 'no exit status' : `exit code ${result.exitCode}`
+  const tail = result.stderr.trim()
+  return tail === '' ? status : `${status}: ${tail}`
 }
 
 /** Whether a failed connection attempt only means the forwarding listener is not bound yet. */

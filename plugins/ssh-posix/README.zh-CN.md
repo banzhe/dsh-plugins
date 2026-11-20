@@ -17,6 +17,7 @@
 - **两种转发方式，由探测决定。** POSIX 宿主且客户端是 OpenSSH 时保留官方方式：一个 OpenSSH master 复用管理通道并用 `-O forward` 管理 Unix socket。其余情况——Windows 一律如此，POSIX 宿主上未识别为 OpenSSH 的客户端也一样——为每条流单独开一个长期存活的 `ssh -L` 子进程，绑定回环端口，因为 Win32-OpenSSH 的复用与 Unix socket 转发未经验证。
 - **临时文件放在平台临时目录**而不是 `/tmp`，控制 socket 与转发 socket 落在宿主的临时文件位置。
 - **一层「远程专用」profile 补丁。** 包内补丁用三行 SSH provider 替换本地 provider 行，并启用 POSIX shell 工具：加载后文件、进程与沙箱全部改为寻址 SSH 主机。请放进专门的 profile——它不是叠加式的。Web UI 是例外：工作区视图仍假定本机文件系统，替换 provider 并不会让这些视图认识远端。
+- **helper 由宿主推送安装。** 设置 `provision.source` 指向 release 归档后，连接自己负责安装 helper：读出归档 manifest 声明的入口摘要，用一条自己的 SSH 命令在远端 `sha256sum` 探测入口，只有在入口缺失或摘要不符时才推送归档——远端重新校验收到的字节，解压到入口旁以摘要命名的目录，再用一条同目录符号链接原子换到配置路径上。入口摘要已匹配时一个字节都不传。不配 `provision` 则一切照旧：helper 必须已预装，且必须声明 `helperHash`。
 - **远端启动命令按真正的解析 shell 加引号。** 辅助程序启动命令（含 `--disable-sigusr1` 保护与 PTC bootstrap）由 target-shell 策略生成；POSIX 命令与官方逐字节一致。
 
 ## 安装
@@ -37,7 +38,7 @@ pnpm --filter @banzhe/dsh-ssh-posix build
 dsh plugin --profile <name> add ./plugins/ssh-posix
 ```
 
-两条路径都需要连接自身的配置：`host` 别名（连同既有的用户、密钥与 known_hosts 条目）、`launch`、`helper`、`helperHash`、`workspace`。这些值写进 profile 自己的补丁，并且要把远端工作区写两处——一处给连接，一处给包内补丁留作占位符的写入根：
+两条路径都需要连接自身的配置：`host` 别名（连同既有的用户、密钥与 known_hosts 条目）、`launch`、`helper`、`workspace`，以及 helper 摘要——用 `helperHash` 声明，或交给 `provision.source` 安装并推导。这些值写进 profile 自己的补丁，并且要把远端工作区写两处——一处给连接，一处给包内补丁留作占位符的写入根：
 
 ```yaml
 - id: ssh-posix
@@ -53,6 +54,8 @@ dsh plugin --profile <name> add ./plugins/ssh-posix
     mode: workspace-write
     workspaceRoot: /home/deploy/project
 ```
+
+若要从 release 归档自动安装 helper，把 `helperHash` 换成 `provision.source`（指向归档的宿主本地绝对路径）；若仍显式声明 `helperHash`，它必须等于归档 manifest 列出的入口摘要，否则 profile 加载失败。推送安装要求远端有 `sha256sum`、`tar` 与符号链接支持，且 `helper` 的父目录可写；它只与 `launch: { kind: executable }` 搭配。
 
 `config.workspace` 与 `workspaceRoot` 必须保持一致：前者是辅助程序的默认工作区，后者是沙箱策略授予的写入根。字段清单与远端主机的前置条件见实现说明。加载后需重启该 profile；之后改源码要重新构建 `lib/`。
 
