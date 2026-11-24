@@ -15,11 +15,12 @@
  * this Workspace" and "show what is under it" separate gestures.
  */
 import type { ReactNode, RefObject } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  Button, IconCheckOutlineRegular, IconFolderCloseRegular, IconPlusOutlineRegular,
-  IconTriangleRightFillRegular, Menu, MenuItemButton, Modal, type MenuEntry,
+  Button, IconCheckOutlineRegular, IconCloseFillRegular, IconFolderCloseRegular,
+  IconPlusOutlineRegular, IconSearchOutlineRegular, IconTriangleRightFillRegular, Menu,
+  MenuItemButton, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {
   WorkspaceId, WorkspaceSnapshot, WorkspaceView,
@@ -64,7 +65,7 @@ interface PickRow extends PickListRow {
  */
 function nestPickRows(
   listed: readonly PickListRow[],
-  expansion: Readonly<Record<string, boolean>>,
+  expansion: Readonly<Record<string, boolean>> = {},
 ): readonly PickRow[] {
   // Same ancestor rule as the sidebar: the nearest registered path that
   // contains this one. A parent is always a strict path prefix, so walking
@@ -156,6 +157,13 @@ export function WorkspacePickFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
+  // The picker's own search text: local to this menu, never persisted, and not
+  // the sidebar's search state.
+  const [query, setQuery] = useState('')
+  const searchInput = useRef<HTMLInputElement | null>(null)
+  // Read by the Escape listener, which must not re-arm on every keystroke.
+  const queryRef = useRef('')
+  queryRef.current = query
   // One picking interaction at a time: while the flow is open (native chooser
   // pending, browse dialog up) or its pick is being adopted, every other
   // menu action stays disabled — a late outcome must not race a concurrent
@@ -188,7 +196,8 @@ export function WorkspacePickFlow({
   // The expansion the sidebar's tree writes: one record, one set of keys, so
   // folding a Workspace here folds the same Workspace there.
   const groupExpansion = useStore(state => state.groupExpansion)
-  const listed = useMemo(() => {
+  // The registry's listed Workspaces in registry order, before nesting.
+  const pickList = useMemo(() => {
     if (!pinAdd) return []
     const rows = workspaces.map(workspace => ({
       id: workspace.workspaceId,
@@ -196,18 +205,39 @@ export function WorkspacePickFlow({
       path: workspace.path,
     }))
     const suffixes = distinguishingPathSuffixes(rows)
-    return nestPickRows(
-      rows.map(row => ({ ...row, suffix: suffixes.get(row.id) })),
-      groupExpansion,
-    )
-  }, [pinAdd, workspaces, defaultWorkspaceName, groupExpansion])
+    return rows.map(row => ({ ...row, suffix: suffixes.get(row.id) }))
+  }, [pinAdd, workspaces, defaultWorkspaceName])
+  const needle = query.trim().toLowerCase()
+  // A search keeps the rows whose path or title contains the query plus the
+  // ancestors that lead to them — the nesting only reads if the parent is
+  // still there — and unfolds all of them, so a match deep inside a folded
+  // Workspace is never hidden behind a fold the search did not set.
+  const listed = useMemo(() => {
+    if (needle === '') return nestPickRows(pickList, groupExpansion)
+    const paths = pickList.map(row => row.path)
+    const kept = new Set<string>()
+    for (const row of pickList) {
+      if (!row.path.toLowerCase().includes(needle) && !row.title.toLowerCase().includes(needle)) continue
+      let path: string | undefined = row.path
+      while (path !== undefined && !kept.has(path)) {
+        kept.add(path)
+        path = owningParentFolder(path, paths)
+      }
+    }
+    // No expansion record: a missing entry already reads as expanded, which
+    // is what a match under a folded ancestor needs.
+    return nestPickRows(pickList.filter(row => kept.has(row.path)))
+  }, [pickList, groupExpansion, needle])
   // Listed Workspaces are nested rows of their own; the only data row left is
   // the add action, which either pins below the list or IS the menu.
   const items: MenuEntry[] = pinAdd ? [] : addEntries
   // Nothing listed and nothing to add with (a composition that mounts this
   // package without any directory-picker): an empty popover would claim a
   // choice that does not exist, so the anchor gesture shows nothing at all.
-  const menuIsEmpty = items.length === 0 && listed.length === 0
+  // Reads the unfiltered list: a search that matches nothing keeps the menu up
+  // with its own "no matches" line instead of closing the popover under the
+  // field the user is still typing in.
+  const menuIsEmpty = items.length === 0 && pickList.length === 0
 
   const closeModal = (): void => {
     setErrorOpen(false)
@@ -248,6 +278,63 @@ export function WorkspacePickFlow({
     if (open && addIsTheOnlyEntry && !flowBusy) openDirectoryFlow()
   }, [open, addIsTheOnlyEntry, flowBusy, openDirectoryFlow])
 
+  // The popover the owner asked for, with nothing in it to show.
+  const menuOpen = open && !addIsTheOnlyEntry && !menuIsEmpty
+
+  // The menu opens on its search field, so narrowing the list needs no click.
+  // A callback ref rather than an effect: the field mounts inside the menu's
+  // portal after the open render, and this focus lands exactly when it does.
+  const focusSearch = useCallback((node: HTMLInputElement | null): void => {
+    searchInput.current = node
+    if (node !== null && open) node.focus()
+  }, [open])
+
+  // The card hangs from the anchor's bottom edge but is as tall as its content,
+  // and CSS cannot clamp that to the room left under the anchor — anchor() is an
+  // inset-only function, so the card overflowed a short window and got pushed up
+  // over the chip. Publish the measured room on the card itself instead (the
+  // placement class is ours; the primitive hands out no card ref), for a
+  // downward menu only, and let its max-height read it (see .openBelow).
+  useLayoutEffect(() => {
+    if (!menuOpen || side !== 'bottom') return
+    const anchor = anchorRef?.current
+    const card = document.querySelector<HTMLElement>(`.${css.openBelow}`)
+    if (anchor === null || anchor === undefined || card === null) return
+    const publish = (): void => {
+      const room = window.innerHeight - anchor.getBoundingClientRect().bottom
+      card.style.setProperty('--dsh-picker-menu-room', `${room}px`)
+    }
+    publish()
+    window.addEventListener('resize', publish)
+    // Capture: a hero scroller moves the chip without a window scroll.
+    window.addEventListener('scroll', publish, true)
+    return () => {
+      window.removeEventListener('resize', publish)
+      window.removeEventListener('scroll', publish, true)
+      card.style.removeProperty('--dsh-picker-menu-room')
+    }
+  }, [menuOpen, side, anchorRef, css.openBelow])
+
+  // Escape closes the menu from a capture-phase listener on the document, so a
+  // handler on the field would run after the popover is already gone; clearing
+  // a query first needs the event marked handled from above that listener.
+  useEffect(() => {
+    if (!open) return
+    const clearOnEscape = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.isComposing) return
+      if (event.ctrlKey || event.altKey || event.metaKey) return
+      const box = searchInput.current
+      if (box === null || queryRef.current === '') return
+      // Only the search field's own Escape: any other control in the menu
+      // keeps the menu's own close.
+      if (!(event.target instanceof Node) || !box.contains(event.target)) return
+      event.preventDefault()
+      setQuery('')
+    }
+    window.addEventListener('keydown', clearOnEscape, true)
+    return () => { window.removeEventListener('keydown', clearOnEscape, true) }
+  }, [open])
+
   /** Owner side of the flow conversation: adopt keeps the flow open (busy) until the Host answers. */
   const flowOwner: DirectoryFlowOwnerProps = {
     open: flowOpen,
@@ -275,7 +362,7 @@ export function WorkspacePickFlow({
   return (
     <>
       <Menu
-        open={open && !addIsTheOnlyEntry && !menuIsEmpty}
+        open={menuOpen}
         anchor={null}
         items={items}
         {...pinAdd ? { footer: addEntries } : {}}
@@ -283,54 +370,94 @@ export function WorkspacePickFlow({
         onClose={onClose}
         side={side}
         portal
+        minWidthFromAnchor
+        // Below the anchor the card hangs from its bottom edge and never flips
+        // above it: filtering only shortens the list, and a flip would strand
+        // the shrunken card at the top of the window. Other directions (the
+        // sidebar's right-hand picker) keep the primitive's own placement.
+        listClassName={side === 'bottom' ? css.openBelow : undefined}
         anchorRef={anchorRef ?? absentAnchor}
       >
-        {listed.map(row => (
-          // One nested Workspace: the disclosure is a button of its own beside
-          // the row, so folding never selects and selecting never folds.
-          <div key={row.id} className={css.treeRow} style={{ paddingLeft: row.depth * INDENT_STEP_PX }}>
-            {row.hasChildren
-              ? (
+        {pinAdd && (
+          <div className={css.searchBar}>
+            <IconSearchOutlineRegular className={css.searchIcon} size={14} />
+            <input
+              ref={focusSearch}
+              className={css.searchInput}
+              type="text"
+              role="searchbox"
+              aria-label={t('picker.search.aria')}
+              placeholder={t('picker.search.placeholder')}
+              value={query}
+              onChange={(event) => { setQuery(event.target.value) }}
+            />
+            {query !== ''
+              && (
                 <button
                   type="button"
-                  role="menuitem"
-                  className={css.disclosure}
-                  aria-expanded={row.expanded}
-                  aria-label={t(row.expanded ? 'group.collapse' : 'group.expand', { name: row.title })}
-                  onClick={() => { setGroupExpanded(row.id, !row.expanded) }}
+                  className={css.searchClear}
+                  aria-label={t('search.clear')}
+                  onClick={() => {
+                    setQuery('')
+                    searchInput.current?.focus()
+                  }}
                 >
-                  <IconTriangleRightFillRegular size={14} className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+                  <IconCloseFillRegular />
                 </button>
-              )
-              : <span className={css.disclosureSpacer} aria-hidden="true" />}
-            <div className={css.rowBody}>
-              <MenuItemButton
-                icon={<IconFolderCloseRegular size={16} />}
-                current={row.id === selectedId}
-                disabled={flowBusy}
-                onSelect={() => { handleSelect(row.id) }}
-              >
-                <span className={css.rowLine}>
-                  {/* The title gives way first, so the suffix that tells the
-                    * rows apart stays visible; the native tooltip carries the
-                    * full path. */}
-                  {row.suffix === undefined
-                    ? <span className={css.title}>{row.title}</span>
-                    : (
-                      <span className={css.disambiguated} title={row.path}>
-                        <span className={css.title}>{row.title}</span>
-                        {' '}
-                        <span className={css.pathSuffix}>{row.suffix}</span>
-                      </span>
-                    )}
-                  {row.id === selectedId && <IconCheckOutlineRegular className={css.check} aria-hidden="true" />}
-                </span>
-              </MenuItemButton>
-            </div>
+              )}
           </div>
-        ))}
+        )}
+        <div className={css.treeList} data-testid="workspace-picker-tree">
+          {listed.map(row => (
+            // One nested Workspace: the disclosure is a button of its own beside
+            // the row, so folding never selects and selecting never folds. A
+            // search drops it: every kept row is unfolded, and an arrow here
+            // would write the sidebar's shared expansion from a filtered view.
+            <div key={row.id} className={css.treeRow} style={{ paddingLeft: row.depth * INDENT_STEP_PX }}>
+              {needle === '' && row.hasChildren
+                ? (
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className={css.disclosure}
+                    aria-expanded={row.expanded}
+                    aria-label={t(row.expanded ? 'group.collapse' : 'group.expand', { name: row.title })}
+                    onClick={() => { setGroupExpanded(row.id, !row.expanded) }}
+                  >
+                    <IconTriangleRightFillRegular size={14} className={clsx(css.arrow, row.expanded && css.arrowOpen)} />
+                  </button>
+                )
+                : <span className={css.disclosureSpacer} aria-hidden="true" />}
+              <div className={css.rowBody}>
+                <MenuItemButton
+                  icon={<IconFolderCloseRegular size={16} />}
+                  current={row.id === selectedId}
+                  disabled={flowBusy}
+                  onSelect={() => { handleSelect(row.id) }}
+                >
+                  <span className={css.rowLine}>
+                    {/* The title gives way first, so the suffix that tells the
+                      * rows apart stays visible; the native tooltip carries the
+                      * full path. */}
+                    {row.suffix === undefined
+                      ? <span className={css.title}>{row.title}</span>
+                      : (
+                        <span className={css.disambiguated} title={row.path}>
+                          <span className={css.title}>{row.title}</span>
+                          {' '}
+                          <span className={css.pathSuffix}>{row.suffix}</span>
+                        </span>
+                      )}
+                    {row.id === selectedId && <IconCheckOutlineRegular className={css.check} aria-hidden="true" />}
+                  </span>
+                </MenuItemButton>
+              </div>
+            </div>
+          ))}
+          {needle !== '' && listed.length === 0 && <div className={css.noMatches} role="status">{t('picker.noMatches')}</div>}
+        </div>
       </Menu>
-      {open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
+      {menuOpen && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
       {renderDirectoryFlow(flowOwner)}
       <Modal
         open={errorOpen}

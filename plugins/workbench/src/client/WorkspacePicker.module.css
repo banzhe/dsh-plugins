@@ -100,3 +100,123 @@
   width: 14px;
   height: 14px;
 }
+
+/* Search above the tree: the sidebar's expanded search as a menu field — same
+ * 32px pill, hairline border and 13px input. The fill is opaque so the rows
+ * scrolling inside the tree's own scroller never show through the bar. */
+.searchBar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin: 4px 4px 6px;
+  padding: 0 4px 0 0;
+  box-sizing: border-box;
+  border: 0.5px solid var(--dsw-alias-border-l4);
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-caption);
+}
+
+.searchIcon {
+  flex: none;
+  margin: 0 6px 0 8px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchInput {
+  flex: 1;
+  width: 0;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-primary);
+}
+
+.searchInput::placeholder {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.searchClear {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.searchClear:focus-visible {
+  outline: var(--dsw-focus-ring-width) solid var(--dsw-focus-ring-color, var(--dsw-alias-state-business-primary));
+  outline-offset: -2px;
+}
+
+@media (hover: hover) {
+  .searchClear:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+/* Opens below the anchor and stays there. The primitive's card carries a
+ * candidate list that flips it above the anchor when it stops fitting, and a
+ * filtering card only ever gets shorter — so the flip stranded the whole
+ * popover, search field included, at the top of the window. The card now hangs
+ * from the anchor's bottom edge and never grows past the room left below it,
+ * so it gives space back at its bottom edge as the tree shrinks. That room is
+ * measured by the flow and published here (anchor() is an inset-only function,
+ * so it cannot size this card); the 16px is the 4px gap below the anchor plus
+ * the card's 12px window margin, and the fallback is the viewport. The
+ * candidate list sits on the same single-class node, and the doubled class
+ * keeps these rules in front wherever the stylesheets land in the bundle. */
+.openBelow.openBelow {
+  position-try-fallbacks: none;
+  max-height: calc(var(--dsh-picker-menu-room, 100dvh) - 16px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* The row viewport is the box that directly wraps the tree — not whichever
+ * node happens to come first, which is the surface's decorative material layer.
+ * It stops scrolling itself, so its auto overflow cannot carry the search field
+ * away with the rows, and hands whatever height is left to the tree. */
+.openBelow.openBelow *:has(> .treeList) {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Inside that column the tree takes the shrinking and the scrolling (.treeList
+ * keeps its 320px cap and its scroller), so the search field above it and the
+ * pinned add row below it stay put. */
+.openBelow.openBelow .treeList {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The tree's own scroller: a long registry scrolls here instead of stretching
+ * the menu past what a picker should cover. */
+.treeList {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* A search that matches no Workspace: the menu stays up, the field stays
+ * usable, and the tree says why it is empty. */
+.noMatches {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--dsw-alias-label-tertiary);
+}

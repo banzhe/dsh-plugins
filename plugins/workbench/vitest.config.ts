@@ -35,6 +35,10 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.spec.ts', 'tests/**/*.spec.tsx'],
     pool: 'forks',
+    // Specs read a couple of layout hooks off their class names (the picker's
+    // tree scroller and the menu's placement class); without this a CSS module
+    // import resolves to no class names at all.
+    css: true,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts', 'src/**/*.tsx'],

@@ -68,6 +68,8 @@ export const IconUnarchiveOutlineRegular = icon('unarchive')
 export const IconFolderCloseRegular = icon('folder-closed')
 export const IconFolderOpenRegular = icon('folder-open')
 export const IconNewChatOutlineRegular = icon('new-chat')
+export const IconSearchOutlineRegular = icon('search')
+export const IconCloseFillRegular = icon('close-filled')
 
 /** The shipped button, reduced to a native button carrying the caller's own props. */
 type ButtonProps = ComponentPropsWithoutRef<'button'> & {
@@ -106,16 +108,19 @@ export type MenuEntry = {
 
 /**
  * The shipped menu, reduced to what a spec reads off it: closed draws nothing,
- * open draws a `role="menu"` holding `items`, then `children`, then `footer`.
- * The entry whose id matches `selectedId` reports `aria-current`, which is how
- * the real primitive marks the current entry.
+ * open draws a `role="menu"` holding `items`, then `children`, then `footer`,
+ * and carrying the caller's `listClassName` on that same node the way the real
+ * card does. The entry whose id matches `selectedId` reports `aria-current`,
+ * which is how the real primitive marks the current entry.
  */
-export function Menu({ open, items, footer, children, onSelect, selectedId }: {
+export function Menu({ open, items, footer, children, onSelect, selectedId, listClassName }: {
   readonly open: boolean
   readonly anchor?: ReactNode
   readonly anchorRef?: unknown
   readonly portal?: boolean
   readonly side?: 'bottom' | 'top' | 'right'
+  readonly minWidthFromAnchor?: boolean
+  readonly listClassName?: string
   readonly selectedId?: string
   readonly items?: readonly MenuEntry[]
   readonly footer?: readonly MenuEntry[]
@@ -138,7 +143,7 @@ export function Menu({ open, items, footer, children, onSelect, selectedId }: {
     </button>
   )
   return (
-    <div role="menu">
+    <div role="menu" className={listClassName}>
       {(items ?? []).map(entry)}
       {children}
       {(footer ?? []).map(entry)}

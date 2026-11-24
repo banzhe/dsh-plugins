@@ -10,6 +10,7 @@ import { act, createElement, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { WorkspacePickFlow, type WorkspacePickFlowProps } from '../src/client/WorkspacePicker.tsx'
+import pickerCss from '../src/client/WorkspacePicker.module.css'
 
 /** One registered workspace, reduced to the fields the overlay lists. */
 type View = { readonly workspaceId: string; readonly title: string | null; readonly path: string }
@@ -63,6 +64,10 @@ type Picker = {
 function mountPicker(options: MountOptions = {}): Picker {
   const host = document.createElement('div')
   document.body.append(host)
+  // The owner's chip: the menu hangs from it and measures the room under it.
+  const anchor = document.createElement('button')
+  anchor.textContent = 'workspace'
+  document.body.append(anchor)
   const root = createRoot(host)
   roots.push(root)
 
@@ -87,6 +92,7 @@ function mountPicker(options: MountOptions = {}): Picker {
       open: true,
       useWorkspaces: (selector: (state: typeof snapshot) => unknown) => selector(snapshot),
       createWorkspace: async (input: { path: string }) => view('created', input.path, 'Created'),
+      anchorRef: { current: anchor },
       useDirectoryFlow: (selector: (occupied: boolean) => unknown) => selector(true),
       renderDirectoryFlow: (owner: DirectoryOwner): ReactNode => {
         dirOwners.push({ open: owner.open, busy: owner.busy })
@@ -166,6 +172,44 @@ function arrowOf(title: string): HTMLElement | undefined {
 
 function click(element: HTMLElement): void {
   act(() => { element.click() })
+}
+
+/** The picker's always-open search field. */
+function searchBox(): HTMLInputElement {
+  const box = document.querySelector<HTMLInputElement>('[role="searchbox"]')
+  if (box === null) throw new Error('the picker draws no search box')
+  return box
+}
+
+/** The tree seat the picker's rows are drawn in. */
+function treeList(): HTMLElement {
+  const tree = document.querySelector<HTMLElement>('[data-testid="workspace-picker-tree"]')
+  if (tree === null) throw new Error('the picker draws no tree list')
+  return tree
+}
+
+/** Type a query the way a keystroke does: set the value, then fire the change. */
+function search(query: string): void {
+  const box = searchBox()
+  act(() => {
+    // React reads the DOM value through its own tracker, which a plain
+    // assignment updates without reporting a change.
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+    descriptor?.set?.call(box, query)
+    box.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+}
+
+/** Press a key on the picker's search field. */
+function pressEscape(): KeyboardEvent {
+  const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => { searchBox().dispatchEvent(event) })
+  return event
+}
+
+/** The picker's clear button, present only while the field holds text. */
+function clearButton(): HTMLElement | null {
+  return document.querySelector<HTMLElement>('[aria-label="search.clear"]')
 }
 
 describe('Workspace picker', () => {
@@ -350,6 +394,149 @@ describe('Workspace picker', () => {
       mountPicker({ items: NESTED, addOnly: true })
 
       expect(listed(NESTED_TITLES)).toEqual([])
+    })
+  })
+
+  describe('search', () => {
+    it('opens on a search field above a tree list that holds the rows', () => {
+      mountPicker({ items: NESTED })
+
+      const box = searchBox()
+      expect(box.tagName).toBe('INPUT')
+      expect(box.getAttribute('type')).toBe('text')
+      expect(box.getAttribute('aria-label')).toBe('picker.search.aria')
+      expect(box.getAttribute('placeholder')).toBe('picker.search.placeholder')
+      expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(1)
+
+      const tree = treeList()
+      expect(tree.contains(box)).toBe(false)
+      for (const title of NESTED_TITLES) expect(tree.contains(itemFor(title))).toBe(true)
+      expect(clearButton()).toBeNull()
+    })
+
+    it('opens below its anchor and keeps the search field outside the tree scroller', () => {
+      mountPicker({ items: NESTED })
+
+      // The placement class reaches the card the primitive positions, which is
+      // what pins it under the chip instead of letting it flip above once a
+      // query shortens the list.
+      const menu = document.querySelector<HTMLElement>('[role="menu"]')
+      expect(menu).not.toBeNull()
+      expect(menu?.className).toContain(pickerCss.openBelow)
+      // The card caps itself with the room measured under the chip (jsdom has
+      // no layout, so the anchor's bottom edge is 0 and the window is 768); the
+      // measurement belongs to this card, not to the document.
+      expect(menu?.style.getPropertyValue('--dsh-picker-menu-room')).toBe('768px')
+      expect(document.documentElement.style.getPropertyValue('--dsh-picker-menu-room')).toBe('')
+
+      const tree = treeList()
+      expect(tree.className).toContain(pickerCss.treeList)
+      expect(tree.contains(searchBox())).toBe(false)
+      expect(tree.contains(itemFor('Delta'))).toBe(true)
+    })
+
+    it('draws no search field when the add action is the only entry', () => {
+      mountPicker({ items: NESTED, addOnly: true })
+
+      expect(document.querySelector('[role="searchbox"]')).toBeNull()
+    })
+
+    it('narrows to the matching rows plus the ancestors that lead to them, one fold none', () => {
+      mountPicker({ items: NESTED })
+
+      // A path tail that no title carries, upper-cased: matching is on the path
+      // and ignores case; Alpha and Bravo stay as the ancestors of Charlie.
+      search('ALPHA/BRAVO/C')
+
+      expect(listed(NESTED_TITLES)).toEqual(['Alpha', 'Bravo', 'Charlie'])
+      expect(indentOf('Alpha')).toBe(0)
+      expect(indentOf('Bravo')).toBe(12)
+      expect(indentOf('Charlie')).toBe(24)
+      // Every kept row is unfolded and carries no disclosure to fold it with.
+      expect(arrowOf('Alpha')).toBeUndefined()
+      expect(treeList().querySelector('[aria-expanded]')).toBeNull()
+    })
+
+    it('restores every row when the query is cleared', () => {
+      mountPicker({ items: NESTED })
+
+      search('bravo')
+      expect(listed(NESTED_TITLES)).toEqual(['Alpha', 'Bravo', 'Charlie'])
+
+      search('')
+      expect(listed(NESTED_TITLES)).toEqual(NESTED_TITLES)
+      expect(arrowOf('Alpha')).toBeDefined()
+    })
+
+    it('keeps the menu open with a no-matches line when nothing matches', () => {
+      mountPicker({ items: NESTED })
+
+      search('zulu')
+
+      expect(document.querySelector('[role="menu"]')).not.toBeNull()
+      expect(searchBox().value).toBe('zulu')
+      // The add action pins below the tree; no Workspace row is left.
+      expect(menuItems().map(textOf)).toEqual(['menu.addWorkspace'])
+      expect(treeList().textContent).toContain('picker.noMatches')
+    })
+
+    it('writes no shared expansion while filtering', () => {
+      const picker = mountPicker({ items: NESTED })
+
+      search('bravo')
+
+      expect(picker.setGroupExpanded).not.toHaveBeenCalled()
+    })
+
+    it('picks the clicked row of a filtered list without closing first', () => {
+      const picker = mountPicker({ items: NESTED })
+
+      search('bravo')
+      click(itemFor('Bravo'))
+
+      expect(picker.onPick).toHaveBeenCalledTimes(1)
+      expect(picker.onPick).toHaveBeenCalledWith('b')
+      expect(picker.onClose).not.toHaveBeenCalled()
+      expect(picker.setGroupExpanded).not.toHaveBeenCalled()
+    })
+
+    it('clears the query on Escape and leaves closing to the menu', () => {
+      const picker = mountPicker({ items: NESTED })
+
+      search('zulu')
+      const event = pressEscape()
+
+      expect(event.defaultPrevented).toBe(true)
+      expect(searchBox().value).toBe('')
+      expect(listed(NESTED_TITLES)).toEqual(NESTED_TITLES)
+      expect(picker.onClose).not.toHaveBeenCalled()
+    })
+
+    it('clears the query from the trailing button', () => {
+      mountPicker({ items: NESTED })
+
+      search('delta')
+      expect(listed(NESTED_TITLES)).toEqual(['Delta'])
+
+      const clear = clearButton()
+      expect(clear).not.toBeNull()
+      click(clear!)
+
+      expect(searchBox().value).toBe('')
+      expect(listed(NESTED_TITLES)).toEqual(NESTED_TITLES)
+      expect(clearButton()).toBeNull()
+      expect(document.activeElement).toBe(searchBox())
+    })
+
+    it('folds from the arrow while no query is set, without picking', () => {
+      const picker = mountPicker({ items: NESTED })
+
+      const arrow = arrowOf('Alpha')
+      expect(arrow).toBeDefined()
+      click(arrow!)
+
+      expect(picker.setGroupExpanded).toHaveBeenCalledWith('a', false)
+      expect(picker.onPick).not.toHaveBeenCalled()
     })
   })
 })
