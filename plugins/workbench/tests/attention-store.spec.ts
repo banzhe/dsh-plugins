@@ -30,8 +30,17 @@ function sourceOf<T>(initial: T): FakeSource<T> {
   }
 }
 
+interface ListRow {
+  id: string
+  title?: string
+  updatedAt: number
+  running?: boolean
+  origin?: 'user' | 'subagent'
+  parentId?: string
+}
+
 /** One list snapshot over the given rows; the fold reads ids, rows and the projection map. */
-function listOf(rows: readonly { id: string; title?: string; updatedAt: number; running?: boolean }[]): SessionListState {
+function listOf(rows: readonly ListRow[]): SessionListState {
   const byId: Record<string, unknown> = {}
   for (const row of rows) {
     byId[row.id] = {
@@ -41,7 +50,8 @@ function listOf(rows: readonly { id: string; title?: string; updatedAt: number; 
       updatedAt: row.updatedAt,
       running: row.running === true,
       blank: false,
-      origin: 'user',
+      origin: row.origin ?? 'user',
+      ...(row.parentId === undefined ? {} : { parentId: row.parentId }),
     }
   }
   return { ids: rows.map(row => row.id), byId, projectionsBySession: {} } as never
@@ -172,5 +182,74 @@ describe('In work store', () => {
     expect(listener).not.toHaveBeenCalled()
     // The last published model stays readable: dispose detaches, it does not blank.
     expect(store.getSnapshot()).toEqual({ running: [], unread: [], pinned: [], waiting: [] })
+  })
+})
+
+/** A parent Session with one subagent child: the child only reports up to the parent. */
+function parentAndChild() {
+  const list = sourceOf(listOf([
+    { id: 'parent', updatedAt: 1 },
+    { id: 'child', updatedAt: 2, origin: 'subagent', parentId: 'parent' },
+  ]))
+  const status = sourceOf(statusOf({ parent: {}, child: {} }))
+  const pinned = sourceOf<ReadonlySet<SessionId>>(NONE)
+  const archived = sourceOf<ReadonlySet<SessionId>>(NONE)
+  return { list, status, pinned, archived, store: createAttentionStore(list, status, pinned, archived) }
+}
+
+type Store = ReturnType<typeof createAttentionStore>
+const runningIds = (store: Store): string[] => store.getSnapshot().running.map(row => row.id)
+const unreadIds = (store: Store): string[] => store.getSnapshot().unread.map(row => row.id)
+const allGroupIds = (store: Store): string[] => {
+  const snapshot = store.getSnapshot()
+  return [snapshot.running, snapshot.unread, snapshot.pinned, snapshot.waiting]
+    .flatMap(rows => rows.map(row => row.id))
+}
+
+describe('In work store subagent handoff', () => {
+  it('reports a running subagent on its parent and hides the subagent', () => {
+    const { store, status } = parentAndChild()
+    status.set(statusOf({ parent: {}, child: { running: true } }))
+    expect(runningIds(store)).toEqual(['parent'])
+    expect(unreadIds(store)).toEqual([])
+    expect(allGroupIds(store)).not.toContain('child')
+  })
+
+  it('keeps the parent in running for the frame where its subagent stops and its completion turns unread', () => {
+    const { store, status } = parentAndChild()
+    status.set(statusOf({ parent: {}, child: { running: true } }))
+    expect(runningIds(store)).toEqual(['parent'])
+    status.set(statusOf({ parent: { unread: true }, child: {} }))
+    expect(runningIds(store)).toEqual(['parent'])
+    expect(unreadIds(store)).toEqual([])
+    expect(allGroupIds(store)).not.toContain('child')
+  })
+
+  it('leaves the handoff window once the parent runs again and later stops without an unread completion', () => {
+    const { store, status } = parentAndChild()
+    status.set(statusOf({ parent: {}, child: { running: true } }))
+    status.set(statusOf({ parent: { unread: true }, child: {} }))
+    expect(runningIds(store)).toEqual(['parent'])
+    status.set(statusOf({ parent: { running: true }, child: {} }))
+    expect(runningIds(store)).toEqual(['parent'])
+    status.set(statusOf({ parent: {}, child: {} }))
+    expect(runningIds(store)).toEqual([])
+    expect(unreadIds(store)).toEqual([])
+  })
+
+  it('puts a finished Session that never ran a subagent in unread, not running', () => {
+    const { store, status } = harness()
+    status.set(statusOf({ a: { unread: true } }))
+    expect(unreadIds(store)).toEqual(['a'])
+    expect(runningIds(store)).toEqual([])
+  })
+
+  it('does not park the parent in running when its subagent stops without an unread completion', () => {
+    const { store, status } = parentAndChild()
+    status.set(statusOf({ parent: {}, child: { running: true } }))
+    expect(runningIds(store)).toEqual(['parent'])
+    status.set(statusOf({ parent: {}, child: {} }))
+    expect(runningIds(store)).toEqual([])
+    expect(unreadIds(store)).toEqual([])
   })
 })

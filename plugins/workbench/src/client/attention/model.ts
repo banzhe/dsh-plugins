@@ -19,6 +19,16 @@
  * cleared. Every listed Session appears in exactly one group. `waiting` names the
  * listed Sessions blocked on the user, in the groups' display order.
  *
+ * Delegated work keeps its Session in `running` across the gap where the Session
+ * itself is already idle. A Session that hands work to subagents stops its own
+ * turn as soon as the delegation is accepted, so its own `running` goes false
+ * while the subagents still run; when they stop, its finish is unread but the
+ * wake-up that reports them has not arrived yet. That one frame would file the
+ * row under `unread` and the very next would take it back to `running`. The fold
+ * therefore carries a handoff: an idle Session whose subagents just stopped with
+ * its finish still unread stays in `running` until it runs again or its finish is
+ * read. A Session with no running subagent work below it is unaffected.
+ *
  * A subagent Session gets no row here, at any depth: the Session that delegated
  * the work carries it as its own run, so one delegation adds no row and no
  * nesting. Rows that never list at all: subagent Sessions (their durable
@@ -74,25 +84,50 @@ function byPinnedThenRecency(left: Candidate, right: Candidate): number {
   return byRecency(left, right)
 }
 
+/** No handed-off and no delegated Session: the memory a single stateless fold reads. */
+const NO_SESSIONS: ReadonlySet<SessionId> = new Set()
+
+/**
+ * What one fold must remember for the next one. Both sets are keyed by Session and
+ * rebuilt on every fold from the listed Sessions, so a Session that leaves the list
+ * (archived, deleted) takes its entry with it.
+ */
+interface HandoffMemory {
+  /** Sessions seen with running subagent work below them: the next fold compares against this. */
+  readonly delegated: ReadonlySet<SessionId>
+  /** Idle Sessions whose subagents just stopped with the finish still unread: grouped as running. */
+  readonly handedOff: ReadonlySet<SessionId>
+}
+
+/** One fold's product: the model to render plus the memory the next fold needs. */
+interface AttentionFold {
+  readonly model: AttentionModel
+  readonly memory: HandoffMemory
+}
+
 /**
  * Fold one list snapshot, one status snapshot, and the archive and pin sets into
- * the region's content.
+ * the region's content, carrying the handoff memory of the fold before it.
  * @param list - Session list snapshot, in Host list order.
  * @param status - per-Session status map.
  * @param archived - archived Session ids, which never list.
  * @param pinned - pinned Session ids, which place a row only while it has nothing else to report.
- * @returns the model the region renders.
+ * @param memory - the delegated and handed-off Sessions the previous fold recorded.
+ * @returns the model the region renders and the memory this fold leaves behind.
  */
-export function deriveAttention(
+function foldAttention(
   list: SessionListState,
   status: SessionStatusSnapshot,
   archived: ReadonlySet<SessionId>,
   pinned: ReadonlySet<SessionId>,
-): AttentionModel {
+  memory: HandoffMemory,
+): AttentionFold {
   const unread: Candidate[] = []
   const pinnedRows: Candidate[] = []
   const running: Candidate[] = []
   const blocked = new Set<SessionId>()
+  const delegated = new Set<SessionId>()
+  const handedOff = new Set<SessionId>()
   const descendants = runningDescendantCounts(list, status)
   list.ids.forEach((id) => {
     const row = list.byId[id]
@@ -105,11 +140,21 @@ export function deriveAttention(
     if (entry?.pendingInteraction !== undefined) blocked.add(id)
     const node = sessionNode(row, status, descendants, pinned, archived)
     const candidate: Candidate = { updatedAt: row.updatedAt, row: node }
+    // A delegation outlives the turn that started it. The Session's own run ends
+    // when the delegation is accepted, so an idle Session whose subagents just
+    // stopped is not news yet: the finish is unread but the wake-up that reports
+    // them is in flight. That row is handed off as running for this fold; running
+    // again, or a read finish, ends the handoff.
+    const subagents = node.runningSubagentCount
+    const stopped = subagents === 0 && memory.delegated.has(id)
+    const handed = (stopped || memory.handedOff.has(id)) && !node.running && node.completed
+    if (handed) handedOff.add(id)
+    if (subagents > 0) delegated.add(id)
     // The work state outranks the pin for placement only; the row keeps its
     // running, completion and blocked facts for the dot it draws. Subagent work
     // belongs to the Session that delegated it: that row spins, and the children
     // never contribute rows of their own.
-    if (node.running || node.runningSubagentCount > 0) {
+    if (node.running || subagents > 0 || handed) {
       running.push(candidate)
       return
     }
@@ -127,11 +172,33 @@ export function deriveAttention(
   const pinnedRowsSorted = pinnedRows.sort(byRecency).map(candidate => candidate.row)
   const runningRows = running.sort(byPinnedThenRecency).map(candidate => candidate.row)
   return {
-    unread: unreadRows,
-    pinned: pinnedRowsSorted,
-    running: runningRows,
-    waiting: [...unreadRows, ...pinnedRowsSorted, ...runningRows].filter(row => blocked.has(row.id)),
+    model: {
+      unread: unreadRows,
+      pinned: pinnedRowsSorted,
+      running: runningRows,
+      waiting: [...unreadRows, ...pinnedRowsSorted, ...runningRows].filter(row => blocked.has(row.id)),
+    },
+    memory: { delegated, handedOff },
   }
+}
+
+/**
+ * Fold one list snapshot, one status snapshot, and the archive and pin sets into
+ * the region's content, with no delegation handoff behind it: the pure projection
+ * of those four inputs.
+ * @param list - Session list snapshot, in Host list order.
+ * @param status - per-Session status map.
+ * @param archived - archived Session ids, which never list.
+ * @param pinned - pinned Session ids, which place a row only while it has nothing else to report.
+ * @returns the model the region renders.
+ */
+export function deriveAttention(
+  list: SessionListState,
+  status: SessionStatusSnapshot,
+  archived: ReadonlySet<SessionId>,
+  pinned: ReadonlySet<SessionId>,
+): AttentionModel {
+  return foldAttention(list, status, archived, pinned, { delegated: NO_SESSIONS, handedOff: NO_SESSIONS }).model
 }
 
 /**
@@ -198,9 +265,20 @@ export function createAttentionStore(
   archived: AttentionSetSource,
 ): AttentionStore {
   const listeners = new Set<() => void>()
-  let model = deriveAttention(list.getSnapshot(), status.getSnapshot(), archived.getSnapshot(), pinned.getSnapshot())
+  let memory: HandoffMemory = { delegated: NO_SESSIONS, handedOff: NO_SESSIONS }
+  /**
+   * One fold over the current snapshots. The memory always advances, even when the
+   * model does not: a delegation stop that redraws nothing this frame is still the
+   * fact the next frame reads.
+   */
+  const fold = (): AttentionModel => {
+    const next = foldAttention(list.getSnapshot(), status.getSnapshot(), archived.getSnapshot(), pinned.getSnapshot(), memory)
+    memory = next.memory
+    return next.model
+  }
+  let model = fold()
   const recompute = (): void => {
-    const next = deriveAttention(list.getSnapshot(), status.getSnapshot(), archived.getSnapshot(), pinned.getSnapshot())
+    const next = fold()
     if (sameModel(next, model)) return
     model = next
     // forEach skips a listener removed earlier in the same pass and does not
