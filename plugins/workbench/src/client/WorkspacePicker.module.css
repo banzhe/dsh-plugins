@@ -39,3 +39,64 @@
   flex: none;
   max-width: 75%;
 }
+
+/* One nested pick row: indent, disclosure, then the menu row itself. The
+ * disclosure is a button of its own beside the row, so folding never selects
+ * and selecting never folds. */
+.treeRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rowBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.disclosure,
+.disclosureSpacer {
+  flex: none;
+  width: 20px;
+}
+
+.disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--dsw-radius-sm);
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .disclosure:hover {
+    background: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+/* Expand arrow (filled triangle): points right closed, rotates down when open. */
+.arrow {
+  transition: transform 150ms var(--ds-ease-in-out);
+}
+
+.arrowOpen {
+  transform: rotate(90deg);
+}
+
+.rowLine {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+}

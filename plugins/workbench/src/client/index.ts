@@ -433,6 +433,9 @@ export function apply(ctx: Context): void {
     {
       name: 'conversation.hero.workspace',
       children: { 'conversation.hero.workspace.directoryFlow': { kind: 'single', scope: 'root' } },
+      // Same handle the browser declares: the picker's tree nests through the
+      // expansion the sidebar already persists under this key.
+      store: viewStore,
       inject: pickerInjected,
       locale: NS,
     },

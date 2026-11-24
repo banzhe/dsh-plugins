@@ -525,13 +525,16 @@ export type WorkspacePickerInjected = DirectoryPickingInjected & {
 }
 
 /**
- * Full picker props: the owner share plus the creation callback and the
- * locale seat. The two picker holes (blank-session hero / New-Session view)
- * share one owner currency, so one composed type serves both registrations.
+ * Full picker props: the owner share, the viewing store it nests through, the
+ * creation callback, and the locale seat. The two picker holes (blank-session
+ * hero / New-Session view) share one owner currency, so one composed type
+ * serves both registrations. The store is the browser's own handle, so the
+ * picker's disclosure state is the expansion the sidebar tree reads.
  */
 export type WorkspacePickerProps =
   PropsRuntime<'conversation.hero.workspace'>
   & PropsRenderSlots<'conversation.hero.workspace.directoryFlow'>
+  & PropsStore<WorkspaceViewStoreHandle>
   & Omit<WorkspacePickerInjected, 'hooks'>
   & PropsHooks<WorkspacePickerInjected['hooks']>
   & PropsLocale<'workspace'>

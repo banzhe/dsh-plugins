@@ -1327,6 +1327,8 @@ export function WorkspaceBrowser({
           createWorkspace={createWorkspace}
           useDirectoryFlow={useDirectoryFlow}
           renderDirectoryFlow={owner => renderSlot('sidebar.workspaces.directoryFlow', owner)}
+          useStore={useStore}
+          setGroupExpanded={actions.setGroupExpanded}
           addOnly
           onBusyChange={setDirectoryBusy}
           side="right"
