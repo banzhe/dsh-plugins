@@ -1,6 +1,6 @@
 {
   "name": "@banzhe/dsh-workbench",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "Workspace browsing, picker and In work region Bundle: replaces the shipped ui-workspace row with a maintained fork",
   "repository": {
     "type": "git",
