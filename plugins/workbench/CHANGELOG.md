@@ -1,5 +1,13 @@
 # @banzhe/dsh-workbench
 
+## 0.3.3
+
+### Patch Changes
+
+- 17bf1ed: Nest the new-session workspace picker the way the sidebar's workspace tree nests. Workspaces that sit inside another registered Workspace folder now appear under it, indented one step per level, in the same registry order; a row with descendants carries a disclosure arrow that folds its subtree, and every row keeps its title, its disambiguating path suffix, and the marker on the currently selected Workspace. Clicking a row's title selects that Workspace and closes the picker; clicking the arrow only folds or unfolds. The fold state is the sidebar tree's own `groupExpansion` record, so folding a Workspace in the picker folds the same Workspace in the sidebar and the choice survives reloads.
+- 7ec7cfb: Keep a Session in the In work "running" group while the work it delegated is wrapping up. A Session that hands work to subagents ends its own turn as soon as the delegation is accepted, so when the subagents stop, its own run is already over and its finish is unread while the message reporting them is still on its way. That gap no longer moves the row into "unread" and back: a Session whose subagent work just stopped, while it is idle and its finish is unread, stays under "running" until it runs again or its finish is read. Sessions that never delegated work are unaffected, and a finished-unread Session with no running subagent work still files under "unread".
+- de845af: The new-session workspace menu now opens on a search field. Typing narrows the list to the Workspaces whose path or display name contains the query, keeps the ancestors that lead to them, and unfolds them for as long as the query lasts; a query that matches nothing keeps the menu open with a no-matches line instead of closing it. The tree scrolls inside a 320px-tall list, so a large registry no longer stretches the menu.
+
 ## 0.3.2
 
 ### Patch Changes
